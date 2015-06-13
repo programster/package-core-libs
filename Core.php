@@ -129,113 +129,6 @@ class Core
     
     
     /**
-     * Generates the SET part of a mysql query with the provided name/value 
-     * pairs provided
-     * @param pairs - assoc array of name/value pairs to go in mysql
-     * @param bool $wrapWithQuotes - (optional) set to false to disable quote 
-     *                               wrapping if you have already taken care of 
-     *                               this.
-     * @return query - the generated query string that can be appended.
-     */
-    public static function generateMysqlPairs($pairs, $wrapWithQuotes=true)
-    {
-        $query = '';
-        
-        foreach ($pairs as $name => $value)
-        {
-            if ($wrapWithQuotes)
-            {
-                if ($value === null)
-                {
-                    $query .= "`" . $name . "`= NULL, ";
-                }
-                else
-                {
-                    $query .= "`" . $name . "`='" . $value . "', ";
-                }
-            }
-            else
-            {
-                if ($value === null)
-                {
-                    $query .= $name . "= NULL, ";
-                }
-                else
-                {
-                    $query .= $name . "=" . $value . ", ";
-                }
-            }
-        }
-        
-        $query = substr($query, 0, -2); # remove the last comma.
-        return $query;
-    }
-    
-    
-    /**
-     * Generates the SET part of a mysql query with the provided name/value 
-     * pairs provided
-     * @param pairs - assoc array of name/value pairs to go in mysql
-     * @return query - the generated query string that can be appended.
-     */
-    public static function generateMysqliEscapedPairs($pairs, 
-                                                      \mysqli $connection)
-    {
-        $query = '';
-        
-        foreach ($pairs as $name => $value)
-        {
-            if ($value === null)
-            {
-                $query .= "`" . $name . "`= NULL, ";
-            }
-            else
-            {
-                $escapedVal = mysqli_escape_string($connection, $value);
-                $query .= "`" . $name . "`='" . $escapedVal . "', ";
-            }
-        }
-        
-        $query = substr($query, 0, -2); # remove the last comma.
-        return $query;
-    }
-    
-    
-    /**
-     * Generates the Select as section for a mysql query, but does not include 
-     * SELECT, directly.
-     * example: $query = "SELECT " . generateSelectAs($my_columns) . ' WHERE 1';
-     * @param array $columns - map of sql column names to the new names
-     * @param bool $wrapWithQuotes - optionally set to false if you have taken 
-     *                               care of quotation already. Useful if you 
-     *                               are doing something like table1.`field1` 
-     *                               instead of field1
-     * @return string - the genereted query section
-     */
-    public static function generateSelectAsPairs(array $columns, 
-                                                 $wrapWithQuotes=true)
-    {
-        $query = '';
-        
-        foreach ($columns as $column_name => $new_name)
-        {
-            if ($wrapWithQuotes)
-            {
-                $query .= '`' . $column_name . '` AS `' . $new_name . '`, ';
-            }
-            else
-            {
-                $query .= $column_name . ' AS ' . $new_name . ', ';
-            }
-        }
-        
-        $query = substr($query, 0, -2);
-        
-        return $query;
-    }
-    
-    
-    /**
      * Sets the title of the process and will append the appropriate number of 
      * already existing processes with the same title.
      * WARNING - this will fail and return FALSE if you are on Windows
@@ -505,7 +398,7 @@ class Core
     public static function fetchOptionalArgsFromArray($args, $input_array)
     {
         $values = array();
-
+        
         foreach ($args as $arg)
         {
             if (isset($input_array[$arg]))
@@ -513,7 +406,7 @@ class Core
                 $values[$arg] = $input_array[$arg];
             }
         }
-
+        
         return $values;
     }
     
@@ -534,7 +427,6 @@ class Core
         $values = array_merge($values, self::fetchOptionalArgs($optionalArgs));
         return $values;
     }
-    
     
     
     /**
@@ -590,45 +482,8 @@ class Core
         {
             $value = $min;
         }
-
-        return $value;
-    }
-    
-    
-    /**
-     * Safely retrieve variables from POST or GET. This needs to protect from 
-     * injection attacks etc. 
-     * 
-     * @param mysqli $mysqli - the mysqli resource returned from connecting to 
-     *                          the database.
-     * @param string varName - the name of the variable that was posted.
-     * @param array extraParams - extra parameters such as whether to 
-     * 
-     * @return variable - the safely retrieved value
-     */
-    public static function safelyGet($mysqli, $varName, $extraParams=array())
-    {
-        if (!isset($_REQUEST[$varName]))
-        {
-            throw new \Exception("Could not get variable:" . $varName);
-        }
-
-        $variable = $_REQUEST[$varName];
-
-        if 
-        (
-            isset($extraParams['urldecode']) && 
-            $extraParams['urldecode'] == true
-        )
-        {
-            $variable = urldecode($variable);
-        }
-
-        $variable = stripslashes($variable);
-        $variable = strip_tags($variable);
-        $variable = mysqli_real_escape_string($mysqli, $variable);
         
-        return $variable;
+        return $value;
     }
     
     
@@ -954,14 +809,14 @@ class Core
     public static function generateConfig($settings, $variableName, $filePath)
     {
         $varStr = var_export($settings, true);
-
+        
         $output = 
             '<?php' . PHP_EOL .
             '$' . $variableName . ' = ' . $varStr . ';';
-
+        
         # file_put_contents returns num bytes written or boolean false if fail
         $wroteFile = file_put_contents($filePath, $output);
-
+        
         if ($wroteFile === FALSE)
         {
             $msg = "Failed to generate config file. Check permissions!";
@@ -991,7 +846,7 @@ class Core
         }
         
         $options = array('cost' => $cost);
-
+        
         $hash = password_hash($rawPassword, PASSWORD_BCRYPT, $options);
         return $hash;
     }
