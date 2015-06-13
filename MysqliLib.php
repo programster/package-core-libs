@@ -21,7 +21,7 @@ class MysqliLib
     public static function generateQueryPairs($pairs, \mysqli $mysqli, $wrapWithQuotes=true)
     {
         $escapedPairs = self::escapeValues($pairs, $mysqli);
-
+        
         $query = '';
         
         foreach ($escapedPairs as $name => $value)
@@ -53,8 +53,8 @@ class MysqliLib
         $query = substr($query, 0, -2); # remove the last comma.
         return $query;
     }
-
-
+    
+    
     /**
      * Generates the Select as section for a mysql query, but does not include 
      * SELECT, directly.
@@ -87,7 +87,8 @@ class MysqliLib
         
         return $query;
     }
-
+    
+    
     /**
      * Escape an array of data for the database.
      * @param array $data - the data to be escaped, either as list or name/value pairs
@@ -100,14 +101,14 @@ class MysqliLib
         {
             if ($value !== null)
             {
-                $data[$name] = mysqli_escape_string($mysqli, $value);
+                $data[$index] = mysqli_escape_string($mysqli, $value);
             }
         }
-
+        
         return $data;
     }
-
-
+    
+    
     /**
      * Generates a single REPLACE query that can replace any number of rows. Replacements will
      * perform an insert except if a row with the same primary key or unique index already exists,
@@ -117,12 +118,13 @@ class MysqliLib
      * @param \mysqli $mysqli - the database connection that would be used for the query.
      * @return string - the generated query.
      */
-    public static function generateBatchReplaceQueryarray ($rows, $tableName, \mysqli $mysqli)
+    public static function generateBatchReplaceQuery(array $rows, $tableName, \mysqli $mysqli)
     {
         $query = "REPLACE " . self::generateBatchQueryCore($rows, $tableName, $mysqli);
         return $query;
     }
-
+    
+    
     /**
      * Generates a single INSERT query that for any number of rows. This is one of the most
      * efficient ways to insert a lot of data.
@@ -136,8 +138,8 @@ class MysqliLib
         $query = "INSERT " . self::generateBatchQueryCore($rows, $tableName, $mysqli);
         return $query;
     }
-
-
+    
+    
     /**
      * Helper function to generateBatchReplaceQuery and generateBatchInsertQuery which are 99% 
      * exactly the same except for the word REPLACE or INSERT.
@@ -150,32 +152,33 @@ class MysqliLib
     {
         $firstRow = true;
         $dataStringRows = array(); # will hold an array list of strings like "('x', 'y', 'z')"
-
+        
         foreach ($rows as $row)
         {
             if ($firstRow)
             {
-                $columns = sort(array_keys($row));
+                $columns = array_keys($row);
+                sort($columns);
                 $firstRow = false;
             }
-
-            $row = ksort($row);
-            $escapedRow = self::escapeValues($row);
-
+            
+            ksort($row);
+            $escapedRow = self::escapeValues($row, $mysqli);
+            
             $quotedValues = array();
             # Need just the values, but order is very important.
-            foreach ($row as $columnName => $value)
+            foreach ($escapedRow as $columnName => $value)
             {
                 $quotedValues[] = "'" . $value . "'";    
             }
-
-            $dataStringRows[] = "(" . explode(",", $quotedValues) . ")";
+            
+            $dataStringRows[] = "(" . implode(",", $quotedValues) . ")";
         }
-
-        $columns = ArrayLib::wrapElements('`', $columns);
-        $query = "INTO `" . $tableName . "` (" . explode(',', $columns) . ") " .
-                 "VALUES " . explode(",", $dataStringRows);
-
+        
+        $columns = ArrayLib::wrapElements($columns, '`');
+        $query = "INTO `" . $tableName . "` (" . implode(',', $columns) . ") " .
+                 "VALUES " . implode(",", $dataStringRows);
+        
         return $query;
     }
 }

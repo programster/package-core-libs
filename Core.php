@@ -637,7 +637,7 @@ class Core
      * Implement a version guard. This will throw an exception if we do not 
      * have the required version of PHP that is specified.
      * @param String $reqVersion - required version of php, e.g '5.4.0'
-     * @return void - throws an exception if we do not meet the required php 
+     * @throws an exception if we do not meet the required php 
      *                version.
      */
     public static function versionGuard($reqVersion, $errMsg='')
