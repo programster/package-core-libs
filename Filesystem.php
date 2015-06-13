@@ -1,6 +1,6 @@
 <?php
 
-namespace Irap\CoreLibs;
+namespace iRAP\CoreLibs;
 
 
 /*
@@ -8,7 +8,65 @@ namespace Irap\CoreLibs;
  */
 
  class Filesystem
- {
+ {     
+    /**
+     * Retrieves a list of all the directories within the specified directory
+     * It does not include the .. directory (dot directories)
+     * This will NOT return any files
+     * @param String $path - the path to the directory that we want to search.
+     * @param bool $recursive - whether to recursively loop through the 
+     *                          directories to find more.
+     * @param bool $includePath - set to true to include the full path to the 
+     *                            dir, not just the dir name.
+     * @return Array<String> - list of directories within the specified path.
+     */ 
+    public static function getDirectories($path, 
+                                          $recursive=false, 
+                                          $includePath=true)
+    {
+        $directories = array();
+        $fpath     = realpath($path);
+        $handle    = opendir($path);
+        
+        if ($handle)
+        {
+            while (false !== ($filename = readdir($handle)))
+            {
+                if (strcmp($filename, "..") != 0 && 
+                    strcmp($filename, ".") != 0)
+                {
+                    if (is_dir($fpath . "/" . $filename))
+                    {
+                        if ($includePath)
+                        {
+                            $directories[] = $fpath . "/" . $filename;
+                        }
+                        else
+                        {
+                            $directories[] = $filename;
+                        }
+
+                        if ($recursive)
+                        {
+                            $subFilepath = $fpath . "/" . $filename;
+                            
+                            $subFiles = self::getDirectories($subFilepath, 
+                                                             $recursive, 
+                                                             $includePath);
+
+                            $directories = array_merge($directories, $subFiles);
+                        }
+                    }
+                }
+            }
+
+            closedir($handle);
+        }
+
+        return $directories;
+    }
+    
+     
     /**
      * Retrieves an array list of files/folders within the specified directory.
      * Consider using the following instead:
@@ -23,10 +81,10 @@ namespace Irap\CoreLibs;
      * 
      * @return fileNames - the names of all the files/folders within the directory.
      */
-    public static function get_dir_contents($dir, 
-                                            $recursive   = true, 
-                                            $includePath = true, 
-                                            $onlyFiles   = true)
+    public static function getDirContents($dir, 
+                                          $recursive   = true, 
+                                          $includePath = true, 
+                                          $onlyFiles   = true)
     {
         $fileNames = array();
         $fpath     = realpath($dir);
@@ -54,10 +112,12 @@ namespace Irap\CoreLibs;
 
                         if ($recursive)
                         {
-                            $subFiles = self::get_dir_contents($fpath . "/" . $fileName, 
-                                                                   $recursive, 
-                                                                   $includePath, 
-                                                                   $onlyFiles);
+                            $subFilePath = $fpath . "/" . $fileName;
+                            
+                            $subFiles = self::getDirContents($subFilePath, 
+                                                             $recursive, 
+                                                             $includePath, 
+                                                             $onlyFiles);
 
                             $fileNames = array_merge($fileNames, $subFiles);
                         }
@@ -84,11 +144,16 @@ namespace Irap\CoreLibs;
 
 
     /**
-     * Wrapper around the mkdir that will only execute it if the directory doesn't already exist.
-     * Also, this defaults to being recursive so that it will create all relevant parent directories
+     * Wrapper around the mkdir that will only execute it if the directory 
+     * doesn't already exist. Also, this defaults to being recursive so that it 
+     * will create all relevant parent directories
+     * 
      * @param string $dirPath - the path to the directory we wish to create
-     * @param int $perms - optionally set the permissions to set for the directory
-     * @param bool $recursive - override to false if you want to fail if parent dirs dont exist.
+     * @param int $perms      - optionally set the permissions to set for the 
+     *                          directory
+     * @param bool $recursive - override to false if you want to fail if parent 
+     *                          dirs dont exist.
+     * 
      * @return boolean - true if the directory now exists, false otherwise
      */
     public static function mkdir($dirPath, $perms=0755, $recursive=true)
@@ -105,12 +170,12 @@ namespace Irap\CoreLibs;
 
 
     /**
-     * Deletes a directory even if it is not already empty. This resolves the issue with
-     * trying to use unlink on a non-empty dir.
+     * Deletes a directory even if it is not already empty. This resolves the 
+     * issue with trying to use unlink on a non-empty dir.
      * @param String $dir - the path to the directory you wish to delete
      * @return void - changes your filesystem
      */
-    public static function delete_dir($dir) 
+    public static function deleteDir($dir) 
     {
         if (is_dir($dir)) 
         {
@@ -122,7 +187,7 @@ namespace Irap\CoreLibs;
                 {
                     if (filetype($dir . "/" . $object) == "dir")
                     {
-                        self::delete_dir($dir . "/" . $object); 
+                        self::deleteDir($dir . "/" . $object); 
                     }
                     else
                     {
@@ -144,9 +209,12 @@ namespace Irap\CoreLibs;
      * Note that this only allows other processes to see that you have locked it and does not
      * actually guarantee that it cannot be edited at the same time on Linux.
      * @param String $filePath - the full path to the file that we wish to lock
+     * @param boolean $is_write_lock - if false this will get a shared read lock, if true this
+     *                               will get an exclusive write lock.
+     * @param boolean $is_blocking - if true will wait to get lock.
      * @return boolean - true if we managed to lock the file, false otherwise.
      */
-    public static function lock_file($filePath)
+    public static function lockFile($filePath, $is_write_lock, $is_blocking)
     {
         global $globals;
         
@@ -156,7 +224,25 @@ namespace Irap\CoreLibs;
         # This MUST be a+ instead of w or w+ as using w will result in the file being wiped.
         $globals['file_locks'][$filePath] = fopen($filePath, 'a+');
         
-        $result = flock($globals['file_locks'][$filePath], LOCK_NB | LOCK_EX); # LOCK_EX
+        $lock_params = 0;
+        
+        if ($is_write_lock)
+        {
+            $lock_params =  $lock_params | LOCK_EX;
+        }
+        else
+        {
+            # read lock = shared lock
+            $lock_params = $lock_params | LOCK_SH;
+        }
+        
+        if (!$is_blocking)
+        {
+            $lock_params = $lock_params | LOCK_NB;
+        }
+        
+        $result = flock($globals['file_locks'][$filePath], $lock_params);
+        
         return $result;
     }
     
@@ -166,7 +252,7 @@ namespace Irap\CoreLibs;
      * @param String $filePath - the full path to the file that we wish to lock
      * @return void.
      */
-    public static function unlock_file($filePath)
+    public static function unlockFile($filePath)
     {
         global $globals;
         
@@ -180,14 +266,16 @@ namespace Irap\CoreLibs;
     
     
     /**
-     * Fetch the total size (in bytes) of a directory or file, including all its subdirectories
-     * Note that this is "apparent size" and not the size on disk which is to the block.
+     * Fetch the total size (in bytes) of a directory or file, including all 
+     * its subdirectories. This is "apparent size" and not the size on disk 
+     * which is to the block.
      * This only works on Linux, not Windows.
      * src: http://stackoverflow.com/questions/478121/php-get-directory-size
-     * @param string $dirPath - the path to the directory we wish to get the size of 
+     * @param string $dirPath - the path to the directory we wish to get the 
+     *                          size of 
      * @return int - the size in bytes of the directory and all its contents.
      */ 
-    function get_dir_size($dirPath)
+    public static function getDirSize($dirPath)
     {
         $io = popen ( '/usr/bin/du --bytes --summarize ' . $dirPath, 'r' );
         $size = fgets ( $io, 4096);
@@ -198,52 +286,105 @@ namespace Irap\CoreLibs;
     
     
     /**
-     * Creates an index of the files in the specified directory, by creating symlinks to them, which
-     * are separated into folders having the first letter.
-     * WARNING - this will only index files that start with alphabetical characters.
-     * @param $directory_to_index - the directory we wish to index.
-     * @param $index_location - where to stick the index.
+     * Creates an index of the files in the specified directory, by creating 
+     * symlinks to them, which are separated into folders having the first 
+     * letter.
+     * WARNING - this will only index files that start with alphabetical 
+     * characters.
+     * @param string $dirToIndex - the directory we wish to index.
+     * @param string $indexLocation - where to stick the index.
      * @return void
      */
-    function create_file_index($directory_to_index, $index_location)
+    function createFileIndex($dirToIndex, $indexLocation)
     {
-        # Don't let the user place the index in the same folder being indexed, otherwise the directory
-        # cannot be re-indexed later, otherwise we will be indexing the index.
-        if ($directory_to_index == $index_location)
+        # Don't let the user place the index in the same folder being indexed, 
+        # otherwise the directory cannot be re-indexed later, otherwise we will 
+        # be indexing the index.
+        if ($dirToIndex == $indexLocation)
         {
-            throw new \Exception('Cannot place index in same folder being indexed!');
+            $errMsg = 'Cannot place index in same folder being indexed!';
+            throw new \Exception($errMsg);
         }
 
         # delete the old index if one already exists.
-        if (file_exists($index_location))
+        if (file_exists($indexLocation))
         {
-            self::delete_dir($index_location);
+            self::deleteDir($indexLocation);
         }
         
-        if (!mkdir($index_location))
+        if (!mkdir($indexLocation))
         {
-            throw new \Exception('Failed to create index directory, check write permissions');
+            $err = 'Failed to create index directory, check write permissions';
+            throw new \Exception($err);
         }
 
-        $files = scandir($directory_to_index);
+        $files = scandir($dirToIndex);
         
         foreach ($files as $filename) 
         {
             $first_letter = $filename[0];
-            $placement_dir = $index_location . "/" . strtoupper($first_letter);
+            $placement_dir = $indexLocation . "/" . strtoupper($first_letter);
 
             if (ctype_alpha($first_letter))
             {
                 # create the placement directory if it doesn't exist already
                 mkdir($placement_dir);
 
-                $new_path = $placement_dir . "/" . $filename;
+                $newPath = $placement_dir . "/" . $filename;
                 
-                if (!is_link($new_path)) 
+                if (!is_link($newPath)) 
                 {
-                    symlink($directory_to_index . '/' . $filename, $new_path);
+                    symlink($dirToIndex . '/' . $filename, $newPath);
                 }
             }
+        }
+    }
+    
+    
+    /**
+     * Zip a directory and all of its contents into a zip file.
+     * @param string $sourceFolder - path to the folder we wish to zip up.
+     * @param string $dest - path and name to give the zipfile 
+     *                       e.g. (/tmp/my_zip.zip)
+     * @param bool $deleteOnComplete - specify false if you want to keep the 
+     *                                 original uncompressed files after they 
+     *                                 have been zipped.
+     */
+    public static function zipDir($sourceFolder, $dest, $deleteOnComplete=true)
+    {
+        if (!extension_loaded('zip') )
+        {
+            throw new \Exception("Your PHP does not have the zip extesion.");
+        }
+        
+        if (!file_exists($sourceFolder)) 
+        {
+            throw new \Exception("Cannot zip non-existent folder");
+        }
+        
+        $rootPath = realpath($sourceFolder);
+        
+        $zip = new \ZipArchive();
+        $zip->open($dest, \ZipArchive::CREATE);
+        
+        $files = self::getDirContents($sourceFolder, true, true, true);
+        
+        $baseDir = basename($sourceFolder);
+        $zip->addEmptyDir($baseDir);
+        
+        foreach ($files as $name => $filepath) 
+        {
+            #$filePath = $file->getRealPath();
+            $relativePath = str_replace($sourceFolder, $baseDir, $filepath);
+            $zip->addFile($filepath, $relativePath);
+        }
+        
+        $zip->close();
+        
+        # Delete all files from "delete list"
+        if ($deleteOnComplete)
+        {
+            self::deleteDir($sourceFolder);
         }
     }
  }

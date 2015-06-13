@@ -1,6 +1,6 @@
 <?php
 
-namespace Irap\CoreLibs;
+namespace iRAP\CoreLibs;
 
 
 /*
@@ -16,12 +16,12 @@ namespace Irap\CoreLibs;
     const PASSWORD_DISABLE_SPECIAL_CHARS = 16;
 
     /**
-     * Generates a random string. This can be useful for password generation or to create a 
-     * single-use token for the user to do something (e.g. click an email link to register).
-     * those settings and copying it to the users clipboard as well as returning it.
+     * Generates a random string. This can be useful for password generation 
+     * or to create a single-use token for the user to do something 
+     * (e.g. click an email link to register).
      * 
-     * @param numberOfChars - how many characters long the string should be
-     * @param char_options - any optional bitwise parameters to disable default behaviour:
+     * @param int $numChars - how many characters long the string should be
+     * @param int $charOptions - bitwise result of following vars
      *          PASSWORD_DISABLE_LOWER_CASE
      *          PASSWORD_DISABLE_UPPER_CASE
      *          PASSWORD_DISABLE_NUMBERS
@@ -29,53 +29,46 @@ namespace Irap\CoreLibs;
      *
      * @return token - the generated string
      */
-    public static function generate_random_string($numberOfChars, $char_options=0)
+    public static function generateRandomString($numChars, $charOptions=0)
     {
-        $userLowerCase   = !($char_options & self::PASSWORD_DISABLE_LOWER_CASE);
-        $useUppercase    = !($char_options & self::PASSWORD_DISABLE_UPPER_CASE); 
-        $useNumbers      = !($char_options & self::PASSWORD_DISABLE_NUMBERS);
-        $useSpecialChars = !($char_options & self::PASSWORD_DISABLE_SPECIAL_CHARS);
-
-        $lowerCase = array('a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q',
-                           'r','s','t','u','v','w','x','y','z');
-
-        $numbers = array('0', '1','2','3','4','5','6','7','8','9');
-
-        $capitalLetters = array('A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q',
-                                'R','S','T','U','V','W','X','Y','Z');
-
-        $specialChars = array('!','@','#','$','%','^','&','*','(',')','{','}','[',']','+','-','/',
-                              '_');
-
-
+        $userLowerCase   = !($charOptions & self::PASSWORD_DISABLE_LOWER_CASE);
+        $useUppercase    = !($charOptions & self::PASSWORD_DISABLE_UPPER_CASE); 
+        $useNumbers      = !($charOptions & self::PASSWORD_DISABLE_NUMBERS);
+        $useSpecialChars = !($charOptions & self::PASSWORD_DISABLE_SPECIAL_CHARS);
+        
+        $lowerCase      = str_split('abcdefghijklmnopqrstuvwxyz', 1);
+        $numbers        = str_split('0123456789', 1);
+        $capitalLetters = str_split('ABCDEFGHIJKLMNOPQRSTUVWXYZ', 1);
+        $specialChars   = str_split('!@#$%^&*(){}[]+-/_', 1);
+        
         $possibleChars = array();
-
+        
         if ($userLowerCase)
         {
             $possibleChars = array_merge($possibleChars, $lowerCase);
             $requirements['lower_case'] = $lowerCase;
         }
-
+        
         if ($useUppercase)
         {
             $possibleChars = array_merge($possibleChars, $capitalLetters);
             $requirements['capitals'] = $capitalLetters;
         }
-
+        
         if ($useNumbers)
         {
             $possibleChars = array_merge($possibleChars, $numbers);
             $requirements['numbers'] = $numbers;
         }
-
+        
         if ($useSpecialChars)
         {
             $possibleChars = array_merge($possibleChars, $specialChars);
             $requirements['special_characters'] = $specialChars;
         }
-
+        
         $acceptableToken = false;
-
+        
         while (!$acceptableToken)
         {
             $outstandingRequirements = $requirements; #copy the array
@@ -83,16 +76,16 @@ namespace Irap\CoreLibs;
             $acceptableToken = true;
             $maxPossibleCharIndex = count($possibleChars) - 1;
             
-            for ($s=0; $s<$numberOfChars; $s++)
+            for ($s=0; $s<$numChars; $s++)
             {
                 $token .= $possibleChars[rand(0, $maxPossibleCharIndex)];
             }
-
+            
             $stringArray = str_split($token);
             
             foreach ($stringArray as $character)
             {
-                if (count($outstandingRequirements) > 0) # must recalculate each time.
+                if (count($outstandingRequirements) > 0) # must recalc each time
                 {
                     foreach ($outstandingRequirements as $name => $arrayOfChars)
                     {
@@ -109,13 +102,13 @@ namespace Irap\CoreLibs;
                     break;
                 }
             }
-
+            
             if (count($outstandingRequirements) != 0)
             {
                 $acceptableToken = false;
             }
         }
-
+        
         return $token;
     }
     
@@ -123,23 +116,27 @@ namespace Irap\CoreLibs;
    /**
     * Checks to see if the string in $haystack ends with $needle.
     * 
-    * @param haystack         - the string to search in.
-    * @param needle           - the string to look for
-    * @param caseSensitive    - whether to enforce case sensitivity or not (default true)
-    * @param ignoreWhiteSpace - whether to ignore white space at the ends of the inputs
+    * @param string haystack       - the string to search in.
+    * @param string needle         - the string to look for
+    * @param bool caseSensitive    - whether to enforce case sensitivity or not 
+    *                                (default true)
+    * @param bool ignoreWhiteSpace - whether to ignore white space at the ends 
+    *                                of the inputs
     * 
     * @return true if haystack begins with the provided string.  False otherwise.
     */
-    public static function ends_with($haystack, 
+    public static function endsWith($haystack, 
                                     $needle, 
                                     $caseSensitive = true, 
                                     $ignoreWhiteSpace = false)
     {
-        //Reverse our input vars
         $revHaystack = strrev($haystack);
-        $revNeedle = strrev($needle);
+        $revNeedle   = strrev($needle);
         
-        return self::starts_with($revHaystack, $revNeedle, $caseSensitive, $ignoreWhiteSpace);
+        return self::startsWith($revHaystack, 
+                                $revNeedle, 
+                                $caseSensitive, 
+                                $ignoreWhiteSpace);
     }
     
     
@@ -153,7 +150,7 @@ namespace Irap\CoreLibs;
      * functionfunction
      * @return result - true if the haystack begins with the provided string. False otherwise.
      */
-    public static function starts_with($haystack, 
+    public static function startsWith($haystack, 
                                       $needle, 
                                       $caseSensitive = true, 
                                       $ignoreWhiteSpace = false)
@@ -195,10 +192,10 @@ namespace Irap\CoreLibs;
     
     
     /**
-     * My own 'extended' version of nl2br which works in a lot of cases where the standard nl2br does
-     * not
-     * @param type $input - the input string to convert
-     * @return $output - the newly converted string
+     * My own 'extended' version of nl2br which works in a lot of cases where 
+     * the standard nl2br doesnot
+     * @param string $input - the input string to convert
+     * @return string $output - the converted string
      */
     public static function nl2br($input)
     {
@@ -213,7 +210,7 @@ namespace Irap\CoreLibs;
      * @param $input - any string input
      * @return $output - the newly reformatted string
      */
-    public static function convert_new_lines($input)
+    public static function convertLineEndings($input)
     {
         # This must be first as it is the most specific of the endlines.
         $output = str_replace("\r\n", "\n",  $input);
@@ -225,5 +222,58 @@ namespace Irap\CoreLibs;
         $output = str_replace("\n", PHP_EOL, $output);
         
         return $output;
+    }
+    
+    
+    /**
+     * Encrypt a String
+     * @param String $message - the message to encrypt
+     * @param String $key - the key to encrypt and then decrypt the message.
+     * @return String - the encryptd form of the string
+     */
+    public static function encrypt($message, $key)
+    {
+        $md5Key = md5($key);
+        
+        $encrypted = mcrypt_encrypt(MCRYPT_RIJNDAEL_256, 
+                                    $md5Key, 
+                                    $message, 
+                                    MCRYPT_MODE_CBC, 
+                                    md5($md5Key));
+        
+        $encoded_encryption = base64_encode($encrypted);
+        return $encoded_encryption;
+    }
+    
+    
+    /**
+     * Decrypt a String
+     * @param String $encrypted_text - the message to decrypt
+     * @param String $key - the key to encrypt and decrypt the message.
+     * @return String - the unencrypted form of the text
+     */
+    public static function decrypt($encrypted_text, $key)
+    {
+        $md5Key = md5($key);
+        
+        $decrypted_text = mcrypt_decrypt(MCRYPT_RIJNDAEL_256, 
+                                         $md5Key, 
+                                         base64_decode($encrypted_text), 
+                                         MCRYPT_MODE_CBC, 
+                                         md5($md5Key));
+                           
+        $trimmed_decryption = rtrim($decrypted_text, "\0");
+        return $trimmed_decryption;
+    }
+    
+    
+    /**
+     * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt"
+     * @param String $filename - the name of the file or the full file path
+     * @return String - the file extension.
+     */
+    public static function getFileExtension($filename)
+    {
+        return end(explode('.', $filename));
     }
  }
