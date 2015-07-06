@@ -276,4 +276,38 @@ namespace iRAP\CoreLibs;
     {
         return end(explode('.', $filename));
     }
+    
+    
+    /**
+     * Check whether the provided string is a regexp.
+     * Reference: 
+     * http://stackoverflow.com/questions/8825025/test-if-a-regular-expression-is-a-valid-one-in-php
+     */
+    public static function isRegExp($regexp)
+    {
+        $isRegExp = true;
+        
+        if (@preg_match($regexp, "Put any string in here.") === false) 
+        {
+            $isRegExp = false;
+        }
+        
+        return $isRegExp;
+    }
+    
+    
+    /**
+     * Function to remove the e modifier from regular expressions.
+     * http://stackoverflow.com/questions/7243073/how-can-i-disable-the-e-preg-replace-eval-modifier-in-php
+     * @param string $regExp 
+     * @return string - the sanitized regexp without the modifier.
+     */
+    function sanitizeRexExp($regExp)
+    {
+        $pattern_parts = explode($regExp{0}, trim($regExp));
+        $pattern_last = sizeof($pattern_parts) - 1;
+        $pattern_parts[$pattern_last] = str_replace('e', '', $pattern_parts[$pattern_last]);
+        
+        return implode($regExp{0}, $pattern_parts);
+    }
  }
