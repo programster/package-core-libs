@@ -14,7 +14,7 @@ namespace iRAP\CoreLibs;
     const PASSWORD_DISABLE_UPPER_CASE    = 4;
     const PASSWORD_DISABLE_NUMBERS       = 8;
     const PASSWORD_DISABLE_SPECIAL_CHARS = 16;
-
+    
     /**
      * Generates a random string. This can be useful for password generation 
      * or to create a single-use token for the user to do something 
@@ -176,8 +176,8 @@ namespace iRAP\CoreLibs;
         
         return $result;
     }
-
-
+    
+    
     /**
      * Replaces the given string's <br> tags with newlines for textfields.
      * @param $input - the input string
@@ -276,7 +276,7 @@ namespace iRAP\CoreLibs;
     {
         return end(explode('.', $filename));
     }
-
+    
     
     /**
      * Check whether the provided string is a regexp.
