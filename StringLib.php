@@ -302,7 +302,7 @@ namespace iRAP\CoreLibs;
      * @param string $regExp 
      * @return string - the sanitized regexp without the modifier.
      */
-    function sanitizeRegExp($regExp)
+    public static function sanitizeRegExp($regExp)
     {
         $pattern_parts = explode($regExp{0}, trim($regExp));
         $pattern_last = sizeof($pattern_parts) - 1;
