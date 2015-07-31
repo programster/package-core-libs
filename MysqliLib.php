@@ -169,7 +169,14 @@ class MysqliLib
             # Need just the values, but order is very important.
             foreach ($escapedRow as $columnName => $value)
             {
-                $quotedValues[] = "'" . $value . "'";    
+                if ($value !== null)
+                {
+                    $quotedValues[] = "'" . $value . "'";
+                }
+                else
+                {
+                    $quotedValues[] = 'NULL';  
+                }
             }
             
             $dataStringRows[] = "(" . implode(",", $quotedValues) . ")";
@@ -182,4 +189,3 @@ class MysqliLib
         return $query;
     }
 }
-
