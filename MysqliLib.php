@@ -147,11 +147,17 @@ class MysqliLib
      * @param string tableName - the name of the table being manipulated.
      * @param \mysqli $mysqli - the database connection that would be used for the query.
      * @return string - the generated query.
+     * @throws \Exception - if there is no data in the rows table and thus no query to generate.
      */
     private function generateBatchQueryCore(array $rows, $tableName, \mysqli $mysqli)
     {
         $firstRow = true;
         $dataStringRows = array(); # will hold an array list of strings like "('x', 'y', 'z')"
+        
+        if (count($rows) == 0)
+        {
+            throw new \Exception("Cannot create batch query with no data.");
+        }
         
         foreach ($rows as $row)
         {
