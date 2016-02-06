@@ -224,6 +224,55 @@ class Core
     
     
     /**
+     * Sends a GET request to a RESTful API through cURL.
+     * 
+     * @param string url - the url where the api is located.
+     * @param array parameters - optional array of name value pairs for sending to 
+     *                           the RESTful API.
+     * @param bool arrayForm - optional - set to true to return an array instead of 
+     *                                    a stdClass object.
+     * 
+     * @return stdObject - json response object from the api server
+     */
+    public static function sendGetRequest($url, array $parameters=array(), $arrayForm=false)
+    {
+        if (count($parameters) > 0)
+        {
+            $query_string = http_build_query($parameters, '', '&');
+            $url .= $query_string;
+        }
+        
+        # Get cURL resource
+        $curl = curl_init();
+        
+        # Set some options - we are passing in a useragent too here
+        $curlOptions = array(
+            CURLOPT_RETURNTRANSFER => 1,
+            CURLOPT_URL => $url,
+        );
+        
+        curl_setopt_array($curl, $curlOptions);
+        
+        # Send the request
+        $rawResponse = curl_exec($curl);
+        
+        # Close request to clear up some resources
+        curl_close($curl);
+        
+        # Convert to json object.
+        $responseObj = json_decode($rawResponse, $arrayForm); # Decode JSON String
+        
+        if ($responseObj == null)
+        {
+            $errMsg = 'Recieved a non json response from API: ' . $rawResponse;
+            throw new \Exception($errMsg);
+        }
+        
+        return $responseObj;
+    }
+    
+    
+    /**
      * This is the socket "equivalent" to the sendApiRequest function. However 
      * unlike that funciton it does not require the curl library to be 
      * installed, and will try to send/recieve information over a direct socket 
