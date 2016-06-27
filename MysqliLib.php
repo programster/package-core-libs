@@ -194,4 +194,23 @@ class MysqliLib
         
         return $query;
     }
+    
+    
+    /**
+     * Convert a mysqli_result object into a list of rows. This is not memory efficient
+     * but can save the developer from writing a loop.
+     * @param mysqli_result $result
+     * @return array
+     */
+    public function convertResultToArrayList(mysqli_result $result)
+    {
+        $list = array();
+        
+        while (($row = $result->fetch_assoc()) != null)
+        {
+            $list[] = $row;
+        }
+        
+        return $list;
+    }
 }
