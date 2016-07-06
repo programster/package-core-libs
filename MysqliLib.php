@@ -202,7 +202,7 @@ class MysqliLib
      * @param mysqli_result $result
      * @return array
      */
-    public function convertResultToArrayList(mysqli_result $result)
+    public static function convertResultToArrayList(mysqli_result $result)
     {
         $list = array();
         
