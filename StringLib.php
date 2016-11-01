@@ -310,4 +310,47 @@ namespace iRAP\CoreLibs;
         
         return implode($regExp{0}, $pattern_parts);
     }
- }
+    
+    
+    /**
+     * This is an wrapper around strtr that enforces the use of strings instead of arrays for
+     * the parameters. If you want to substitute multiple items then please use replacePairs() 
+     * instead. Both methods wrap around strtr instead of str_replace because I believe that the
+     * behaviour is closer to what the developer would expect if they hadn't ready any documentation
+     * For information about how strtr may be safer than str_replace, please read the comments
+     * in http://php.net/manual/en/function.strtr.php
+     * @param string $search - the string to search for within the subject that needs replacing
+     * @param string $replace - the string to replace with
+     * @param string $subject - the string to perform substitutions in.
+     * @return string - the result of converting the subject string.
+     */
+    public static function replace($search, $replace, $subject)
+    {
+        if (is_array($search) || is_array($replace))
+        {
+            throw new \Exception("The search or replace parameters cannot be arrays.");
+        }
+        
+        $pairs = array(
+            $search => $replace
+        );
+        
+        return strtr($subject, $pairs);
+    }
+    
+    
+    /**
+     * An alias for strtr (http://php.net/manual/en/function.strtr.php).
+     * This will operation will perform multiple substitutions in a single pass so you don't 
+     * need to worry about your replacement pairs clashing with each other. This is faster and
+     * simpler to understand but if you need this recursive behaviour, please use the in-built
+     * str_replace method instead.
+     * @param string $pairs - array of search/replace pairs to perform
+     * @param string $subject - the string to perform substitutions in.
+     * @return string - the result of converting the subject string.
+     */
+    public static function replacePairs(array $pairs, $subject)
+    {
+        return strtr($subject, $pairs);
+    }
+}
