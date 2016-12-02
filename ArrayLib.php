@@ -372,4 +372,38 @@ class ArrayLib
         
         return $result_array;
     }
+    
+    
+    /**
+     * Wrapper around array_combine that works on a list of arrays for the
+     * values instead of being given a single array for the values. The result is a 
+     * list of arrays who's keys are provided by the keys parameter and the values are the 
+     * corresponding values in the rows' arrays.
+     * 
+     * @param array $keys - list of keys to set for the rows. The length should be exactly the
+     *                      same as the length of every row in the rows array.
+     * @param array $rows - list of arrays that whill have array_combine performed on. Every row
+     *                      in this list should have the same length as keys.
+     *                      If any of the rows have indexes, these will be lost.
+     * @return array - the generated array list of rows.
+     */
+    public static function array_combine_list(array $keys, array $rows)
+    {
+        $output = array();
+        
+        foreach ($rows as $row)
+        {
+            if (count($row) !== count($keys))
+            {
+                $msg = "array_combine_list: Number of values in one of the rows is " . 
+                       "not equal to the number of keys.";
+                
+                throw new Exception($msg);
+            }
+            
+            $output[] = array_combine($keys, $row);
+        }
+        
+        return $output;
+    }
 }
