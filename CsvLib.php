@@ -134,6 +134,12 @@ class CsvLib
             
             if ($keys != null)
             {
+                if (count($keys) != count($row))
+                {
+                    $msg = "Cannot convert csv to array. Number of keys: " . count($keys) . 
+                           " is not the same as the number of values: " . count($row);
+                    throw new \Exception($msg);
+                }
                 $output[] = array_combine($keys, $row);
             }
             else
