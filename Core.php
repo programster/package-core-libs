@@ -210,7 +210,7 @@ class Core
             
             switch ($requestTypeUpper)
             {
-                case "POST" :
+                case "POST":
                 {
                     curl_setopt($ch, CURLOPT_POST, 1);
                 }
