@@ -177,46 +177,98 @@ class Core
         return $numRunning;
     }
     
-
+    
     /**
      * Sends an api request through the use of CURL
-     * 
      * @param string url - the url where the api is located.
-     * @param array parameters - name value pairs for sending to the api server.
-     * 
+     * @param array parameters - name value pairs for sending to the api server
+     * @param string $requestType - the request type. One of GET, POST, PUT, PATCH or DELETE
+     * @param array $headers - name/value pairs for headers. Useful for authentication etc.
      * @return stdObject - json response object from the api server
+     * @throws \Exception
      */
-    public static function sendApiRequest($url, array $parameters)
+    public static function sendApiRequest($url, array $parameters, $requestType="POST", $headers=array())
     {
-        global $globals;
-      
-        $query_string = http_build_query($parameters, '', '&');
+        $allowedRequestTypes = array("GET", "POST", "PUT", "PATCH", "DELETE");
+        $requestTypeUpper = strtoupper($requestType);
         
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $query_string);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
-        
-        $jsondata = curl_exec($ch);
-        if (curl_error($ch))
+        if (!in_array($requestTypeUpper, $allowedRequestTypes))
         {
-            $errMsg = "Connection Error: " . curl_errno($ch) . 
-                      ' - ' . curl_error($ch);
-            
-            throw new \Exception($errMsg);
+            throw new Exception("API request needs to be one of GET, POST, PUT, PATCH, or DELETE.");
         }
         
-        curl_close($ch);
-        $ret = json_decode($jsondata); # Decode JSON String
-        
-        if ($ret == null)
+        if ($requestType === "GET")
         {
-            $errMsg = 'Recieved a non json response from API: ' . $jsondata;
-            throw new \Exception($errMsg);
+            $ret = self::sendGetRequest($url, $parameters);
+        }
+        else 
+        {
+            $query_string = http_build_query($parameters, '', '&');
+            
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            
+            switch ($requestTypeUpper)
+            {
+                case "POST" :
+                {
+                    curl_setopt($ch, CURLOPT_POST, 1);
+                }
+                break;
+                
+                case "PUT":
+                case "PATCH":
+                case "DELETE":
+                {
+                    curl_setopt($this->m_ch, CURLOPT_CUSTOMREQUEST, $requestTypeUpper);
+                }
+                break;
+            
+                default:
+                {
+                    throw new Exception("Unrecognized request type.");
+                }
+            }
+            
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $query_string);
+            
+            // @TODO - S.P. to review...
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+            
+            // Manage if user provided headers.
+            if (count($headers) > 0)
+            {
+                $headersStrings = array();
+                
+                foreach ($headers as $key=>$value)
+                {
+                    $headersStrings[] = "{$key}: {$value}";
+                }
+                
+                curl_setopt($this->m_ch, CURLOPT_HTTPHEADER, $this->m_headers);
+            }
+            
+            $jsondata = curl_exec($ch);
+            
+            if (curl_error($ch))
+            {
+                $errMsg = "Connection Error: " . curl_errno($ch) . 
+                          ' - ' . curl_error($ch);
+                
+                throw new \Exception($errMsg);
+            }
+            
+            curl_close($ch);
+            $ret = json_decode($jsondata); # Decode JSON String
+            
+            if ($ret == null)
+            {
+                $errMsg = 'Recieved a non json response from API: ' . $jsondata;
+                throw new \Exception($errMsg);
+            }
         }
         
         return $ret;
