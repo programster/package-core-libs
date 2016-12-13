@@ -387,4 +387,31 @@ namespace iRAP\CoreLibs;
             self::deleteDir($sourceFolder);
         }
     }
- }
+    
+    
+    /**
+     * Applies the user-defined callback function to each line of a file.
+     * This is inspired by array_walk (http://php.net/manual/en/function.array-walk.php)
+     * @param string $filepath - path to the file to open and loop over.
+     * @param \callable $callback - callback to execute on every line in the file.
+     * @throws \Exception
+     */
+    function fileWalk($filepath, \callable $callback)
+    {
+        $handle = fopen($filepath, "r");
+            
+        if ($handle) 
+        {
+            while (($line = fgets($handle)) !== false) 
+            {
+                $callback($line);
+            }
+            
+            fclose($handle);
+        } 
+        else 
+        {
+            throw new \Exception("fileWalk: Could not open file: " . $filepath);
+        }
+    }
+}
