@@ -396,7 +396,7 @@ namespace iRAP\CoreLibs;
      * @param \callable $callback - callback to execute on every line in the file.
      * @throws \Exception
      */
-    public static function fileWalk($filepath, \callable $callback)
+    public static function fileWalk($filepath, callable $callback)
     {
         $handle = fopen($filepath, "r");
             
