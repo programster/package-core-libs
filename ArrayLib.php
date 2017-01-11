@@ -36,7 +36,8 @@ class ArrayLib
     {
         if (!$removeElement)
         {
-            $element = array_shift(array_values($inputArray));
+            $values = array_values($inputArray);
+            $element = array_shift($values); # split over two lines to prevent a NOTICE warning.
         }
         else
         {
