@@ -213,4 +213,40 @@ class MysqliLib
         
         return $list;
     }
+    
+    
+    /**
+     * Convert a mysqli result into a CSV file in a memory efficient manner (line by line)
+     * One day this may support specifying the delimiter and decimal mark, but not today.
+     * @param \mysqli_result $result
+     * @param string $filepath
+     * @return type
+     */
+    public static function convertResultToCsv(\mysqli_result $result, $filepath, $includeHeaders)
+    {
+        $fileHandler = fopen($filepath, 'w');
+        
+        if ($fileHandler === FALSE)
+        {
+            $msg = "Failed to open file for writing at: $filepath. " . 
+                   "Does this tool have write access to that directory?";
+            throw new Exception($msg);
+        }
+        
+        $firstRow = true;
+        
+        while (($row = $result->fetch_assoc()) != null)
+        {
+            if ($firstRow && $includeHeaders)
+            {
+                $result = fputcsv($fileHandler, $row);
+                fputcsv($fileHandler, $row);
+                $firstRow = false;
+            }
+            
+            fputcsv($fileHandler, array_values($row));
+        }
+        
+        fclose($filepath);
+    }
 }
