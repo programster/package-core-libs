@@ -224,6 +224,11 @@ class MysqliLib
      */
     public static function convertResultToCsv(\mysqli_result $result, $filepath, $includeHeaders)
     {
+        if ($result === FALSE)
+        {
+            throw new Exception("Cannot convert mysql result to CSV. Result is 'FALSE'");
+        }
+        
         $fileHandler = fopen($filepath, 'w');
         
         if ($fileHandler === FALSE)
@@ -239,7 +244,6 @@ class MysqliLib
         {
             if ($firstRow && $includeHeaders)
             {
-                $result = fputcsv($fileHandler, $row);
                 fputcsv($fileHandler, $row);
                 $firstRow = false;
             }
@@ -247,6 +251,6 @@ class MysqliLib
             fputcsv($fileHandler, array_values($row));
         }
         
-        fclose($filepath);
+        fclose($fileHandler);
     }
 }
