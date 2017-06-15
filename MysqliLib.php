@@ -244,7 +244,7 @@ class MysqliLib
         {
             if ($firstRow && $includeHeaders)
             {
-                fputcsv($fileHandler, $row);
+                fputcsv($fileHandler, array_keys($row));
                 $firstRow = false;
             }
             
