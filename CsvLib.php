@@ -117,6 +117,13 @@ class CsvLib
         
         while ($row = fgetcsv($file))
         {
+            // Skip empty lines (users may accidentally put one at the end
+            // libre calc wont strip this either.
+            if (count($row) == 0 || $row[0] === "")
+            {
+                continue;
+            }
+            
             if ($firstRow)
             {
                 $firstRow = false;
