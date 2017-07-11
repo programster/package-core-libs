@@ -149,7 +149,7 @@ class MysqliLib
      * @return string - the generated query.
      * @throws \Exception - if there is no data in the rows table and thus no query to generate.
      */
-    private function generateBatchQueryCore(array $rows, $tableName, \mysqli $mysqli)
+    private static function generateBatchQueryCore(array $rows, $tableName, \mysqli $mysqli)
     {
         $firstRow = true;
         $dataStringRows = array(); # will hold an array list of strings like "('x', 'y', 'z')"
