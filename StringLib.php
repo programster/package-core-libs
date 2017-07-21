@@ -133,10 +133,12 @@ namespace iRAP\CoreLibs;
         $revHaystack = strrev($haystack);
         $revNeedle   = strrev($needle);
         
-        return self::startsWith($revHaystack, 
-                                $revNeedle, 
-                                $caseSensitive, 
-                                $ignoreWhiteSpace);
+        return self::startsWith(
+            $revHaystack, 
+            $revNeedle, 
+            $caseSensitive, 
+            $ignoreWhiteSpace
+        );
     }
     
     
@@ -204,6 +206,7 @@ namespace iRAP\CoreLibs;
         return $output;
     }
     
+    
     /**
      * Converts any newlines to the systems format.
      * The use of " instead of ' is very important!
@@ -235,11 +238,13 @@ namespace iRAP\CoreLibs;
     {
         $md5Key = md5($key);
         
-        $encrypted = mcrypt_encrypt(MCRYPT_RIJNDAEL_256, 
-                                    $md5Key, 
-                                    $message, 
-                                    MCRYPT_MODE_CBC, 
-                                    md5($md5Key));
+        $encrypted = mcrypt_encrypt(
+            MCRYPT_RIJNDAEL_256, 
+            $md5Key, 
+            $message, 
+            MCRYPT_MODE_CBC, 
+            md5($md5Key)
+        );
         
         $encoded_encryption = base64_encode($encrypted);
         return $encoded_encryption;
@@ -256,12 +261,14 @@ namespace iRAP\CoreLibs;
     {
         $md5Key = md5($key);
         
-        $decrypted_text = mcrypt_decrypt(MCRYPT_RIJNDAEL_256, 
-                                         $md5Key, 
-                                         base64_decode($encrypted_text), 
-                                         MCRYPT_MODE_CBC, 
-                                         md5($md5Key));
-                           
+        $decrypted_text = mcrypt_decrypt(
+            MCRYPT_RIJNDAEL_256, 
+             $md5Key, 
+             base64_decode($encrypted_text), 
+             MCRYPT_MODE_CBC, 
+             md5($md5Key)
+        );
+        
         $trimmed_decryption = rtrim($decrypted_text, "\0");
         return $trimmed_decryption;
     }
@@ -352,5 +359,29 @@ namespace iRAP\CoreLibs;
     public static function replacePairs(array $pairs, $subject)
     {
         return strtr($subject, $pairs);
+    }
+    
+    
+    /**
+     * Find out whether the $needle string contains the $haystack string.
+     * This will use strpos rather than strstr because strpos is faster and less
+     * memory intensive.
+     * https://stackoverflow.com/questions/5820586/which-method-is-preferred-strstr-or-strpos
+     * @return bool - true if does contain, false if not
+     */
+    public static function contains($haystack, $needle, $caseSensitive = true)
+    {
+        if ($caseSensitive)
+        {
+            $pos = strpos($haystack, $needle);
+        }
+        else
+        {
+            $pos = strpos($haystack, $needle)
+        }
+        
+        # Need to be careful to by type sensitive here because could return value 0 which would
+        # need to return true.
+        return ($pos !== FALSE);
     }
 }
