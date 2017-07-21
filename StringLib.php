@@ -377,7 +377,7 @@ namespace iRAP\CoreLibs;
         }
         else
         {
-            $pos = strpos($haystack, $needle)
+            $pos = strpos($haystack, $needle);
         }
         
         # Need to be careful to by type sensitive here because could return value 0 which would
