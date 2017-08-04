@@ -407,4 +407,60 @@ class ArrayLib
         
         return $output;
     }
+    
+    
+    /**
+     * Break an array up into a number of other arrays specified by $numberOfArrays
+     * @param array $inputArray - the array to split into multiple arrays
+     * @param int $numberOfArrays - the number of arrays to break up into and return
+     * @param bool $useBucketFill - default true to put the first elements in the first array and 
+     *                              then start filling the next array. If set to false, then 
+     *                              elements will be spread across the arrays in turn. 
+     *                              E.G. true  - [1,2,3,4,5] / 2 -> [ [1,2,3], [4,5] ]
+     *                              E.g. false - [1,2,3,4,5] / 2 -> [ [1,3,5], [2,4] ]
+     *                              
+     * @param bool $preserveKeys - if true key/value assosciation is maintained in the split arrays
+     * @return array - an array of the resulting arrays.
+     */
+    public static function split(array $inputArray, $numberOfArrays, $useBucketFill=true, $preserveKeys=false)
+    {
+        if ($useBucketFill)
+        {
+            // fill one array at a time.
+            $chunkSize = ceil(count($inputArray) / $numberOfArrays);
+            $result = array_chunk($result, $chunkSize, $preserveKeys);
+        }
+        else
+        {
+            // spread the elements over the arrays
+            $result = array();
+            
+            for ($i=0; $i < $numberOfArrays; $i++)
+            {
+                $result[] = array();
+            }
+            
+            $counter = 0;
+            
+            if ($preserveKeys)
+            {
+                foreach ($inputArray as $key => $value)
+                {
+                    $result[$counter % $numberOfArrays][$key] = $value;
+                    $counter++;
+                }
+            }
+            else
+            {
+                while (count($inputArray) > 0)
+                {
+                    $element = array_shift($inputArray);
+                    $result[$counter % $numberOfArrays][] = $element;
+                    $counter++;
+                }
+            }
+        }
+        
+        return $result;
+    }
 }
