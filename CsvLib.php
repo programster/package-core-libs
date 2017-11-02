@@ -157,4 +157,48 @@ class CsvLib
         
         return $output;
     }
+    
+    
+    /**
+     * Go through the CSV file and trim the values.
+     * This saves memory by working line by line rather than reading everything into memory
+     * This will replace the existing file's contents, so if you need to keep that, make a copy
+     * first.
+     * @param sring $filepath - the path to the CSV file we are trimming
+     * @param string $delimiter - the delimiter used in the CSV. E.g. ',' or ';'
+     * @throws Exception
+     */
+    public static function trim($filepath, $delimiter)
+    {
+        $tmpFile = tmpfile();
+        $uploaded_fh = fopen($filepath, "r");
+        
+        if ($uploaded_fh)
+        {
+            while (!feof($uploaded_fh))
+            { 
+                $lineArray = fgetcsv($uploaded_fh, 0, $delimiter);
+                
+                if (!empty($lineArray))
+                {
+                    foreach ($lineArray as $index => $value)
+                    {
+                        $lineArray[$index] = trim($value);
+                    }
+                    
+                    fputcsv($tmpFile, $lineArray, ",");
+                }
+            }
+            
+            fclose($uploaded_fh);
+            
+            $meta_data = stream_get_meta_data($tmpFile);
+            $tmpFileName = $meta_data["uri"];
+            rename($tmpFileName, $filepath); # replace the old upload file with new.
+        }
+        else
+        {
+            throw new Exception("Failed to open upload file for trimming.");
+        }
+    }
 }
