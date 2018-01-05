@@ -210,7 +210,7 @@ class CsvLib
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      */
-    public function removeColumns($filepath, array $columns, $delimiter=",", $enclosure='"')
+    public static function removeColumns($filepath, array $columns, $delimiter=",", $enclosure='"')
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
@@ -263,7 +263,7 @@ class CsvLib
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      */
-    public function removeRows($filepath, array $rowIndexes, $delimiter=",", $enclosure='"')
+    public static function removeRows($filepath, array $rowIndexes, $delimiter=",", $enclosure='"')
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
@@ -307,7 +307,7 @@ class CsvLib
      * @return string - the path to the created diff CSV file.
      * @throws Exception
      */
-    public function decimalDiff($filepath1, $filepath2, $delimiter=",", $enclosure='"')
+    public static function decimalDiff($filepath1, $filepath2, $delimiter=",", $enclosure='"')
     {
         $tmpFileName = "";
         $tmpFile = tmpfile();
