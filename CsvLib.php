@@ -166,7 +166,7 @@ class CsvLib
      * first.
      * @param sring $filepath - the path to the CSV file we are trimming
      * @param string $delimiter - the delimiter used in the CSV. E.g. ',' or ';'
-     * @throws Exception
+     * @throws \Exception
      */
     public static function trim($filepath, $delimiter)
     {
@@ -198,7 +198,7 @@ class CsvLib
         }
         else
         {
-            throw new Exception("Failed to open upload file for trimming.");
+            throw new \Exception("Failed to open upload file for trimming.");
         }
     }
     
@@ -206,15 +206,15 @@ class CsvLib
     /**
      * Remove columns from a CSV file.
      * @param string $filepath - the path of the CSV file we are modifying.
-     * @param array $columns - array of integers specifying the column indexes to remove, starting at 0
+     * @param array $columnIndexes - array of integers specifying the column indexes to remove, starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      */
-    public static function removeColumns($filepath, array $columns, $delimiter=",", $enclosure='"')
+    public static function removeColumns($filepath, array $columnIndexes, $delimiter=",", $enclosure='"')
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
-        $lineNumber = 0;
+        $lineNumber = 1;
         
         if ($fileHandle)
         {
@@ -224,14 +224,16 @@ class CsvLib
                 
                 if (!empty($lineArray))
                 {
-                    foreach ($columns as $columnIndex)
+                    foreach ($columnIndexes as $columnHumanIndex)
                     {
+                        $columnIndex = $columnHumanIndex - 1;
+                        
                         if (!isset($lineArray[$columnIndex]))
                         {
                             $msg = "removeColumns: source CSV file does not have " . 
                                    "column: " . $columnIndex . " on line: " . $lineNumber;
                             
-                            throw new Exception($msg);
+                            throw new \Exception($msg);
                         }
                         
                         unset($lineArray[$columnIndex]);
@@ -251,7 +253,7 @@ class CsvLib
         }
         else
         {
-            throw new Exception("removeColumns: failed to open CSV file for trimming.");
+            throw new \Exception("removeColumns: failed to open CSV file for trimming.");
         }
     }
     
@@ -259,7 +261,7 @@ class CsvLib
     /**
      * Remove rows from a CSV file.
      * @param string $filepath - the path of the CSV file we are modifying.
-     * @param array $rowIndexes - array of integers specifying the row numbers to remove, starting at 0
+     * @param array $rowIndexes - array of integers specifying the row numbers to remove, starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      */
@@ -267,7 +269,7 @@ class CsvLib
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
-        $lineNumber = 0;
+        $lineNumber = 1;
         
         if ($fileHandle)
         {
@@ -275,9 +277,12 @@ class CsvLib
             {
                 $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure);
                 
-                if (!in_array($lineNumber, $rowIndexes))
+                if ($lineArray)
                 {
-                    fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
+                    if (!in_array($lineNumber, $rowIndexes))
+                    {
+                        fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
+                    }
                 }
                 
                 $lineNumber++;
@@ -290,7 +295,7 @@ class CsvLib
         }
         else
         {
-            throw new Exception("removeRows: Failed to open CSV file for trimming.");
+            throw new \Exception("removeRows: Failed to open CSV file for trimming.");
         }
     }
     
@@ -305,12 +310,18 @@ class CsvLib
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @return string - the path to the created diff CSV file.
-     * @throws Exception
+     * @throws \Exception
      */
     public static function decimalDiff($filepath1, $filepath2, $delimiter=",", $enclosure='"')
     {
-        $tmpFileName = "";
-        $tmpFile = tmpfile();
+        $newFileName = tempnam(sys_get_temp_dir(), "");
+        $newFileHandle = fopen($newFileName, "w");
+        
+        if (!$newFileHandle)
+        {
+            throw new \Exception("Cannot create file to store diff in.");
+        }
+            
         $fileHandle1 = fopen($filepath1, "r");
         $fileHandle2 = fopen($filepath2, "r");
         
@@ -324,45 +335,49 @@ class CsvLib
                 $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure);
                 $resultArray = array();
                 
-                foreach ($lineArray1 as $index => $value1)
+                if ($lineArray1)
                 {
-                    if (!isset($lineArray2[$index]))
+                    foreach ($lineArray1 as $index => $value1)
                     {
-                        throw new Exception("decimalDiff: rows do not have the same column count.");
-                    }
-                    
-                    $value2 = $lineArray2[$index];
-                    
-                    if (is_numeric($value1) && is_numeric($value2))
-                    {
-                        $resultArray[$index] = $value1 - $value2;
-                    }
-                    else
-                    {
-                        if ($value1 === $value2)
+                        if (!isset($lineArray2[$index]))
                         {
-                            $resultArray[$index] = $value1;
+                            throw new \Exception("decimalDiff: rows do not have the same column count.");
+                        }
+                        
+                        $value2 = $lineArray2[$index];
+                        
+                        if (is_numeric($value1) && is_numeric($value2))
+                        {
+                            $resultArray[$index] = $value1 - $value2;
                         }
                         else
                         {
-                            $resultArray[$index] = $value1 . "|" . $value2;
+                            if ($value1 === $value2)
+                            {
+                                $resultArray[$index] = $value1;
+                            }
+                            else
+                            {
+                                $resultArray[$index] = $value1 . "|" . $value2;
+                            }
                         }
                     }
                 }
                 
-                fputcsv($tmpFile, $resultArray, $delimiter, $enclosure);
+                fputcsv($newFileHandle, $resultArray, $delimiter, $enclosure);
                 $lineNumber++;
             }
             
             fclose($fileHandle1);
-            $meta_data = stream_get_meta_data($tmpFile);
-            $tmpFileName = $meta_data["uri"];
+            fclose($fileHandle2);
+            fclose($newFileHandle);
+            return $newFileName;
         }
         else
         {
-            throw new Exception("decimalDiff: Failed to open CSV file for processing.");
+            throw new \Exception("decimalDiff: Failed to open CSV file for processing.");
         }
         
-        return $tmpFileName;
+        return $newFileName;
     }
 }
