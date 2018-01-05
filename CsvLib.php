@@ -201,4 +201,168 @@ class CsvLib
             throw new Exception("Failed to open upload file for trimming.");
         }
     }
+    
+    
+    /**
+     * Remove columns from a CSV file.
+     * @param string $filepath - the path of the CSV file we are modifying.
+     * @param array $columns - array of integers specifying the column indexes to remove, starting at 0
+     * @param string $delimiter - optionally specify the delimiter if it isn't a comma
+     * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     */
+    public function removeColumns($filepath, array $columns, $delimiter=",", $enclosure='"')
+    {
+        $tmpFile = tmpfile();
+        $fileHandle = fopen($filepath, "r");
+        $lineNumber = 0;
+        
+        if ($fileHandle)
+        {
+            while (!feof($fileHandle))
+            {
+                $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure);
+                
+                if (!empty($lineArray))
+                {
+                    foreach ($columns as $columnIndex)
+                    {
+                        if (!isset($lineArray[$columnIndex]))
+                        {
+                            $msg = "removeColumns: source CSV file does not have " . 
+                                   "column: " . $columnIndex . " on line: " . $lineNumber;
+                            
+                            throw new Exception($msg);
+                        }
+                        
+                        unset($lineArray[$columnIndex]);
+                    }
+                    
+                    fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
+                }
+                
+                $lineNumber++;
+            }
+            
+            fclose($fileHandle);
+            
+            $meta_data = stream_get_meta_data($tmpFile);
+            $tmpFileName = $meta_data["uri"];
+            rename($tmpFileName, $filepath); # replace the old upload file with new.
+        }
+        else
+        {
+            throw new Exception("removeColumns: failed to open CSV file for trimming.");
+        }
+    }
+    
+    
+    /**
+     * Remove rows from a CSV file.
+     * @param string $filepath - the path of the CSV file we are modifying.
+     * @param array $rowIndexes - array of integers specifying the row numbers to remove, starting at 0
+     * @param string $delimiter - optionally specify the delimiter if it isn't a comma
+     * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     */
+    public function removeRows($filepath, array $rowIndexes, $delimiter=",", $enclosure='"')
+    {
+        $tmpFile = tmpfile();
+        $fileHandle = fopen($filepath, "r");
+        $lineNumber = 0;
+        
+        if ($fileHandle)
+        {
+            while (!feof($fileHandle))
+            {
+                $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure);
+                
+                if (!in_array($lineNumber, $rowIndexes))
+                {
+                    fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
+                }
+                
+                $lineNumber++;
+            }
+            
+            fclose($fileHandle);
+            $meta_data = stream_get_meta_data($tmpFile);
+            $tmpFileName = $meta_data["uri"];
+            rename($tmpFileName, $filepath); # replace the old upload file with new.
+        }
+        else
+        {
+            throw new Exception("removeRows: Failed to open CSV file for trimming.");
+        }
+    }
+    
+    
+    /**
+     * Calculate the mathematical differences between two CSV files. If this comes across string 
+     * values, it will check if they are the same and put the the string in if they are, otherwise,
+     * it will concatenate the two values with a | divider.
+     * WARNING - this expects the two files to have the same number of columns and rows.
+     * @param string $filepath1 - path to a CSV file to compare.
+     * @param string $filepath2 - path to a CSV file to compare.
+     * @param string $delimiter - optionally specify the delimiter if it isn't a comma
+     * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     * @return string - the path to the created diff CSV file.
+     * @throws Exception
+     */
+    public function decimalDiff($filepath1, $filepath2, $delimiter=",", $enclosure='"')
+    {
+        $tmpFileName = "";
+        $tmpFile = tmpfile();
+        $fileHandle1 = fopen($filepath1, "r");
+        $fileHandle2 = fopen($filepath2, "r");
+        
+        $lineNumber = 0;
+        
+        if ($fileHandle1 && $fileHandle2)
+        {
+            while (!feof($fileHandle1))
+            {
+                $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure);
+                $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure);
+                $resultArray = array();
+                
+                foreach ($lineArray1 as $index => $value1)
+                {
+                    if (!isset($lineArray2[$index]))
+                    {
+                        throw new Exception("decimalDiff: rows do not have the same column count.");
+                    }
+                    
+                    $value2 = $lineArray2[$index];
+                    
+                    if (is_numeric($value1) && is_numeric($value2))
+                    {
+                        $resultArray[$index] = $value1 - $value2;
+                    }
+                    else
+                    {
+                        if ($value1 === $value2)
+                        {
+                            $resultArray[$index] = $value1;
+                        }
+                        else
+                        {
+                            $resultArray[$index] = $value1 . "|" . $value2;
+                        }
+                    }
+                }
+                
+                fputcsv($tmpFile, $resultArray, $delimiter, $enclosure);
+                $lineNumber++;
+            }
+            
+            fclose($fileHandle1);
+            $meta_data = stream_get_meta_data($tmpFile);
+            $tmpFileName = $meta_data["uri"];
+        }
+        else
+        {
+            throw new Exception("decimalDiff: Failed to open CSV file for processing.");
+        }
+        
+        return $tmpFileName;
+    }
 }
