@@ -380,4 +380,105 @@ class CsvLib
         
         return $newFileName;
     }
+    
+    
+    /**
+     * Perform a diff on two CSV files with a tolerance of values being different by the amount
+     * specified. This can be useful in situations with floating point values where the last decimal
+     * place may be different.
+     * 
+     * WARNING: if your CSV file has headers, you will need to remove them with a call to 
+     * CsvLib::removeRows
+     * 
+     * @param string $filepath1 - the path to the file we are checking
+     * @param array $tolerances - array of column index / tolerance pairs. For this function, 
+     *                            the columns indexes start from 1, not 0.
+     * @param bool $compareOtherColumns - optionally specify false to tell this function to ignore
+     *                                    all the other columns and only compare the ones specified
+     *                                    in the tolerances array.
+     * @param type $delimiter - optionally specify the delimiter to pass to fgetcsv (comma default)
+     * @param string $enclosure - optionally specify the enclosure to pass to fgetcsv (default: ")
+     * @return bool - true if the files are the same, false if different.
+     * @throws \Exception
+     */
+    public static function diffTolerance($filepath1, $filepath2, array $tolerances, $compareOtherColumns = true, $delimiter=",", $enclosure='"')
+    {
+        $hasFailed = false;
+        $humanRowNumber = 1;
+        $fileHandle1 = fopen($filepath1, "r");
+        $fileHandle2 = fopen($filepath2, "r");
+        
+        if (!$fileHandle1 || !$fileHandle2)
+        {
+            throw new \Exception("diffTolerance: Failed to open CSV files for comparison.");
+        }
+        
+        while (!feof($fileHandle1) && $hasFailed === FALSE)
+        {
+            $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure);
+            $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure);
+            $resultArray = array();
+            
+            if ($lineArray1)
+            {
+                foreach ($lineArray1 as $index => $value1)
+                {
+                    $humanColumnNumber = $index + 1;
+                    
+                    if (!isset($lineArray2[$index]))
+                    {
+                        throw new \Exception("decimalDiff: rows do not have the same column count.");
+                    }
+                    
+                    $value2 = $lineArray2[$index];
+                    
+                    if ($compareOtherColumns || (isset($tolerances[$humanColumnNumber])))
+                    {
+                        if (is_numeric($value1) && is_numeric($value2))
+                        {
+                            $numericDifference = abs($value1 - $value2);
+                            
+                            if (isset($tolerances[$humanColumnNumber]))
+                            {
+                                if ($numericDifference > $tolerances[$humanColumnNumber])
+                                {
+                                    $hasFailed = TRUE;
+                                }
+                            }
+                            else
+                            {
+                                if ($value1 !== $value2)
+                                {
+                                    $hasFailed = TRUE;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // comparing non numeric values...
+                            if (isset($tolerances[$humanColumnNumber]))
+                            {
+                                $msg = "diffTolerance: Trying to perform numeric tolerance " . 
+                                       "diff on non numeric column";
+                                
+                                throw new \Exception($msg);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Skip this column as we don't wish to check it.
+                    }
+                }
+            }
+            
+            $humanRowNumber++;
+        }
+        
+        fclose($fileHandle1);
+        fclose($fileHandle2);
+        
+        $passed = !$hasFailed;
+        return $passed;
+    }
 }
