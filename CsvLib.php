@@ -417,7 +417,6 @@ class CsvLib
         {
             $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure);
             $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure);
-            $resultArray = array();
             
             if ($lineArray1)
             {
@@ -447,7 +446,7 @@ class CsvLib
                             }
                             else
                             {
-                                if ($value1 !== $value2)
+                                if ($numericDifference > 0) // can't use !== on the values as 1.100 !== 1.1
                                 {
                                     $hasFailed = TRUE;
                                 }
@@ -459,7 +458,8 @@ class CsvLib
                             if (isset($tolerances[$humanColumnNumber]))
                             {
                                 $msg = "diffTolerance: Trying to perform numeric tolerance " . 
-                                       "diff on non numeric column";
+                                       "diff on non numeric column. Column: $humanColumnNumber " . 
+                                       "Row: $humanRowNumber";
                                 
                                 throw new \Exception($msg);
                             }
