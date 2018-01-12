@@ -388,6 +388,50 @@ namespace iRAP\CoreLibs;
         }
     }
     
+    /**
+     * Unzip a zip file and all of its contents into a directory.
+     * 
+     * @param string $sourceZip - zip file to unzip.
+     * @param string $destinationFolder - path to the folder we wish to unzip into.
+     * @param bool $deleteOnComplete - specify false if you want to keep the 
+     *                                 original uncompressed files after they 
+     *                                 have been zipped.
+     */
+    public static function unzip($sourceZip, $destinationFolder, $deleteOnComplete=true)
+    {
+        if (!extension_loaded('zip') )
+        {
+            throw new \Exception("Your PHP does not have the zip extesion.");
+        }
+        
+        if (!file_exists($destinationFolder)) 
+        {
+            mkdir($destinationFolder);
+        }
+        
+        $zip = new \ZipArchive();
+        $open = $zip->open($sourceZip);
+        
+        if (!$open)
+        {
+            throw new \Exception('Unable to open zip file: ' . $sourceZip);
+        }
+        
+        $unzip = $zip->extractTo($destinationFolder);
+        
+        if (!$unzip)
+        {
+            throw new \Exception('Unable to unzip file: ' . $sourceZip . ' to destination: ' . $destinationFolder);
+        }
+        
+        $zip->close();
+        
+        if ($deleteOnComplete)
+        {
+            self::deleteDir($sourceZip);
+        }
+    }
+    
     
     /**
      * Applies the user-defined callback function to each line of a file.
