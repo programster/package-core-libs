@@ -974,4 +974,35 @@ class Core
         
         return $verified;
     }
+    
+    
+    /**
+     * Sign some data. If we get this data back again, we will know that it came from us
+     * untampered (as long as the signature still matches). This is useful for things like
+     * tokens sent in emails allowing them to perform actions without having to sign in
+     * @param array $data - the data we wish to sign.
+     * @return string - the generated signature for the provided data.
+     */
+    public static function generateSignature(array $data, string $secret)
+    {
+        ksort($data);
+        $stringForm = json_encode($data);
+        return hash_hmac("sha256", $stringForm, $secret);
+    }
+    
+    
+    /**
+     * Check if the provided data has the correct signature.
+     * @param array $data - the data we recieved that was signed. The signature MUST NOT be in this
+     *                      array.
+     * @param string $signature - the signature that came with the data. This is what we will check
+     *                            if is valid for the data recieved.
+     * @return bool - true if the signature is correct for the data, or false if not (in which case
+     *                a user probably tried to manipulate the data).
+     */
+    public static function isValidSignedRequest(array $data, string $signature)
+    {
+        $generated_signature = SiteSpecific::generateSignature($data);
+        return ($generated_signature == $signature);
+    }
 }
