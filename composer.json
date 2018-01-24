@@ -1,7 +1,7 @@
 {
     "name": "irap/core-libs",
     "type": "library",
-    "description": "Core libraries for PHP 5.3+",
+    "description": "Core libraries for PHP 7.0+",
     "keywords": ["core","library"],
     "homepage": "http://www.irap.org",
     "license": "MIT",
