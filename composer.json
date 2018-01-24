@@ -18,7 +18,7 @@
     },
     "autoload": {
         "psr-4": {
-            "iRAP\\CoreLibs\\": ""
+            "iRAP\\CoreLibs\\": "src/"
         }
     }
 }
