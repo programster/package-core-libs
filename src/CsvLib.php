@@ -481,4 +481,67 @@ class CsvLib
         $passed = !$hasFailed;
         return $passed;
     }
+    
+    
+    /**
+     * Merges multiple csv files together in a memory efficient way.
+     * This will gracefully handle cases where the files may or may not have
+     * ended with an endline.
+     * This will also gracefully handle keeping the headers from the first file
+     * (if hasHeaders is set to true), and ignoring headers in the subsequent files.
+     * WARNING - all files need to either have headers or not, not both
+     * @param array $filepaths - array of filepaths to csv files we wish to merge
+     * @param string $mergedFilepath - where to write the merged file. This will overwrite
+     *                                 any existing file if there is one there already.
+     * @param bool $hasHeaders - specify if the files have headers or not.
+     * @param string $delimiter - optinoally specify the delimiter being used in the files
+     * @param string $enclosure - optionally specify the enclosure being used in the files
+     * @throws Exception
+     */
+    public static function mergeFiles(array $filepaths, string $mergedFilepath, bool $hasHeaders, string $delimiter=",", string $enclosure='"')
+    {
+        $isFirstFile = true;
+        $outputFileHandle = fopen($mergedFilepath, "w");
+        
+        foreach ($filepaths as $filepath)
+        {
+            $readHandle = fopen($filepath, "r");
+            $isFirstLine = true;
+            
+            if ($readHandle === false)
+            {
+                throw new Exception("Unable to read file for merging: {$filepath}");
+            }
+            
+            while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure)) !== FALSE)
+            {
+                $copyLineAcross = false;
+                
+                if ($isFirstLine)
+                {
+                    if ($hasHeaders && $isFirstFile)
+                    {
+                        $copyLineAcross = true;
+                    }
+                    elseif ($hasHeaders == FALSE)
+                    {
+                        $copyLineAcross = true;
+                    }
+                    
+                    $isFirstLine = false;
+                }
+                else
+                {
+                    $copyLineAcross = true;
+                }
+                
+                if ($copyLineAcross)
+                {
+                    fputcsv($outputFileHandle, $fields, $delimiter, $enclosure);
+                }
+            }
+            
+            $isFirstFile = false;
+        }
+    }
 }
