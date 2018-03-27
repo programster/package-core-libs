@@ -160,6 +160,81 @@ class CsvLib
     
     
     /**
+     * Create a CSV file from the provided array of data. 
+     * This is done in a memory efficient manner of writing one line at a time to the file 
+     * rather then building a massive string and dumping the entire string to the file.
+     * 
+     * @param string $filepath - the path to the file that we will write the csv to, creating
+     *                           if necessary.
+     * @param array $rows - a collection of assosciative name/value pairs for the data to fill the
+     *                      csv file. The values will be filled in in the order of the keys in
+     *                      the first row.
+     * @param bool $addHeader - specify whether the CSV file we should put the header row in for
+     *                          the csv file. If true, we will use the keys of the first row
+     *                          as we expect all keys to match.
+     * @param string $delimiter - optionally specify a delimiter if you dont wish to use the comma
+     * @param string $enclosure - optionally specify the enclosure if you don't wish to use "
+     * @return void - all data written to the passed in filepath. Throws exception if anything
+     *                goes wrong.
+     * @throws Exception
+     * @throws \Exception
+     */
+    public static function convertArrayToCsv(string $filepath, array $rows, bool $addHeader, string $delimiter = ",", string $enclosure = '"')
+    {
+        $fileHandle = fopen($filepath, 'w');
+        
+        if ($fileHandle === FALSE)
+        {
+            throw new Exception("Failed to open {$filepath} for writing.");
+        }
+        
+        if (count($rows) === 0)
+        {
+            throw new \Exception("Cannot create CSV file with no data.");
+        }
+        
+        $firstRow = ArrayLib::getFirstElement($rows);
+        
+        if (ArrayLib::isAssoc($firstRow) === FALSE)
+        {
+            throw new \Exception("convertArrayToCsv expects a list of assosciative arrays.");
+        }
+        
+        $keys = array_keys($firstRow);
+        
+        if ($addHeader)
+        {
+            fputcsv($fileHandle, $keys, $delimiter, $enclosure);
+        }
+        
+        foreach ($rows as $index => $row)
+        {
+            if (count($keys) != count($row))
+            {
+                $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) . 
+                       " is not the same as the number of values: " . count($row);
+                
+                throw new \Exception($msg);
+            }
+                
+            $rowOfValues = array();
+            
+            foreach ($keys as $key)
+            {
+                if (!isset($row[$key]))
+                {
+                    throw new \Exception("row missing expected key {$key} on row {$index}");
+                }
+                
+                $rowOfValues[] = $row[$key];
+            }
+            
+            fputcsv($fileHandle, $rowOfValues, $delimiter, $enclosure);
+        }
+    }
+    
+    
+    /**
      * Go through the CSV file and trim the values.
      * This saves memory by working line by line rather than reading everything into memory
      * This will replace the existing file's contents, so if you need to keep that, make a copy
