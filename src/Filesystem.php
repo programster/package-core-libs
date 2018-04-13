@@ -458,4 +458,27 @@ namespace iRAP\CoreLibs;
             throw new \Exception("fileWalk: Could not open file: " . $filepath);
         }
     }
+    
+    
+    /**
+     * Create a temporary directory. This will be a randomly named directory in the system's
+     * temporary directory folder (usually /tmp).
+     * @param octal $mode - the permissions the new temporary directory will have. Using the
+     *                      defaults from mkdir: http://php.net/manual/en/function.mkdir.php
+     * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
+     * @throws \Exception
+     */
+    public static function tmpDir($mode = 0777) : string
+    {
+        $tempName = tempnam(sys_get_temp_dir(), '');
+        unlink($tempName); 
+        mkdir($tempName, $mode);
+        
+        if (is_dir($tempName) === FALSE) 
+        { 
+            throw new \Exception("Failed to create tmpdir.");
+        }
+        
+        return $tempName; 
+    }
 }
