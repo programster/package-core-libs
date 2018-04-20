@@ -1,0 +1,101 @@
+{
+    "_readme": [
+        "This file locks the dependencies of your project to a known state",
+        "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file",
+        "This file is @generated automatically"
+    ],
+    "content-hash": "19611d9edc16a03cc52754a22296338c",
+    "packages": [
+        {
+            "name": "irap/autoloader",
+            "version": "1.0.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/iRAP-software/package-autoloader.git",
+                "reference": "58d046d6d544991ca9bbb3ded746deb91c1b45cf"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/iRAP-software/package-autoloader/zipball/58d046d6d544991ca9bbb3ded746deb91c1b45cf",
+                "reference": "58d046d6d544991ca9bbb3ded746deb91c1b45cf",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=5.3"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "iRAP\\Autoloader\\": ""
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Stuart Page",
+                    "email": "stuart.page@irap.org"
+                }
+            ],
+            "description": "An package to make it easy to autoload code.",
+            "homepage": "https://github.com/iRAP-software/package-autoloader",
+            "keywords": [
+                "autoloader"
+            ],
+            "time": "2017-05-25T13:18:47+00:00"
+        },
+        {
+            "name": "irap/core-libs",
+            "version": "1.1.36",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/iRAP-software/package-core-libs.git",
+                "reference": "ea99a910a8ab61cde2755d3be1b2daa916bbf49d"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/iRAP-software/package-core-libs/zipball/ea99a910a8ab61cde2755d3be1b2daa916bbf49d",
+                "reference": "ea99a910a8ab61cde2755d3be1b2daa916bbf49d",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=7.0.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "iRAP\\CoreLibs\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Stuart Page",
+                    "email": "stuart.page@irap-dev.org",
+                    "homepage": "http://irap.org/",
+                    "role": "Developer"
+                }
+            ],
+            "description": "Core libraries for PHP 7.0+",
+            "homepage": "http://www.irap.org",
+            "keywords": [
+                "core",
+                "library"
+            ],
+            "time": "2018-04-13T11:41:28+00:00"
+        }
+    ],
+    "packages-dev": [],
+    "aliases": [],
+    "minimum-stability": "stable",
+    "stability-flags": [],
+    "prefer-stable": false,
+    "prefer-lowest": false,
+    "platform": [],
+    "platform-dev": []
+}
