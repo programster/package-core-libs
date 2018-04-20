@@ -223,10 +223,24 @@ class CsvLib
             {
                 if (!isset($row[$key]))
                 {
-                    throw new \Exception("row missing expected key {$key} on row {$index}");
+                    // key might be set, the value might just be null. Check for this.
+                    $keys = array_keys($row);
+                    
+                    if (in_array($key, $keys) === FALSE)
+                    {
+                        throw new \Exception("row missing expected key {$key} on row {$index}");
+                    }
+                    else
+                    {
+                        $value = null;
+                    }
+                }
+                else
+                {
+                    $value = $row[$key];
                 }
                 
-                $rowOfValues[] = $row[$key];
+                $rowOfValues[] = $value;
             }
             
             fputcsv($fileHandle, $rowOfValues, $delimiter, $enclosure);
