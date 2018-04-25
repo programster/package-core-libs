@@ -289,7 +289,7 @@ class MysqliLib
             {
                 $msg = "Failed convert row to json. " . 
                        "Perhaps you need to set the MySQL connection charset to UTF8?";
-                throw new Exception($msg);
+                throw new \Exception($msg);
             }
             
             fwrite($fileHandle, $jsonForm . PHP_EOL);
