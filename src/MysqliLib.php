@@ -226,7 +226,7 @@ class MysqliLib
     {
         if ($result === FALSE)
         {
-            throw new Exception("Cannot convert mysql result to CSV. Result is 'FALSE'");
+            throw new \Exception("Cannot convert mysql result to CSV. Result is 'FALSE'");
         }
         
         $fileHandler = fopen($filepath, 'w');
@@ -235,7 +235,7 @@ class MysqliLib
         {
             $msg = "Failed to open file for writing at: $filepath. " . 
                    "Does this tool have write access to that directory?";
-            throw new Exception($msg);
+            throw new \Exception($msg);
         }
         
         $firstRow = true;
