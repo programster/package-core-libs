@@ -399,7 +399,7 @@ class ArrayLib
                 $msg = "array_combine_list: Number of values in one of the rows is " . 
                        "not equal to the number of keys.";
                 
-                throw new Exception($msg);
+                throw new \Exception($msg);
             }
             
             $output[] = array_combine($keys, $row);
