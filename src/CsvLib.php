@@ -185,7 +185,7 @@ class CsvLib
         
         if ($fileHandle === FALSE)
         {
-            throw new Exception("Failed to open {$filepath} for writing.");
+            throw new \Exception("Failed to open {$filepath} for writing.");
         }
         
         if (count($rows) === 0)
@@ -599,7 +599,7 @@ class CsvLib
             
             if ($readHandle === false)
             {
-                throw new Exception("Unable to read file for merging: {$filepath}");
+                throw new \Exception("Unable to read file for merging: {$filepath}");
             }
             
             while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure)) !== FALSE)

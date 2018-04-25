@@ -194,7 +194,7 @@ class Core
         
         if (!in_array($requestTypeUpper, $allowedRequestTypes))
         {
-            throw new Exception("API request needs to be one of GET, POST, PUT, PATCH, or DELETE.");
+            throw new \Exception("API request needs to be one of GET, POST, PUT, PATCH, or DELETE.");
         }
         
         if ($requestType === "GET")
@@ -226,7 +226,7 @@ class Core
             
                 default:
                 {
-                    throw new Exception("Unrecognized request type.");
+                    throw new \Exception("Unrecognized request type.");
                 }
             }
             
