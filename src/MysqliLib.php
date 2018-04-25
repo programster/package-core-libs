@@ -253,4 +253,49 @@ class MysqliLib
         
         fclose($fileHandler);
     }
+    
+    
+    /**
+     * Convert a mysqli result into a JSON file in a memory efficient manner (line by line)
+     * This way we don't need to worry about running out of memory for large tables/results.
+     * @param \mysqli_result $result - the mysqli result to convert
+     * @param string $filepath - the path to the file we wish to write to (will be created/overwritten)
+     * @param Bitmask $jsonOptions - any options you wish to specify, such as JSON_HEX_QUOT
+     * @throws Exception
+     */
+    public static function convertResultToJsonFile(\mysqli_result $result, string $filepath, $jsonOptions=null)
+    {
+        if ($result === FALSE)
+        {
+            throw new \Exception("Cannot convert mysql result to JSON. Result is 'FALSE'");
+        }
+        
+        $fileHandle = fopen($filepath, 'w');
+        
+        if ($fileHandle === FALSE)
+        {
+            $msg = "Failed to open file for writing at: $filepath. " . 
+                   "Does this tool have write access to that file/directory?";
+            throw new \Exception($msg);
+        }
+        
+        fwrite($fileHandle, "[" . PHP_EOL);
+        
+        while (($row = $result->fetch_assoc()) != null)
+        {
+            $jsonForm = json_encode($row, $jsonOptions);
+            
+            if ($jsonForm === FALSE)
+            {
+                $msg = "Failed convert row to json. " . 
+                       "Perhaps you need to set the MySQL connection charset to UTF8?";
+                throw new Exception($msg);
+            }
+            
+            fwrite($fileHandle, $jsonForm . PHP_EOL);
+        }
+        
+        fwrite($fileHandle, "]"); // end the JSON array list.
+        fclose($fileHandle);
+    }
 }
