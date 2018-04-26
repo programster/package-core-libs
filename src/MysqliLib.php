@@ -279,7 +279,8 @@ class MysqliLib
             throw new \Exception($msg);
         }
         
-        fwrite($fileHandle, "[" . PHP_EOL);
+        fwrite($fileHandle, "[");
+        $firstRow = true;
         
         while (($row = $result->fetch_assoc()) != null)
         {
@@ -292,10 +293,20 @@ class MysqliLib
                 throw new \Exception($msg);
             }
             
-            fwrite($fileHandle, $jsonForm . PHP_EOL);
+            if ($firstRow)
+            {
+                $firstRow = false;
+                fwrite($fileHandle, PHP_EOL);
+            }
+            else
+            {
+                fwrite($fileHandle, "," . PHP_EOL);
+            }
+            
+            fwrite($fileHandle, $jsonForm);
         }
         
-        fwrite($fileHandle, "]"); // end the JSON array list.
+        fwrite($fileHandle, PHP_EOL . "]"); // end the JSON array list.
         fclose($fileHandle);
     }
 }
