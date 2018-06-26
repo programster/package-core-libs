@@ -481,4 +481,37 @@ namespace iRAP\CoreLibs;
         
         return $tempName; 
     }
+    
+    
+    /**
+     * Download a file from the provided URL
+     * This will use curl if it is available, if not it will 
+     * fallback to using file_get_contents.
+     * @param string $url
+     * @return string - the full filepath to the downloaded file on the server.
+     */
+    public static function downloadFile(string $url) : string
+    {
+        $downloadedFilepath = tempnam(sys_get_temp_dir(), "");
+        
+        // use curl if installed. Faster and probably more memory efficient.
+        if (function_exists('curl_version'))
+        {
+            $fp = fopen($downloadedFilepath, 'w+');
+            $ch = curl_init(str_replace(" ", "%20", $url));
+            curl_setopt($ch, CURLOPT_TIMEOUT, 50);
+            curl_setopt($ch, CURLOPT_FILE, $fp); 
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_exec($ch); 
+            curl_close($ch);
+            fclose($fp);
+        }
+        else
+        {
+            $content = file_get_contents($url);
+            file_put_contents($downloadedFilepath, $content);
+        }
+        
+        return $downloadedFilepath;
+    }
 }
