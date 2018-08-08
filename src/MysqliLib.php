@@ -309,4 +309,86 @@ class MysqliLib
         fwrite($fileHandle, PHP_EOL . "]"); // end the JSON array list.
         fclose($fileHandle);
     }
+    
+    
+    /**
+     * Fetches the names of the columns for a particular table.
+     * @return array - the collection of column names
+     */
+    public static function getTableColumnNames(mysqli $mysqliConn, string $tableName) : array
+    {
+        $sql = "SHOW COLUMNS FROM `{$tableName}`";
+        $result = $mysqliConn->query($sql);
+        
+        $columns = array();
+        
+        while (($row = $result->fetch_array()) != null)
+        {
+            $columns[] = $row[0];
+        }
+        
+        return $columns;
+    }
+    
+    
+    /**
+     * Generates a hash for the entire table so we can quickly compare tables to see if they are 
+     * the same.
+     * @param \iRAP\CoreLibs\mysqli $mysqliConn
+     * @param string $tableName
+     * @param array $columns - optionally specify the columns of the table to hash. If not provided,
+     *                         then we will get the column names, sort alphabetically, and return
+     *                         the hash of that. 
+     *                         WARNING - order matters as it will change the hash and we do not 
+     *                         perform any sorting by index etc.
+     * @return string - the md5 of the table data.
+     * @throws Exception
+     */
+    public static function getTableHash(mysqli $mysqliConn, string $tableName, array $columns=array()) : string
+    {
+        $tableHash = "";
+        
+        if (count($columns) == 0)
+        {
+            $columns = MysqliLib::getTableColumnNames($mysqliConn, $tableName);
+            sort($columns);
+        }
+        
+        $wrappedColumnList = array();
+        
+        # Using coalesce to prevent null values causing sync issues as raised in the
+        # NullColumnTest test. E.g. [2, null, null] and [null, 2, null] would be considered equal
+        # otherwise.
+        foreach ($columns as $column)
+        {
+            $wrappedColumnList[] = "COALESCE(`" . $column . "`, 'NULL')";
+        }
+        
+        # This fixes an issue with using group_concat on extremely large tables (num rows)
+        # and allows for tables with up to 576,460,752,303,423,000 rows 
+        # (18,446,744,073,709,547,520 / 33)
+        $mysqliConn->query("SET group_concat_max_len = 18446744073709547520");
+        
+        $query =
+            "SELECT MD5(GROUP_CONCAT(MD5(CONCAT_WS('#'," . implode(',', $wrappedColumnList) . ")))) " .
+            "AS `hash` " .
+            "FROM `{$tableName}`";
+        
+        /* @var $result mysqli_result */
+        $result = $mysqliConn->query($query);
+        
+        if ($result !== FALSE)
+        {
+            $row = $result->fetch_assoc();
+            $tableHash = $row['hash'];
+        }
+        else
+        {
+            die("Failed to fetch table hash" . PHP_EOL . $this->m_mysqli_conn->error);
+            throw new Exception("Failed to fetch table hash");
+        }
+        
+        $result->free();
+        return $tableHash;
+    }
 }
