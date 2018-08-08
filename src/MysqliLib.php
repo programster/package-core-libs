@@ -315,7 +315,7 @@ class MysqliLib
      * Fetches the names of the columns for a particular table.
      * @return array - the collection of column names
      */
-    public static function getTableColumnNames(mysqli $mysqliConn, string $tableName) : array
+    public static function getTableColumnNames(\mysqli $mysqliConn, string $tableName) : array
     {
         $sql = "SHOW COLUMNS FROM `{$tableName}`";
         $result = $mysqliConn->query($sql);
@@ -344,7 +344,11 @@ class MysqliLib
      * @return string - the md5 of the table data.
      * @throws Exception
      */
-    public static function getTableHash(mysqli $mysqliConn, string $tableName, array $columns=array()) : string
+    public static function getTableHash(
+        \mysqli $mysqliConn, 
+        string $tableName, 
+        array $columns = array()
+    ) : string
     {
         $tableHash = "";
         

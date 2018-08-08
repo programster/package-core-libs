@@ -18,7 +18,7 @@ class TestGettingTableHash extends AbstractTest
         ];
         
         $row1String = "value1#NULL#value3";
-        $row2String = "some othe value#hello#value4";
+        $row2String = "some other value#hello#value4";
         $row1hash = md5($row1String);
         $row2hash = md5($row2String);
         $rowsString = "{$row1hash},{$row2hash}";
@@ -66,7 +66,7 @@ class TestGettingTableHash extends AbstractTest
             else
             {
                 print "{$tableHash} did not equal the expected hash of {$expectedHash}" . PHP_EOL;
-                $this->m_passed = true;
+                $this->m_passed = false;
             }
         } 
         catch (Exception $ex)
