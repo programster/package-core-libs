@@ -16,6 +16,9 @@
     "require": {
         "php": ">=7.0.0"
     },
+    "require-dev": {
+        "irap/autoloader": "^1.0"
+    },
     "autoload": {
         "psr-4": {
             "iRAP\\CoreLibs\\": "src/"
