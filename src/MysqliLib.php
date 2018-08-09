@@ -333,9 +333,9 @@ class MysqliLib
     
     /**
      * Generates a hash for the entire table so we can quickly compare tables to see if they are 
-     * the same.
+     * the same. The hash will be an empty string if the table has no data.
      * @param \iRAP\CoreLibs\mysqli $mysqliConn
-     * @param string $tableName
+     * @param string $tableName - the name of the table to fetch a hash for.
      * @param array $columns - optionally specify the columns of the table to hash. If not provided,
      *                         then we will get the column names, sort alphabetically, and return
      *                         the hash of that. 
@@ -384,15 +384,22 @@ class MysqliLib
         if ($result !== FALSE)
         {
             $row = $result->fetch_assoc();
-            $tableHash = $row['hash'];
+            
+            if ($row['hash'] === NULL)
+            {
+                // table has no data
+                $tablehash = "";
+            }
+            else
+            {
+                $tableHash = $row['hash'];
+            }
         }
         else
         {
-            die("Failed to fetch table hash" . PHP_EOL . $this->m_mysqli_conn->error);
-            throw new Exception("Failed to fetch table hash");
+            throw new \Exception("Failed to fetch table hash");
         }
         
-        $result->free();
         return $tableHash;
     }
 }
