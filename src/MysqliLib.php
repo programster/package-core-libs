@@ -373,10 +373,14 @@ class MysqliLib
         # (18,446,744,073,709,547,520 / 33)
         $mysqliConn->query("SET group_concat_max_len = 18446744073709547520");
         
+        $primaryKeyArray = MysqliLib::fetchPrimaryKey($mysqliConn, $tableName);
+        $primaryKeyString = MysqliLib::convertPrimaryKeyArrayToString($primaryKeyArray);
+        $orderByString = $primaryKeyString;
+        
         $query =
             "SELECT MD5(GROUP_CONCAT(MD5(CONCAT_WS('#'," . implode(',', $wrappedColumnList) . ")))) " .
             "AS `hash` " .
-            "FROM `{$tableName}`";
+            "FROM `{$tableName}` ORDER BY {$orderByString}";
         
         /* @var $result mysqli_result */
         $result = $mysqliConn->query($query);
@@ -401,5 +405,58 @@ class MysqliLib
         }
         
         return $tableHash;
+    }
+    
+    
+    /**
+     * Fetch th the primary key array into a string that can be used in queries.
+     * e.g. array('id') would become: "(`id`)"
+     * @param array $primaryKey - the columns that act as the primary key.
+     * @return string
+     */
+    public static function convertPrimaryKeyArrayToString(array $primaryKey) : string
+    {
+        $wrappedElements = \iRAP\CoreLibs\ArrayLib::wrapElements($primaryKey, '`');
+        $csv = implode(',', $wrappedElements);
+        return $csv;
+    }
+    
+    
+    /**
+     * Dynamically discovers the primary key for this table and sets this objects member variable 
+     * accordingly. This returns an array
+     * @param \mysqli $mysqliConn - the mysqli connection to get primary key through.
+     * @param string $tableName - the name of the table to fetch the primary key for.
+     * @return array - the column names that act as the primary key because it could be 
+     *                 a combined key.
+     * @throws Exception
+     */
+    public static function fetchPrimaryKey(\mysqli $mysqliConn, string $tableName) : array
+    {
+        $primaryKeyArray = array();
+        
+        $query = "show index FROM `" . $tableName . "`";
+        /*@var $result mysqli_result */
+        $result = $mysqliConn->query($query);
+        
+        if ($result === FALSE)
+        {
+            throw new \Exception("Failed to fetch primary key", 500);
+        }
+        
+        while (($row = $result->fetch_assoc()) != null)
+        {
+            if ($row["Key_name"] === "PRIMARY")
+            {
+                $primaryKeyArray[] = $row["Column_name"];
+            }
+        }
+        
+        if (count($primaryKeyArray) == 0)
+        {
+            throw new \Exception($tableName . " does not have a primary key.");
+        }
+        
+        return $primaryKeyArray;
     }
 }
