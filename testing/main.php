@@ -1,21 +1,12 @@
 <?php
 
-/* 
- * 
- */
+namespace Programster\CoreLibs\Testing;
 
-require_once(__DIR__ . '/vendor/autoload.php');
+require_once(__DIR__ . '/../vendor/autoload.php');
 require_once(__DIR__ . '/TestSettings.php');
 
-$classDirs = array(
-    __DIR__, 
-    __DIR__ . '/tests',
-    __DIR__ . '/libs',
-);
 
-new \iRAP\Autoloader\Autoloader($classDirs);
-
-$tests = iRAP\CoreLibs\Filesystem::getDirContents(
+$tests = \Programster\CoreLibs\Filesystem::getDirContents(
     $dir=__DIR__ . '/tests', 
     $recursive = true, 
     $includePath = false, 
@@ -26,6 +17,7 @@ $tests = iRAP\CoreLibs\Filesystem::getDirContents(
 foreach ($tests as $testFilename)
 {
     $testName = substr($testFilename, 0, -4);
+    $testName = __NAMESPACE__ . "\\tests\\" . $testName;
     
     /* @var $testToRun AbstractTest */
     $testToRun = new $testName();

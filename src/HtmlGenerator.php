@@ -1,6 +1,6 @@
 <?php
 
-namespace iRAP\CoreLibs;
+namespace Programster\CoreLibs;
 
 
 /*

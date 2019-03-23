@@ -1,6 +1,8 @@
 <?php
 
-class TestConvertMysqlResultToJson extends AbstractTest
+namespace Programster\CoreLibs\Testing\Tests;
+
+class TestConvertMysqlResultToJson extends \Programster\CoreLibs\Testing\AbstractTest
 {
     public function getDescription(): string 
     {
@@ -16,7 +18,7 @@ class TestConvertMysqlResultToJson extends AbstractTest
             ['key1' => 'value6', 'key2' => 'value7', 'key3' => 'value8'],
         ];
         
-        $mysqli = new mysqli(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT);
+        $mysqli = new \mysqli(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT);
         
         $queries = array();
         
@@ -28,13 +30,13 @@ class TestConvertMysqlResultToJson extends AbstractTest
                     `key3` varchar(255)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
         
-        $queries[] = iRAP\CoreLibs\MysqliLib::generateBatchInsertQuery(
+        $queries[] = \Programster\CoreLibs\MysqliLib::generateBatchInsertQuery(
             $rowsOfData, 
             'test_table', 
             $mysqli
         );
         
-        $queries[] = iRAP\CoreLibs\MysqliLib::generateBatchInsertQuery(
+        $queries[] = \Programster\CoreLibs\MysqliLib::generateBatchInsertQuery(
             $rowsOfData, 
             'test_table', 
             $mysqli
@@ -55,14 +57,14 @@ class TestConvertMysqlResultToJson extends AbstractTest
         }
         
         $filepath = tempnam(sys_get_temp_dir(), "temp_");
-        \iRAP\CoreLibs\MysqliLib::convertResultToJsonFile($result, $filepath);
+        \Programster\CoreLibs\MysqliLib::convertResultToJsonFile($result, $filepath);
         
         // cleanup
         $dropResult = $mysqli->query("DROP TABLE `test_table`");
             
         if ($dropResult === FALSE)
         {
-            throw new Exception("Failed to drop the test table. \n{$query}");
+            throw new \Exception("Failed to drop the test table. \n{$query}");
         }
         
         // If we didn't throw an exception we passed.

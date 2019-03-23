@@ -1,6 +1,6 @@
 <?php
 
-namespace iRAP\CoreLibs;
+namespace Programster\CoreLibs;
 
 
 /*
@@ -334,7 +334,7 @@ class MysqliLib
     /**
      * Generates a hash for the entire table so we can quickly compare tables to see if they are 
      * the same. The hash will be an empty string if the table has no data.
-     * @param \iRAP\CoreLibs\mysqli $mysqliConn
+     * @param \mysqli $mysqliConn
      * @param string $tableName - the name of the table to fetch a hash for.
      * @param array $columns - optionally specify the columns of the table to hash. If not provided,
      *                         then we will get the column names, sort alphabetically, and return
@@ -342,7 +342,7 @@ class MysqliLib
      *                         WARNING - order matters as it will change the hash and we do not 
      *                         perform any sorting by index etc.
      * @return string - the md5 of the table data.
-     * @throws Exception
+     * @throws \Exception
      */
     public static function getTableHash(
         \mysqli $mysqliConn, 
@@ -416,7 +416,7 @@ class MysqliLib
      */
     public static function convertPrimaryKeyArrayToString(array $primaryKey) : string
     {
-        $wrappedElements = \iRAP\CoreLibs\ArrayLib::wrapElements($primaryKey, '`');
+        $wrappedElements = \Programster\CoreLibs\ArrayLib::wrapElements($primaryKey, '`');
         $csv = implode(',', $wrappedElements);
         return $csv;
     }

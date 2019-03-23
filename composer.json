@@ -1,24 +1,33 @@
 {
-    "name": "irap/core-libs",
+    "name": "programster/core-libs",
     "type": "library",
     "description": "Core libraries for PHP 7.0+",
     "keywords": ["core","library"],
-    "homepage": "http://www.irap.org",
+    "homepage": "https://github.com/programster/package-core-libs",
     "license": "MIT",
     "authors": [
         {
             "name": "Stuart Page",
-            "email": "stuart.page@irap-dev.org",
-            "homepage": "http://irap.org/",
+            "email": "sdpagent@gamail.com",
+            "homepage": "https://blog.programster.org",
             "role": "Developer"
         }
     ],
     "require": {
         "php": ">=7.0.0"
     },
+    "require-dev" : {
+        "ext-mysqli" : "*"
+    },
     "autoload": {
         "psr-4": {
-            "iRAP\\CoreLibs\\": "src/"
+            "Programster\\CoreLibs\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Programster\\CoreLibs\\Testing\\": "testing/",
+            "Programster\\CoreLibs\\Testing\\Tests\\": "testing/tests/"
         }
     }
 }

@@ -1,6 +1,6 @@
 <?php
 
-namespace iRAP\CoreLibs;
+namespace Programster\CoreLibs;
 
 /*
  * A library of functions that are only useful for CLI-based applications/scripts.

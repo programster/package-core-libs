@@ -1,6 +1,8 @@
 <?php
 
-class TestConvertInvalidArrayToCsv extends AbstractTest
+namespace Programster\CoreLibs\Testing\Tests;
+
+class TestConvertInvalidArrayToCsv extends \Programster\CoreLibs\Testing\AbstractTest
 {
     public function getDescription(): string 
     {
@@ -20,12 +22,12 @@ class TestConvertInvalidArrayToCsv extends AbstractTest
         
         try
         {
-            \iRAP\CoreLibs\CsvLib::convertArrayToCsv($filepath, $rowsOfData, TRUE);
+            \Programster\CoreLibs\CsvLib::convertArrayToCsv($filepath, $rowsOfData, TRUE);
             
             // if we get here, we didnt throw an exception and fail.
             $this->m_passed = false;
         } 
-        catch (Exception $ex) 
+        catch (\Exception $ex) 
         {
             $this->m_passed = true;
         }

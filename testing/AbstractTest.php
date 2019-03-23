@@ -4,6 +4,8 @@
  * Abstract class all tests should extend.
  */
 
+namespace Programster\CoreLibs\Testing;
+
 abstract class AbstractTest
 {
     protected $m_passed = false;

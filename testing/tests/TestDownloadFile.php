@@ -1,6 +1,8 @@
 <?php
 
-class TestDownloadFile extends AbstractTest
+namespace Programster\CoreLibs\Testing\Tests;
+
+class TestDownloadFile extends \Programster\CoreLibs\Testing\AbstractTest
 {
     public function getDescription(): string 
     {
@@ -11,7 +13,7 @@ class TestDownloadFile extends AbstractTest
     public function run() 
     {
         $largeFileUrl = "http://ipv4.download.thinkbroadband.com/50MB.zip";
-        $downloadedFile = \iRAP\CoreLibs\Filesystem::downloadFile($largeFileUrl);
+        $downloadedFile = \Programster\CoreLibs\Filesystem::downloadFile($largeFileUrl);
         
         // If we didn't throw an exception we passed.
         if (filesize($downloadedFile) >= 50000000)

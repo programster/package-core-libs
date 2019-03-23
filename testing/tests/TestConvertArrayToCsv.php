@@ -1,6 +1,8 @@
 <?php
 
-class TestConvertArrayToCsv extends AbstractTest
+namespace Programster\CoreLibs\Testing\Tests;
+
+class TestConvertArrayToCsv extends \Programster\CoreLibs\Testing\AbstractTest
 {
     public function getDescription(): string 
     {
@@ -18,7 +20,7 @@ class TestConvertArrayToCsv extends AbstractTest
         ];
         
         $filepath = tempnam(sys_get_temp_dir(), "temp_");
-        \iRAP\CoreLibs\CsvLib::convertArrayToCsv($filepath, $rowsOfData, TRUE);
+        \Programster\CoreLibs\CsvLib::convertArrayToCsv($filepath, $rowsOfData, TRUE);
         // If we didn't throw an exception we passed.
         $this->m_passed = true;
         unlink($filepath);
