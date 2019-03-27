@@ -801,7 +801,7 @@ class Core
      * @param int $port - the port to check
      * @return $isOpen - true if port is open, false if not.
      */
-    public static function isPortOpen($host, $port, $protocol)
+    public static function isPortOpen($host, $port, $protocol) : bool
     {
         $protocol = strtolower($protocol);
         
@@ -843,7 +843,7 @@ class Core
      * 8 even though there is only 1 physical processor)
      * @return int - the number of threads this machine can concurrently run.
      */
-    public static function getNumProcessors()
+    public static function getNumProcessors() : int
     {
         $cmd = "cat /proc/cpuinfo | grep processor | wc -l";
         $numProcessors = intval(shell_exec($cmd));
@@ -935,7 +935,7 @@ class Core
      *                    range 04-31
      * @return string - the generated hash
      */
-    public static function generatePasswordHash($rawPassword, $cost=11)
+    public static function generatePasswordHash($rawPassword, $cost=11) : string
     {
         $cost = intval($cost);
         $cost = self::clampValue($cost, $max=31, $min=4);
@@ -963,7 +963,7 @@ class Core
      *                              (generated from generate_password_hash)
      * @return boolean - true if valid, false if not.
      */
-    public static function verifyPassword($rawPassword, $expectedHash)
+    public static function verifyPassword($rawPassword, $expectedHash) : bool
     {
         $verified = false;
         
@@ -983,7 +983,7 @@ class Core
      * @param array $data - the data we wish to sign.
      * @return string - the generated signature for the provided data.
      */
-    public static function generateSignature(array $data, string $secret)
+    public static function generateSignature(array $data, string $secret) : string
     {
         ksort($data);
         $stringForm = json_encode($data);
@@ -1000,9 +1000,9 @@ class Core
      * @return bool - true if the signature is correct for the data, or false if not (in which case
      *                a user probably tried to manipulate the data).
      */
-    public static function isValidSignedRequest(array $data, string $signature)
+    public static function isValidSignedRequest(array $data, string $signature) : bool
     {
-        $generated_signature = SiteSpecific::generateSignature($data);
-        return ($generated_signature == $signature);
+        $generatedSignature = Core::generateSignature($data);
+        return ($generatedSignature == $signature);
     }
 }
