@@ -993,16 +993,17 @@ class Core
     
     /**
      * Check if the provided data has the correct signature.
-     * @param array $data - the data we recieved that was signed. The signature MUST NOT be in this
+     * @param array $data - the data we received that was signed. The signature MUST NOT be in this
      *                      array.
      * @param string $signature - the signature that came with the data. This is what we will check
-     *                            if is valid for the data recieved.
+     *                            if is valid for the data received.
+     * @param string $serverSecret - the server's secret that it uses for generating signatures.
      * @return bool - true if the signature is correct for the data, or false if not (in which case
      *                a user probably tried to manipulate the data).
      */
-    public static function isValidSignedRequest(array $data, string $signature) : bool
+    public static function isValidSignedRequest(array $data, string $signature, string $serverSecret) : bool
     {
-        $generatedSignature = Core::generateSignature($data);
+        $generatedSignature = Core::generateSignature($data, $serverSecret);
         return ($generatedSignature == $signature);
     }
 }
