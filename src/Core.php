@@ -17,7 +17,7 @@ class Core
      * can be used in "or" statements.
      * @param string $msg - message to raise in exception
      */
-    public static function throwException($msg)
+    public static function throwException(string $msg)
     {
         throw new \Exception($msg);
     }
@@ -28,7 +28,7 @@ class Core
      * @param void
      * @return result (boolean) - true if CLI false if website.
      */
-    public static function isCli()
+    public static function isCli() : bool
     {
         $result = false;
         
@@ -47,7 +47,7 @@ class Core
      * @param String $message - the string to print out.
      * @return void - prints out immediately.
      */
-    public static function println($message)
+    public static function println(string $message)
     {   
         if (!self::isCli())
         {
@@ -62,7 +62,7 @@ class Core
      * Output messages only if debugging is enabled (DEBUG defined and true)
      * @param string message - the message to be logged.
      */
-    public static function debugPrintln($message)
+    public static function debugPrintln(string $message)
     {
         global $globals;
         
@@ -76,9 +76,9 @@ class Core
     /**
      * Generates a unique id, which can be useful for javascript
      * @param prefix - optional - specify a prefix such as 'accordion' etc.
-     * @return id - the 'unique' id.
+     * @return string id - the 'unique' id.
      */
-    public static function generateUniqueId($prefix="")
+    public static function generateUniqueId(string $prefix="") : string
     {
         static $counter = 0;
         $counter++;
@@ -96,7 +96,7 @@ class Core
      * 
      * @return void - redirects the user and quits.
      */
-    public static function redirectUser($location)
+    public static function redirectUser(string $location)
     {
         header("location: " . $location);
         exit();
@@ -113,7 +113,7 @@ class Core
      * 
      * @return htmlString - the html to print out in order to redirect the user.
      */
-    public static function javascriptRedirectUser($url, $numSeconds = 0)
+    public static function javascriptRedirectUser(string $url, int $numSeconds = 0) : string
     {
         $htmlString = '';
             
@@ -135,7 +135,7 @@ class Core
      * @param string $nameingPrefix - the name to give the process.
      * @return boolean - true if successfully set the title, false if not.
      */
-    public static function setCliTitle($nameingPrefix)
+    public static function setCliTitle(string $nameingPrefix) : bool
     {
         $succeeded = false;
         $num_running = self::getNumProcRunning($nameingPrefix);
@@ -157,7 +157,7 @@ class Core
      *                        (e.g. its name/title)
      * @return int - the number of processes running with that title.
      */
-    public static function getNumProcRunning($title)
+    public static function getNumProcRunning(string $title) : int
     {
         $cmd = "ps -ef | tr -s ' ' | cut -d ' ' -f 8";
         $processes = explode(PHP_EOL, shell_exec($cmd));
@@ -187,7 +187,12 @@ class Core
      * @return stdObject - json response object from the api server
      * @throws \Exception
      */
-    public static function sendApiRequest($url, array $parameters, $requestType="POST", $headers=array())
+    public static function sendApiRequest(
+        string $url, 
+        array $parameters, 
+        string $requestType="POST", 
+        array $headers=array()
+    )
     {
         $allowedRequestTypes = array("GET", "POST", "PUT", "PATCH", "DELETE");
         $requestTypeUpper = strtoupper($requestType);
@@ -286,7 +291,7 @@ class Core
      * 
      * @return stdObject - json response object from the api server
      */
-    public static function sendGetRequest($url, array $parameters=array(), $arrayForm=false)
+    public static function sendGetRequest(string $url, array $parameters=array(), bool $arrayForm=false)
     {
         if (count($parameters) > 0)
         {
@@ -343,12 +348,14 @@ class Core
      *                             connection attempts to make before giving up.
      * @return Array - the response from the api in name/value pairs.
      */
-    public static function sendTcpRequest($host, 
-                                          $port, 
-                                          $request,
-                                          $bufferSize=10485760, 
-                                          $timeout=2, 
-                                          $attemptsLimit=100)
+    public static function sendTcpRequest(
+        string $host, 
+        int $port, 
+        $request,
+        int $bufferSize=10485760, 
+        int $timeout=2, 
+        int $attemptsLimit=100
+    )
     {
         # The PHP_EOL endline is so that the reciever knows that is the end of 
         # the message with PHP_NORMAL_READ.
@@ -433,7 +440,7 @@ class Core
      * 
      * @return result - false if any parameters could not be found.
      */
-    public static function fetchReqArgs($args)
+    public static function fetchReqArgs(array $args)
     {
         $values = self::fetchReqArgsFromArray($args, $_REQUEST);
         return $values;
@@ -450,7 +457,7 @@ class Core
      * 
      * @return result - false if any parameters could not be found.
      */
-    public static function fetchReqArgsFromArray($args, $input_array)
+    public static function fetchReqArgsFromArray(array $args, array $input_array)
     {
         $values = array();
 
@@ -479,7 +486,7 @@ class Core
      * @param args - array of all the argument names.
      * @return values - array of retrieved values
      */
-    public static function fetchOptionalArgs($args)
+    public static function fetchOptionalArgs(array $args)
     {
         $values = self::fetchOptionalArgsFromArray($args, $_REQUEST);
         return $values;
@@ -536,7 +543,7 @@ class Core
      * @return pageURL - full page url of the current page 
      *                   e.g. https://www.google.com/some-page
      */
-    public static function getCurrentUrl() 
+    public static function getCurrentUrl() : string
     {
         $pageURL = 'http';
         
@@ -599,7 +606,7 @@ class Core
      * 
      * @return string - the password that was typed in.
      */
-    public static function getPasswordFromUserInput($stars = true)
+    public static function getPasswordFromUserInput(bool $stars = true) : string
     {
         // Get current style
         $oldStyle = shell_exec('stty -g');
@@ -653,7 +660,7 @@ class Core
      * getting around htaccess url rewrites.
      * @return String  - The url e.g. 'http://www.technostu.com'
      */
-    public static function getHostname()
+    public static function getHostname() : string
     {
         $hostname = $_SERVER['HTTP_HOST']; 
 
@@ -676,7 +683,7 @@ class Core
      * @param input - the input variable to decide whether to output yes/no on.
      * @return result - string of 'Yes' or 'No'
      */
-    public static function generateYesNoString($input)
+    public static function generateYesNoString($input) : string
     {
         $result = 'Yes';
         
@@ -696,7 +703,7 @@ class Core
      *                      or false on.
      * @return string - "True" or "False"
      */
-    public static function generateTrueFalseString($input)
+    public static function generateTrueFalseString($input) : string
     {
         $result = 'True';
         
@@ -765,7 +772,7 @@ class Core
      * @return string - The ip of this machine on that interface. Will be empty
      *                  if there is no IP.
      */
-    public static function getIp($interface = 'eth0')
+    public static function getIp(string $interface = 'eth0')
     {
         $command = 
             'ifconfig ' . $interface . ' | ' .
@@ -787,7 +794,7 @@ class Core
      * @param void
      * @return string $ip - the public ip address of this computer.
      */
-    public static function getPublicIp()
+    public static function getPublicIp() : string
     {
         $ip = file_get_contents('http://icanhazip.com/');
         $ip = trim($ip);
@@ -801,7 +808,7 @@ class Core
      * @param int $port - the port to check
      * @return $isOpen - true if port is open, false if not.
      */
-    public static function isPortOpen($host, $port, $protocol) : bool
+    public static function isPortOpen(string $host, int $port, string $protocol) : bool
     {
         $protocol = strtolower($protocol);
         
@@ -860,7 +867,7 @@ class Core
      * Based on: 
      * http://stackoverflow.com/questions/1455379/get-server-ram-with-php
      */
-    public static function getRam($availableOnly=false)
+    public static function getRam(bool $availableOnly=false)
     {
         $data = explode("\n", file_get_contents("/proc/meminfo"));
         $meminfo = array();
@@ -935,7 +942,7 @@ class Core
      *                    range 04-31
      * @return string - the generated hash
      */
-    public static function generatePasswordHash($rawPassword, $cost=11) : string
+    public static function generatePasswordHash(string $rawPassword, int $cost=11) : string
     {
         $cost = intval($cost);
         $cost = self::clampValue($cost, $max=31, $min=4);
@@ -963,7 +970,7 @@ class Core
      *                              (generated from generate_password_hash)
      * @return boolean - true if valid, false if not.
      */
-    public static function verifyPassword($rawPassword, $expectedHash) : bool
+    public static function verifyPassword(string $rawPassword, string $expectedHash) : bool
     {
         $verified = false;
         

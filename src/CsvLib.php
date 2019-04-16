@@ -269,8 +269,9 @@ class CsvLib
      * @param sring $filepath - the path to the CSV file we are trimming
      * @param string $delimiter - the delimiter used in the CSV. E.g. ',' or ';'
      * @throws \Exception
+     * @return void
      */
-    public static function trim($filepath, $delimiter)
+    public static function trim(string $filepath, string $delimiter)
     {
         $tmpFile = tmpfile();
         $uploaded_fh = fopen($filepath, "r");
@@ -311,8 +312,14 @@ class CsvLib
      * @param array $columnIndexes - array of integers specifying the column indexes to remove, starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     * @return void
      */
-    public static function removeColumns($filepath, array $columnIndexes, $delimiter=",", $enclosure='"')
+    public static function removeColumns(
+        string $filepath, 
+        array $columnIndexes, 
+        string $delimiter=",", 
+        string $enclosure='"'
+    )
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
@@ -366,8 +373,9 @@ class CsvLib
      * @param array $rowIndexes - array of integers specifying the row numbers to remove, starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     * @return void
      */
-    public static function removeRows($filepath, array $rowIndexes, $delimiter=",", $enclosure='"')
+    public static function removeRows(string $filepath, array $rowIndexes, string $delimiter=",", string $enclosure='"')
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
@@ -414,7 +422,12 @@ class CsvLib
      * @return string - the path to the created diff CSV file.
      * @throws \Exception
      */
-    public static function decimalDiff($filepath1, $filepath2, $delimiter=",", $enclosure='"')
+    public static function decimalDiff(
+        string $filepath1, 
+        string $filepath2, 
+        string $delimiter=",", 
+        string $enclosure='"'
+    ) : string
     {
         $newFileName = tempnam(sys_get_temp_dir(), "");
         $newFileHandle = fopen($newFileName, "w");
@@ -503,7 +516,14 @@ class CsvLib
      * @return bool - true if the files are the same, false if different.
      * @throws \Exception
      */
-    public static function diffTolerance($filepath1, $filepath2, array $tolerances, $compareOtherColumns = true, $delimiter=",", $enclosure='"')
+    public static function diffTolerance(
+        string $filepath1, 
+        string $filepath2, 
+        array $tolerances, 
+        bool $compareOtherColumns = true, 
+        string $delimiter=",", 
+        string $enclosure='"'
+    ) : bool
     {
         $hasFailed = false;
         $humanRowNumber = 1;
@@ -599,8 +619,15 @@ class CsvLib
      * @param string $delimiter - optinoally specify the delimiter being used in the files
      * @param string $enclosure - optionally specify the enclosure being used in the files
      * @throws Exception
+     * @return void
      */
-    public static function mergeFiles(array $filepaths, string $mergedFilepath, bool $hasHeaders, string $delimiter=",", string $enclosure='"')
+    public static function mergeFiles(
+        array $filepaths, 
+        string $mergedFilepath, 
+        bool $hasHeaders, 
+        string $delimiter=",", 
+        string $enclosure='"'
+    )
     {
         $isFirstFile = true;
         $outputFileHandle = fopen($mergedFilepath, "w");
