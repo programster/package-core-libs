@@ -17,8 +17,15 @@ class CsvLib
      *                               created.
      * @param bool $compressed - if true then this will have no line endings or padding, if false
      *                           then the outputted json will be much easier to read by humans.
+     * @param string $delimiter - optionally specify a delimiter other than the default comma.
+     * @return void
      */
-    public static function convertCsvToJson($csvFilepath, $jsonFilepath, $compressed)
+    public static function convertCsvToJson(
+        string $csvFilepath, 
+        string $jsonFilepath, 
+        bool $compressed, 
+        string $delimiter = ","
+    )
     {
         $lines = file($csvFilepath);
         $jsonFile = fopen($jsonFilepath, "w");
@@ -109,7 +116,7 @@ class CsvLib
      *                        
      * @return array - an array list of indexed rows that the CSV has been converted into.
      */
-    public static function convertCsvToArray($filepath, $hasHeader, $keys=null)
+    public static function convertCsvToArray(string $filepath, bool $hasHeader, array $keys=null) : array
     {
         $file = fopen($filepath, 'r');
         $output = array();
@@ -179,7 +186,13 @@ class CsvLib
      * @throws Exception
      * @throws \Exception
      */
-    public static function convertArrayToCsv(string $filepath, array $rows, bool $addHeader, string $delimiter = ",", string $enclosure = '"')
+    public static function convertArrayToCsv(
+        string $filepath, 
+        array $rows, 
+        bool $addHeader, 
+        string $delimiter = ",", 
+        string $enclosure = '"'
+    )
     {
         $fileHandle = fopen($filepath, 'w');
         
