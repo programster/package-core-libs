@@ -4,7 +4,7 @@ namespace Programster\CoreLibs;
 
 
 /*
- * Library for just array functions. I had thought about creating a wrapper 
+ * Library for just array functions. I had thought about creating a wrapper
  * class around the array instead, but this is more flexible and doesn't require
  * users to convert their array objects
  */
@@ -13,9 +13,9 @@ namespace Programster\CoreLibs;
 class ArrayLib
 {
     /**
-     * Returns true or false based on whether the provided array is an 
+     * Returns true or false based on whether the provided array is an
      * associative array or not.
-     * Note that this will return true if it is integer based but they index 
+     * Note that this will return true if it is integer based but they index
      * does not start at 0.
      * @param array arr - the array to check
      * @return bool - true if the array is associative, false otherwise.
@@ -24,8 +24,8 @@ class ArrayLib
     {
         return array_keys($arr) !== range(0, count($arr) - 1);
     }
-    
-    
+
+
     /**
      * Returns the first element of the array (useful for maps/hashtables or if you dont know)
      * @param array $inputArray - the array we want the first element of.
@@ -43,11 +43,11 @@ class ArrayLib
         {
             $element = array_shift($inputArray);
         }
-        
+
         return $element;
     }
-    
-    
+
+
     /**
      * Fetches the last element of an array
      * @param array &$inputArray - the array we want the last element of.
@@ -71,11 +71,11 @@ class ArrayLib
         {
             throw new \Exception('inputArray has no elements');
         }
-        
+
         return $element;
     }
-    
-    
+
+
     /**
      * Returns the last index in the provided array
      * @param array $inputArray - the array we want the last index of
@@ -87,29 +87,69 @@ class ArrayLib
         $arrayIndexes = array_keys($inputArray);
         return self::getLastElement($arrayIndexes, $removeElement);
     }
-    
-    
+
+
+    /**
+     * Fetch a random element from the provided array.
+     * @param array $inputArray - the array to get a random element from.
+     * @param bool $removeElement - optionally set to true to have the element removed from the array as well.
+     * @return mixed - a random element from the array.
+     */
+    public static function getRandomElement(array &$inputArray, bool $removeElement = false)
+    {
+        $randomKey = ArrayLib::getRandomKey($inputArray);
+        $element = $inputArray[$randomKey];
+
+        if ($removeElement)
+        {
+            unset($inputArray[$randomKey]);
+        }
+
+        return $element;
+    }
+
+
+    /**
+     * Get a random key from the provided array.
+     * @param array $inputArray - the array to get a random key from.
+     * @param bool $removeElement - optionally specify true to have the key (and element) removed from the array.
+     * @return mixed  - a random key in the array. This could be a string or integer
+     */
+    public static function getRandomKey(array &$inputArray, bool $removeElement = false)
+    {
+        $keys = array_keys($inputArray);
+        $key = $keys[random_int(0, (count($keys) - 1))];
+
+        if ($removeElement)
+        {
+            unset($inputArray[$key]);
+        }
+
+        return $key;
+    }
+
+
     /**
      * Removes the specified indexes from the input array before returning it.
-     * 
+     *
      * @param array $inputArray - the array we are manipulating
-     * @param array $indexes - array list of indexes whose elements we wish to 
+     * @param array $indexes - array list of indexes whose elements we wish to
      *                         remove
-     * @param bool $reIndex - override to true if your array needs re-indexing 
+     * @param bool $reIndex - override to true if your array needs re-indexing
      *                        (e.g. 0,1,2,3)
-     * 
+     *
      * @return array $outputArray - the newly generated output array.
      */
-    public static function removeIndexes(array $inputArray, 
-                                         array $indexes, 
+    public static function removeIndexes(array $inputArray,
+                                         array $indexes,
                                          $reIndex=false)
-    {        
+    {
         if ($reIndex)
         {
-            # Was going to use array_filter here but realized user may want 
+            # Was going to use array_filter here but realized user may want
             # 'false' values.
             $outputArray = array();
-            
+
             foreach ($inputArray as $index => $value)
             {
                 if (!in_array($index, $indexes))
@@ -127,16 +167,16 @@ class ArrayLib
                     unset($inputArray[$index]);
                 }
             }
-            
+
             $outputArray = $inputArray;
         }
-        
+
         return $outputArray;
     }
-    
-    
+
+
     /**
-     * Wrap all of elements in an array with the string (before and after) 
+     * Wrap all of elements in an array with the string (before and after)
      * e.g. wrapElements on array(foo,bar), "`" would create array(`foo`,`bar`)
      * @param $inputArray - array we are going to create our wrapped array from
      * @param $wrapString - string of characters we wish to wrap with.
@@ -148,15 +188,15 @@ class ArrayLib
         {
             $value = $wrapString . $value . $wrapString;
         }
-        
+
         return $inputArray;
     }
-    
-    
+
+
     /**
-     * Wrap all of values in an array for insertion into a database. This is a 
-     * specific variation of the wrap_elements method that will correctly 
-     * convert null values into a NULL string without quotes so that nulls get 
+     * Wrap all of values in an array for insertion into a database. This is a
+     * specific variation of the wrap_elements method that will correctly
+     * convert null values into a NULL string without quotes so that nulls get
      * inserted into the database correctly.
      * @param $inputArray - array we are going to create our wrapped array from
      * @return array
@@ -174,13 +214,13 @@ class ArrayLib
                 $value = "NULL";
             }
         }
-        
+
         return $inputArray;
     }
-    
-    
+
+
     /**
-     * Faster version of array_diff that relies on not needing to keep indexes 
+     * Faster version of array_diff that relies on not needing to keep indexes
      * of the missing values
      * Compares values, but returns the indexes
      * @param array $array1 - array to compare
@@ -191,23 +231,23 @@ class ArrayLib
     {
         $missingValues = array();
         $flippedArray2 = array_flip($array2); # swaps indexes and values
-       
+
         foreach ($array1 as $value)
         {
-            if (!isset($flippedArray2[$value])) 
+            if (!isset($flippedArray2[$value]))
             {
                 $missingValues[] = $value;
             }
         }
-        
+
         return $missingValues;
     }
-    
-    
+
+
     /**
      * Returns all the values that are in array1 and array2.
      * Relies on the values being integers or strings
-     * Will only return a value once, even if it appears multiple times in the 
+     * Will only return a value once, even if it appears multiple times in the
      * array.
      * Does not maintain indexes.
      * @param array $array1 - array of integers or strings to compare
@@ -218,21 +258,21 @@ class ArrayLib
     {
         $sharedValues = array();
         $flippedArray2 = array_flip($array2); # swaps indexes and values
-       
+
         foreach ($array1 as $value)
         {
-            if (isset($flippedArray2[$value])) 
+            if (isset($flippedArray2[$value]))
             {
                 $sharedValues[] = $value;
             }
         }
-        
+
         return $sharedValues;
     }
-    
-    
+
+
     /**
-     * Fetches an array of values for the specified indexes from the provided 
+     * Fetches an array of values for the specified indexes from the provided
      * array.
      * All the specified indexes must be within the haystack.
      * This does NOT keep index association (e.g. returns a list of values)
@@ -242,7 +282,7 @@ class ArrayLib
     public static function getValues(array $haystack, array $indexes)
     {
         $values = array();
-        
+
         foreach ($indexes as $index)
         {
             if (!isset($haystack[$index]))
@@ -250,14 +290,14 @@ class ArrayLib
                 $msg = "index [$index] does not exist in the provided array.";
                 throw new \Exception($msg);
             }
-            
+
             $values[] = $haystack[$index];
         }
-        
+
         return $values;
     }
-    
-    
+
+
     /**
      * Returns an array of "sets" that are in arr1 but not arr2 where a "set" is
      * an array of values, e.g. array(1,2,3)
@@ -268,11 +308,11 @@ class ArrayLib
     private static function setDiff(array $arr1, array $arr2)
     {
         $missingSets = array();
-        
+
         foreach ($arr1 as $searchSet)
         {
             $found = false;
-            
+
             foreach ($arr2 as $subArray2)
             {
                 if ($subArray2 === $searchSet)
@@ -281,43 +321,43 @@ class ArrayLib
                     break;
                 }
             }
-            
+
             if (!$found)
             {
                 $missingSets[] = $searchSet;
             }
         }
-        
+
         return $missingSets;
     }
-    
-    
+
+
     /**
-     * Same as array_diff except that this returns the indexes of the values 
+     * Same as array_diff except that this returns the indexes of the values
      * that are in array1 but not array2.
      * WARNING - this is NOT comparing the indexes themselves.
      * @param array $array1
      * @param array $array2
-     * @return array - array of indexes in array1 where the values are not in 
+     * @return array - array of indexes in array1 where the values are not in
      *                 array2
      */
     public static function indexDiff(array $array1, array $array2)
     {
         $indexes = array();
         $flippedArray2 = array_flip($array2); # swaps indexes and values
-       
+
         foreach ($array1 as $index => $value)
         {
-            if (!isset($flippedArray2[$value])) 
+            if (!isset($flippedArray2[$value]))
             {
                 $indexes[] = $index;
             }
         }
-        
+
         return $indexes;
     }
-    
-    
+
+
     /**
      * Remove empty elements from the provided array.
      * If the input array is not assosciative, then it will be re-indexed. 0,1,2,3 etc
@@ -326,16 +366,16 @@ class ArrayLib
     public static function stripEmptyElements($inputArray)
     {
         $outputArray = array_filter($inputArray);
-        
+
         if (!self::isAssoc($inputArray))
         {
             $outputArray = array_values($outputArray);
         }
-        
+
         return $outputArray;
     }
-    
-    
+
+
     /**
      * Merge two assosciative arrays. The indexes will be in the order of the first array, then the second
      * @param Array $array1 - an assosciative array to merge
@@ -343,13 +383,13 @@ class ArrayLib
      * @param \Closure $clashHandler - callback function to return the value should keep, should we encounter
      *                                 the same index in the two arrays. This will take as params:
      *                                 [index], [array1 value], [array2 value]
-     *          
+     *
      * @return array - combined assosciative array.
      */
     public static function assoc_array_merge(array $array1, array $array2, \Closure $clashHandler)
     {
         $result_array = array();
-        
+
         foreach ($array1 as $index => $value)
         {
             if (isset($array2[$index]))
@@ -358,29 +398,29 @@ class ArrayLib
                 $value = $clashHandler($index, $array1[$index], $array2[$index]);
                 unset($array2[$index]);
             }
-            
+
             $result_array[$index] = $value;
-            
+
             unset($array1[$index]);
         }
-        
+
         # Array 2 should only have indexes that were not in array 1 as clashes were unset.
         # Thus we can just merge straight in.
         foreach ($array2 as $index => $value)
         {
             $result_array[$index] = $value;
         }
-        
+
         return $result_array;
     }
-    
-    
+
+
     /**
      * Wrapper around array_combine that works on a list of arrays for the
-     * values instead of being given a single array for the values. The result is a 
-     * list of arrays who's keys are provided by the keys parameter and the values are the 
+     * values instead of being given a single array for the values. The result is a
+     * list of arrays who's keys are provided by the keys parameter and the values are the
      * corresponding values in the rows' arrays.
-     * 
+     *
      * @param array $keys - list of keys to set for the rows. The length should be exactly the
      *                      same as the length of every row in the rows array.
      * @param array $rows - list of arrays that whill have array_combine performed on. Every row
@@ -391,34 +431,34 @@ class ArrayLib
     public static function array_combine_list(array $keys, array $rows)
     {
         $output = array();
-        
+
         foreach ($rows as $row)
         {
             if (count($row) !== count($keys))
             {
-                $msg = "array_combine_list: Number of values in one of the rows is " . 
+                $msg = "array_combine_list: Number of values in one of the rows is " .
                        "not equal to the number of keys.";
-                
+
                 throw new \Exception($msg);
             }
-            
+
             $output[] = array_combine($keys, $row);
         }
-        
+
         return $output;
     }
-    
-    
+
+
     /**
      * Break an array up into a number of other arrays specified by $numberOfArrays
      * @param array $inputArray - the array to split into multiple arrays
      * @param int $numberOfArrays - the number of arrays to break up into and return
-     * @param bool $useBucketFill - default true to put the first elements in the first array and 
-     *                              then start filling the next array. If set to false, then 
-     *                              elements will be spread across the arrays in turn. 
+     * @param bool $useBucketFill - default true to put the first elements in the first array and
+     *                              then start filling the next array. If set to false, then
+     *                              elements will be spread across the arrays in turn.
      *                              E.G. true  - [1,2,3,4,5] / 2 -> [ [1,2,3], [4,5] ]
      *                              E.g. false - [1,2,3,4,5] / 2 -> [ [1,3,5], [2,4] ]
-     *                              
+     *
      * @param bool $preserveKeys - if true key/value assosciation is maintained in the split arrays
      * @return array - an array of the resulting arrays.
      */
@@ -434,14 +474,14 @@ class ArrayLib
         {
             // spread the elements over the arrays
             $result = array();
-            
+
             for ($i=0; $i < $numberOfArrays; $i++)
             {
                 $result[] = array();
             }
-            
+
             $counter = 0;
-            
+
             if ($preserveKeys)
             {
                 foreach ($inputArray as $key => $value)
@@ -460,7 +500,7 @@ class ArrayLib
                 }
             }
         }
-        
+
         return $result;
     }
 }
