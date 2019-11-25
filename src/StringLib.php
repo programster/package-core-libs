@@ -226,51 +226,50 @@ namespace Programster\CoreLibs;
         
         return $output;
     }
-    
-    
+
+
     /**
      * Encrypt a String
      * @param String $message - the message to encrypt
      * @param String $key - the key to encrypt and then decrypt the message.
-     * @return String - the encryptd form of the string
+     * @param string $initializationVector - a 16 character string to initialize the cipher.
+     *                                       this way two plaintext messages can result in different
+     *                                       encrypted strings. (like a salt in hashing).
+     * @return string - the encryptd form of the string
      */
-    public static function encrypt($message, $key)
+    public static function encrypt(string $message, string $key, string $initializationVector) : string
     {
-        $md5Key = md5($key);
-        
-        $encrypted = mcrypt_encrypt(
-            MCRYPT_RIJNDAEL_256, 
-            $md5Key, 
-            $message, 
-            MCRYPT_MODE_CBC, 
-            md5($md5Key)
+        $cipherMethod = "AES-256-OFB";
+
+        return openssl_encrypt(
+            $textToEncrypt,
+            $cipherMethod,
+            $key,
+            OPENSSL_ZERO_PADDING,
+            $initializationVector
         );
-        
-        $encoded_encryption = base64_encode($encrypted);
-        return $encoded_encryption;
     }
-    
-    
+
+
     /**
-     * Decrypt a String
-     * @param String $encrypted_text - the message to decrypt
-     * @param String $key - the key to encrypt and decrypt the message.
-     * @return String - the unencrypted form of the text
+     * Decrypt a string that was encrypted with our encrypt method.
+     * @param type $encryptedData - the encrypted text.
+     * @param type $key - the decryption key/password
+     * @param string $initializationVector - a 16 character string to initialize the cipher.
+     * @return string - the decrypted string
      */
-    public static function decrypt($encrypted_text, $key)
+    public static function decrypt(string $encryptedText, string $key, string $initializationVector) : string
     {
-        $md5Key = md5($key);
-        
-        $decrypted_text = mcrypt_decrypt(
-            MCRYPT_RIJNDAEL_256, 
-             $md5Key, 
-             base64_decode($encrypted_text), 
-             MCRYPT_MODE_CBC, 
-             md5($md5Key)
+        $cipherMethod = "AES-256-OFB";
+        $initializationVector = "someStaticRandwd";
+
+        return openssl_decrypt(
+            $encryptedText,
+            $cipherMethod,
+            $key,
+            OPENSSL_ZERO_PADDING,
+            $initializationVector
         );
-        
-        $trimmed_decryption = rtrim($decrypted_text, "\0");
-        return $trimmed_decryption;
     }
     
     
@@ -300,22 +299,6 @@ namespace Programster\CoreLibs;
         }
         
         return $isRegExp;
-    }
-    
-    
-    /**
-     * Function to remove the e modifier from regular expressions.
-     * http://stackoverflow.com/questions/7243073/how-can-i-disable-the-e-preg-replace-eval-modifier-in-php
-     * @param string $regExp 
-     * @return string - the sanitized regexp without the modifier.
-     */
-    public static function sanitizeRegExp($regExp)
-    {
-        $pattern_parts = explode($regExp{0}, trim($regExp));
-        $pattern_last = sizeof($pattern_parts) - 1;
-        $pattern_parts[$pattern_last] = str_replace('e', '', $pattern_parts[$pattern_last]);
-        
-        return implode($regExp{0}, $pattern_parts);
     }
     
     
