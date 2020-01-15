@@ -1,13 +1,16 @@
 <?php
 
-namespace Programster\CoreLibs;
-
-
 /*
  * Library for just array functions. I had thought about creating a wrapper
  * class around the array instead, but this is more flexible and doesn't require
  * users to convert their array objects
  */
+
+namespace Programster\CoreLibs;
+
+use function Safe\file_get_contents;
+use function Safe\json_decode;
+use function Safe\json_encode;
 
 
 class ArrayLib

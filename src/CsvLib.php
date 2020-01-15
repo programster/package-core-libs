@@ -1,11 +1,15 @@
 <?php
 
-namespace Programster\CoreLibs;
-
-
 /*
  * A library for handling CSV files
  */
+
+namespace Programster\CoreLibs;
+
+use function Safe\file_get_contents;
+use function Safe\json_decode;
+use function Safe\json_encode;
+
 
 class CsvLib
 {
@@ -21,26 +25,26 @@ class CsvLib
      * @return void
      */
     public static function convertCsvToJson(
-        string $csvFilepath, 
-        string $jsonFilepath, 
-        bool $compressed, 
+        string $csvFilepath,
+        string $jsonFilepath,
+        bool $compressed,
         string $delimiter = ","
     )
     {
         $lines = file($csvFilepath);
         $jsonFile = fopen($jsonFilepath, "w");
         $headers = array();
-        
+
         if ($compressed)
         {
             fwrite($jsonFile, "[");
         }
         else
         {
-            fwrite($jsonFile, "[" . PHP_EOL); 
+            fwrite($jsonFile, "[" . PHP_EOL);
         }
-        
-        
+
+
         foreach ($lines as $lineIndex => $line)
         {
             if ($lineIndex === 0)
@@ -52,12 +56,12 @@ class CsvLib
             {
                 $data = str_getcsv($line);
                 $obj = new \stdClass();
-                
+
                 foreach ($headers as $headerIndex => $header)
                 {
                     $obj->$header = $data[$headerIndex];
                 }
-                
+
                 if ($compressed)
                 {
                     $jsonString = json_encode($obj, JSON_UNESCAPED_SLASHES);
@@ -66,19 +70,19 @@ class CsvLib
                 {
                     $jsonString = json_encode($obj, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
                 }
-                
+
                 if (!$compressed)
                 {
                     $jsonStringLines = explode(PHP_EOL, $jsonString);
-                    
+
                     foreach ($jsonStringLines as $jsonStringLineIndex => $line)
                     {
                         $jsonStringLines[$jsonStringLineIndex] = "    " . $line;
                     }
-                    
+
                     $jsonString = implode(PHP_EOL, $jsonStringLines);
                 }
-                
+
                 if ($lineIndex > 1)
                 {
                     if ($compressed)
@@ -89,20 +93,20 @@ class CsvLib
                     {
                         $jsonString = "," . PHP_EOL . $jsonString;
                     }
-                    
+
                 }
-                
-                fwrite($jsonFile, $jsonString); 
+
+                fwrite($jsonFile, $jsonString);
             }
         }
-        
-        fwrite($jsonFile, "]"); 
+
+        fwrite($jsonFile, "]");
     }
-    
-    
+
+
     /**
      * Loops through the CSV file and puts the data into an array. You can specify whether
-     * the CSV has a header and if keys is not provided then we will use these as indexes. If there 
+     * the CSV has a header and if keys is not provided then we will use these as indexes. If there
      * is no header and no keys, then an array list of rows is returned. If keys are provided then
      * these are always used as the indexes even if it has to override the header.
      * WARNING - this can be a memory hog.
@@ -113,7 +117,7 @@ class CsvLib
      * @param array $keys - optional parameter to specify the indexes to use in the rows. If not
      *                      provided and there is a header, then we will use the header columns
      *                      as indexes.
-     *                        
+     *
      * @return array - an array list of indexed rows that the CSV has been converted into.
      */
     public static function convertCsvToArray(string $filepath, bool $hasHeader, array $keys=null) : array
@@ -121,7 +125,7 @@ class CsvLib
         $file = fopen($filepath, 'r');
         $output = array();
         $firstRow = true;
-        
+
         while ($row = fgetcsv($file))
         {
             // Skip empty lines (users may accidentally put one at the end
@@ -130,27 +134,27 @@ class CsvLib
             {
                 continue;
             }
-            
+
             if ($firstRow)
             {
                 $firstRow = false;
-                
+
                 if ($hasHeader)
                 {
                     if ($keys == null)
                     {
                         $keys = $row;
                     }
-                    
+
                     continue;
                 }
             }
-            
+
             if ($keys != null)
             {
                 if (count($keys) != count($row))
                 {
-                    $msg = "Cannot convert csv to array. Number of keys: " . count($keys) . 
+                    $msg = "Cannot convert csv to array. Number of keys: " . count($keys) .
                            " is not the same as the number of values: " . count($row);
                     throw new \Exception($msg);
                 }
@@ -161,16 +165,16 @@ class CsvLib
                 $output[] = $row;
             }
         }
-        
+
         return $output;
     }
-    
-    
+
+
     /**
-     * Create a CSV file from the provided array of data. 
-     * This is done in a memory efficient manner of writing one line at a time to the file 
+     * Create a CSV file from the provided array of data.
+     * This is done in a memory efficient manner of writing one line at a time to the file
      * rather then building a massive string and dumping the entire string to the file.
-     * 
+     *
      * @param string $filepath - the path to the file that we will write the csv to, creating
      *                           if necessary.
      * @param array $rows - a collection of assosciative name/value pairs for the data to fill the
@@ -187,58 +191,58 @@ class CsvLib
      * @throws \Exception
      */
     public static function convertArrayToCsv(
-        string $filepath, 
-        array $rows, 
-        bool $addHeader, 
-        string $delimiter = ",", 
+        string $filepath,
+        array $rows,
+        bool $addHeader,
+        string $delimiter = ",",
         string $enclosure = '"'
     )
     {
         $fileHandle = fopen($filepath, 'w');
-        
+
         if ($fileHandle === FALSE)
         {
             throw new \Exception("Failed to open {$filepath} for writing.");
         }
-        
+
         if (count($rows) === 0)
         {
             throw new \Exception("Cannot create CSV file with no data.");
         }
-        
+
         $firstRow = ArrayLib::getFirstElement($rows);
-        
+
         if (ArrayLib::isAssoc($firstRow) === FALSE)
         {
             throw new \Exception("convertArrayToCsv expects a list of assosciative arrays.");
         }
-        
+
         $keys = array_keys($firstRow);
-        
+
         if ($addHeader)
         {
             fputcsv($fileHandle, $keys, $delimiter, $enclosure);
         }
-        
+
         foreach ($rows as $index => $row)
         {
             if (count($keys) != count($row))
             {
-                $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) . 
+                $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) .
                        " is not the same as the number of values: " . count($row);
-                
+
                 throw new \Exception($msg);
             }
-                
+
             $rowOfValues = array();
-            
+
             foreach ($keys as $key)
             {
                 if (!isset($row[$key]))
                 {
                     // key might be set, the value might just be null. Check for this.
                     $keys = array_keys($row);
-                    
+
                     if (in_array($key, $keys) === FALSE)
                     {
                         throw new \Exception("row missing expected key {$key} on row {$index}");
@@ -252,15 +256,15 @@ class CsvLib
                 {
                     $value = $row[$key];
                 }
-                
+
                 $rowOfValues[] = $value;
             }
-            
+
             fputcsv($fileHandle, $rowOfValues, $delimiter, $enclosure);
         }
     }
-    
-    
+
+
     /**
      * Go through the CSV file and trim the values.
      * This saves memory by working line by line rather than reading everything into memory
@@ -275,26 +279,26 @@ class CsvLib
     {
         $tmpFile = tmpfile();
         $uploaded_fh = fopen($filepath, "r");
-        
+
         if ($uploaded_fh)
         {
             while (!feof($uploaded_fh))
-            { 
+            {
                 $lineArray = fgetcsv($uploaded_fh, 0, $delimiter);
-                
+
                 if (!empty($lineArray))
                 {
                     foreach ($lineArray as $index => $value)
                     {
                         $lineArray[$index] = trim($value);
                     }
-                    
+
                     fputcsv($tmpFile, $lineArray, ",");
                 }
             }
-            
+
             fclose($uploaded_fh);
-            
+
             $meta_data = stream_get_meta_data($tmpFile);
             $tmpFileName = $meta_data["uri"];
             rename($tmpFileName, $filepath); # replace the old upload file with new.
@@ -304,8 +308,8 @@ class CsvLib
             throw new \Exception("Failed to open upload file for trimming.");
         }
     }
-    
-    
+
+
     /**
      * Remove columns from a CSV file.
      * @param string $filepath - the path of the CSV file we are modifying.
@@ -315,47 +319,47 @@ class CsvLib
      * @return void
      */
     public static function removeColumns(
-        string $filepath, 
-        array $columnIndexes, 
-        string $delimiter=",", 
+        string $filepath,
+        array $columnIndexes,
+        string $delimiter=",",
         string $enclosure='"'
     )
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
         $lineNumber = 1;
-        
+
         if ($fileHandle)
         {
             while (!feof($fileHandle))
             {
                 $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure);
-                
+
                 if (!empty($lineArray))
                 {
                     foreach ($columnIndexes as $columnHumanIndex)
                     {
                         $columnIndex = $columnHumanIndex - 1;
-                        
+
                         if (!isset($lineArray[$columnIndex]))
                         {
-                            $msg = "removeColumns: source CSV file does not have " . 
+                            $msg = "removeColumns: source CSV file does not have " .
                                    "column: " . $columnIndex . " on line: " . $lineNumber;
-                            
+
                             throw new \Exception($msg);
                         }
-                        
+
                         unset($lineArray[$columnIndex]);
                     }
-                    
+
                     fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
                 }
-                
+
                 $lineNumber++;
             }
-            
+
             fclose($fileHandle);
-            
+
             $meta_data = stream_get_meta_data($tmpFile);
             $tmpFileName = $meta_data["uri"];
             rename($tmpFileName, $filepath); # replace the old upload file with new.
@@ -365,8 +369,8 @@ class CsvLib
             throw new \Exception("removeColumns: failed to open CSV file for trimming.");
         }
     }
-    
-    
+
+
     /**
      * Remove rows from a CSV file.
      * @param string $filepath - the path of the CSV file we are modifying.
@@ -380,13 +384,13 @@ class CsvLib
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
         $lineNumber = 1;
-        
+
         if ($fileHandle)
         {
             while (!feof($fileHandle))
             {
                 $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure);
-                
+
                 if ($lineArray)
                 {
                     if (!in_array($lineNumber, $rowIndexes))
@@ -394,10 +398,10 @@ class CsvLib
                         fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
                     }
                 }
-                
+
                 $lineNumber++;
             }
-            
+
             fclose($fileHandle);
             $meta_data = stream_get_meta_data($tmpFile);
             $tmpFileName = $meta_data["uri"];
@@ -408,10 +412,10 @@ class CsvLib
             throw new \Exception("removeRows: Failed to open CSV file for trimming.");
         }
     }
-    
-    
+
+
     /**
-     * Calculate the mathematical differences between two CSV files. If this comes across string 
+     * Calculate the mathematical differences between two CSV files. If this comes across string
      * values, it will check if they are the same and put the the string in if they are, otherwise,
      * it will concatenate the two values with a | divider.
      * WARNING - this expects the two files to have the same number of columns and rows.
@@ -423,25 +427,25 @@ class CsvLib
      * @throws \Exception
      */
     public static function decimalDiff(
-        string $filepath1, 
-        string $filepath2, 
-        string $delimiter=",", 
+        string $filepath1,
+        string $filepath2,
+        string $delimiter=",",
         string $enclosure='"'
     ) : string
     {
         $newFileName = tempnam(sys_get_temp_dir(), "");
         $newFileHandle = fopen($newFileName, "w");
-        
+
         if (!$newFileHandle)
         {
             throw new \Exception("Cannot create file to store diff in.");
         }
-            
+
         $fileHandle1 = fopen($filepath1, "r");
         $fileHandle2 = fopen($filepath2, "r");
-        
+
         $lineNumber = 0;
-        
+
         if ($fileHandle1 && $fileHandle2)
         {
             while (!feof($fileHandle1))
@@ -449,7 +453,7 @@ class CsvLib
                 $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure);
                 $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure);
                 $resultArray = array();
-                
+
                 if ($lineArray1)
                 {
                     foreach ($lineArray1 as $index => $value1)
@@ -458,9 +462,9 @@ class CsvLib
                         {
                             throw new \Exception("decimalDiff: rows do not have the same column count.");
                         }
-                        
+
                         $value2 = $lineArray2[$index];
-                        
+
                         if (is_numeric($value1) && is_numeric($value2))
                         {
                             $resultArray[$index] = $value1 - $value2;
@@ -478,11 +482,11 @@ class CsvLib
                         }
                     }
                 }
-                
+
                 fputcsv($newFileHandle, $resultArray, $delimiter, $enclosure);
                 $lineNumber++;
             }
-            
+
             fclose($fileHandle1);
             fclose($fileHandle2);
             fclose($newFileHandle);
@@ -492,21 +496,21 @@ class CsvLib
         {
             throw new \Exception("decimalDiff: Failed to open CSV file for processing.");
         }
-        
+
         return $newFileName;
     }
-    
-    
+
+
     /**
      * Perform a diff on two CSV files with a tolerance of values being different by the amount
      * specified. This can be useful in situations with floating point values where the last decimal
      * place may be different.
-     * 
-     * WARNING: if your CSV file has headers, you will need to remove them with a call to 
+     *
+     * WARNING: if your CSV file has headers, you will need to remove them with a call to
      * CsvLib::removeRows
-     * 
+     *
      * @param string $filepath1 - the path to the file we are checking
-     * @param array $tolerances - array of column index / tolerance pairs. For this function, 
+     * @param array $tolerances - array of column index / tolerance pairs. For this function,
      *                            the columns indexes start from 1, not 0.
      * @param bool $compareOtherColumns - optionally specify false to tell this function to ignore
      *                                    all the other columns and only compare the ones specified
@@ -517,11 +521,11 @@ class CsvLib
      * @throws \Exception
      */
     public static function diffTolerance(
-        string $filepath1, 
-        string $filepath2, 
-        array $tolerances, 
-        bool $compareOtherColumns = true, 
-        string $delimiter=",", 
+        string $filepath1,
+        string $filepath2,
+        array $tolerances,
+        bool $compareOtherColumns = true,
+        string $delimiter=",",
         string $enclosure='"'
     ) : bool
     {
@@ -529,36 +533,36 @@ class CsvLib
         $humanRowNumber = 1;
         $fileHandle1 = fopen($filepath1, "r");
         $fileHandle2 = fopen($filepath2, "r");
-        
+
         if (!$fileHandle1 || !$fileHandle2)
         {
             throw new \Exception("diffTolerance: Failed to open CSV files for comparison.");
         }
-        
+
         while (!feof($fileHandle1) && $hasFailed === FALSE)
         {
             $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure);
             $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure);
-            
+
             if ($lineArray1)
             {
                 foreach ($lineArray1 as $index => $value1)
                 {
                     $humanColumnNumber = $index + 1;
-                    
+
                     if (!isset($lineArray2[$index]))
                     {
                         throw new \Exception("decimalDiff: rows do not have the same column count.");
                     }
-                    
+
                     $value2 = $lineArray2[$index];
-                    
+
                     if ($compareOtherColumns || (isset($tolerances[$humanColumnNumber])))
                     {
                         if (is_numeric($value1) && is_numeric($value2))
                         {
                             $numericDifference = abs($value1 - $value2);
-                            
+
                             if (isset($tolerances[$humanColumnNumber]))
                             {
                                 if ($numericDifference > $tolerances[$humanColumnNumber])
@@ -579,10 +583,10 @@ class CsvLib
                             // comparing non numeric values...
                             if (isset($tolerances[$humanColumnNumber]))
                             {
-                                $msg = "diffTolerance: Trying to perform numeric tolerance " . 
-                                       "diff on non numeric column. Column: $humanColumnNumber " . 
+                                $msg = "diffTolerance: Trying to perform numeric tolerance " .
+                                       "diff on non numeric column. Column: $humanColumnNumber " .
                                        "Row: $humanRowNumber";
-                                
+
                                 throw new \Exception($msg);
                             }
                         }
@@ -593,18 +597,18 @@ class CsvLib
                     }
                 }
             }
-            
+
             $humanRowNumber++;
         }
-        
+
         fclose($fileHandle1);
         fclose($fileHandle2);
-        
+
         $passed = !$hasFailed;
         return $passed;
     }
-    
-    
+
+
     /**
      * Merges multiple csv files together in a memory efficient way.
      * This will gracefully handle cases where the files may or may not have
@@ -622,30 +626,30 @@ class CsvLib
      * @return void
      */
     public static function mergeFiles(
-        array $filepaths, 
-        string $mergedFilepath, 
-        bool $hasHeaders, 
-        string $delimiter=",", 
+        array $filepaths,
+        string $mergedFilepath,
+        bool $hasHeaders,
+        string $delimiter=",",
         string $enclosure='"'
     )
     {
         $isFirstFile = true;
         $outputFileHandle = fopen($mergedFilepath, "w");
-        
+
         foreach ($filepaths as $filepath)
         {
             $readHandle = fopen($filepath, "r");
             $isFirstLine = true;
-            
+
             if ($readHandle === false)
             {
                 throw new \Exception("Unable to read file for merging: {$filepath}");
             }
-            
+
             while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure)) !== FALSE)
             {
                 $copyLineAcross = false;
-                
+
                 if ($isFirstLine)
                 {
                     if ($hasHeaders && $isFirstFile)
@@ -656,20 +660,20 @@ class CsvLib
                     {
                         $copyLineAcross = true;
                     }
-                    
+
                     $isFirstLine = false;
                 }
                 else
                 {
                     $copyLineAcross = true;
                 }
-                
+
                 if ($copyLineAcross)
                 {
                     fputcsv($outputFileHandle, $fields, $delimiter, $enclosure);
                 }
             }
-            
+
             $isFirstFile = false;
         }
     }
