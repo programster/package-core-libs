@@ -181,6 +181,8 @@ class ArrayLib
     /**
      * Wrap all of elements in an array with the string (before and after)
      * e.g. wrapElements on array(foo,bar), "`" would create array(`foo`,`bar`)
+     * If you are wrapping values for insertion into a MySQL database, please use MySqliLib::mysqliWrapValues()
+     * as that will gracefully convert null values to string "NULL".
      * @param $inputArray - array we are going to create our wrapped array from
      * @param $wrapString - string of characters we wish to wrap with.
      * @return array
@@ -190,32 +192,6 @@ class ArrayLib
         foreach ($inputArray as &$value)
         {
             $value = $wrapString . $value . $wrapString;
-        }
-
-        return $inputArray;
-    }
-
-
-    /**
-     * Wrap all of values in an array for insertion into a database. This is a
-     * specific variation of the wrap_elements method that will correctly
-     * convert null values into a NULL string without quotes so that nulls get
-     * inserted into the database correctly.
-     * @param $inputArray - array we are going to create our wrapped array from
-     * @return array
-     */
-    public static function mysqliWrapValues($inputArray)
-    {
-        foreach ($inputArray as &$value)
-        {
-            if ($value !== null)
-            {
-                $value = "'" . $value . "'";
-            }
-            else
-            {
-                $value = "NULL";
-            }
         }
 
         return $inputArray;
