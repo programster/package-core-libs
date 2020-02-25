@@ -357,7 +357,7 @@ class StringLib
      * https://stackoverflow.com/questions/5820586/which-method-is-preferred-strstr-or-strpos
      * @return bool - true if does contain, false if not
      */
-    public static function contains($haystack, $needle, $caseSensitive = true)
+    public static function contains(string $haystack, string $needle, $caseSensitive = true) : bool
     {
         if ($caseSensitive)
         {
@@ -365,7 +365,7 @@ class StringLib
         }
         else
         {
-            $pos = strpos($haystack, $needle);
+            $pos = stripos($haystack, $needle);
         }
 
         # Need to be careful to by type sensitive here because could return value 0 which would
