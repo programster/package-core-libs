@@ -34,7 +34,7 @@ class StringLib
      *
      * @return token - the generated string
      */
-    public static function generateRandomString($numChars, $charOptions=0)
+    public static function generateRandomString(int $numChars, $charOptions=0) : string
     {
         $userLowerCase   = !($charOptions & self::PASSWORD_DISABLE_LOWER_CASE);
         $useUppercase    = !($charOptions & self::PASSWORD_DISABLE_UPPER_CASE);
@@ -130,10 +130,12 @@ class StringLib
     *
     * @return true if haystack begins with the provided string.  False otherwise.
     */
-    public static function endsWith($haystack,
-                                    $needle,
-                                    $caseSensitive = true,
-                                    $ignoreWhiteSpace = false)
+    public static function endsWith(
+        string $haystack,
+        string $needle,
+        bool $caseSensitive = true,
+        bool $ignoreWhiteSpace = false
+    ) : bool
     {
         $revHaystack = strrev($haystack);
         $revNeedle   = strrev($needle);
@@ -157,10 +159,12 @@ class StringLib
      * functionfunction
      * @return result - true if the haystack begins with the provided string. False otherwise.
      */
-    public static function startsWith($haystack,
-                                      $needle,
-                                      $caseSensitive = true,
-                                      $ignoreWhiteSpace = false)
+    public static function startsWith(
+        string $haystack,
+        string $needle,
+        bool $caseSensitive = true,
+        bool $ignoreWhiteSpace = false
+    ) : bool
     {
         $result = false;
 
@@ -190,7 +194,7 @@ class StringLib
      * @param $input - the input string
      * @return output - the output string that has been converted.
      */
-    public static function br2nl($input)
+    public static function br2nl(string $input) : string
     {
         //$output = preg_replace("/(\r\n|\n|\r)/", "", $input);
         $output = str_replace('<br />', PHP_EOL, $input);
@@ -204,7 +208,7 @@ class StringLib
      * @param string $input - the input string to convert
      * @return string $output - the converted string
      */
-    public static function nl2br($input)
+    public static function nl2br(string $input) : string
     {
         $output = str_replace(PHP_EOL, '<br />', $input);
         $output = str_replace("\r\n", '<br />', $output);
@@ -218,7 +222,7 @@ class StringLib
      * @param $input - any string input
      * @return $output - the newly reformatted string
      */
-    public static function convertLineEndings($input)
+    public static function convertLineEndings(string $input) : string
     {
         # This must be first as it is the most specific of the endlines.
         $output = str_replace("\r\n", "\n",  $input);
@@ -235,14 +239,14 @@ class StringLib
 
     /**
      * Encrypt a String
-     * @param String $message - the message to encrypt
+     * @param String $textToEncrypt - the text to encrypt
      * @param String $key - the key to encrypt and then decrypt the message.
      * @param string $initializationVector - a 16 character string to initialize the cipher.
      *                                       this way two plaintext messages can result in different
      *                                       encrypted strings. (like a salt in hashing).
      * @return string - the encryptd form of the string
      */
-    public static function encrypt(string $message, string $key, string $initializationVector) : string
+    public static function encrypt(string $textToEncrypt, string $key, string $initializationVector) : string
     {
         $cipherMethod = "AES-256-OFB";
 
@@ -266,7 +270,6 @@ class StringLib
     public static function decrypt(string $encryptedText, string $key, string $initializationVector) : string
     {
         $cipherMethod = "AES-256-OFB";
-        $initializationVector = "someStaticRandwd";
 
         return openssl_decrypt(
             $encryptedText,
@@ -283,7 +286,7 @@ class StringLib
      * @param String $filename - the name of the file or the full file path
      * @return String - the file extension.
      */
-    public static function getFileExtension($filename)
+    public static function getFileExtension(string $filename) : string
     {
         return end(explode('.', $filename));
     }
@@ -294,7 +297,7 @@ class StringLib
      * Reference:
      * http://stackoverflow.com/questions/8825025/test-if-a-regular-expression-is-a-valid-one-in-php
      */
-    public static function isRegExp($regexp)
+    public static function isRegExp(string $regexp) : bool
     {
         $isRegExp = true;
 
@@ -319,7 +322,7 @@ class StringLib
      * @param string $subject - the string to perform substitutions in.
      * @return string - the result of converting the subject string.
      */
-    public static function replace($search, $replace, $subject)
+    public static function replace(string $search, string $replace, string $subject) : string
     {
         if (is_array($search) || is_array($replace))
         {
@@ -344,7 +347,7 @@ class StringLib
      * @param string $subject - the string to perform substitutions in.
      * @return string - the result of converting the subject string.
      */
-    public static function replacePairs(array $pairs, $subject)
+    public static function replacePairs(array $pairs, string $subject) : string
     {
         return strtr($subject, $pairs);
     }
