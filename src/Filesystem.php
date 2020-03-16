@@ -75,22 +75,26 @@ class Filesystem
 
     /**
      * Retrieves an array list of files/folders within the specified directory.
-     * Consider using the following instead:
-     * $directory = new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::CURRENT_AS_SELF);
-     * $iterator = new RecursiveIteratorIterator($directory, RecursiveIteratorIterator::CHILD_FIRST);
-     *
-     * @param directoryPath - the path to the directory you wisht to find the contents of.
-     * @param recursive     - whether we go through into each subfolder and retrieve its contents.
-     * @param includePath   - whether we output the path to the entry such as '/folder/text.txt'
-     *                        instead of just 'text.txt'
-     * @param onlyFiles     - whether we include the directory itself in the returned list
-     *
-     * @return fileNames - the names of all the files/folders within the directory.
+     *   Consider using the following instead:
+     *   $directory = new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::CURRENT_AS_SELF);
+     *   $iterator = new RecursiveIteratorIterator($directory, RecursiveIteratorIterator::CHILD_FIRST);
+     * 
+     * @param string $dir - the path to the directory you wisht to find the contents of.
+     * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
+     * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
+     *                            instead of just 'text.txt'
+     * @param bool $onlyFiles - whether we include the directory itself in the returned list
+     * @param bool $includeHiddenFilesAndFolders - if false, then this will not include 
+     *                                          hidden files and folders (those starting with '.')
+     * @return array - the names of all the files/folders within the directory.
      */
-    public static function getDirContents($dir,
-                                          $recursive   = true,
-                                          $includePath = true,
-                                          $onlyFiles   = true)
+    public static function getDirContents(
+        string $dir,
+        bool $recursive   = true,
+        bool $includePath = true,
+        bool $onlyFiles   = true,
+        bool $includeHiddenFilesAndFolders = true
+    ) : array
     {
         $fileNames = array();
         $fpath     = realpath($dir);
@@ -100,7 +104,12 @@ class Filesystem
         {
             while (false !== ($fileName = readdir($handle)))
             {
-                if (strcmp($fileName,"..")!=0 && strcmp($fileName,".")!=0)
+                if ($includeHiddenFilesAndFolders === false && StringLib::startsWith($fileName, "."))
+                {
+                    continue;
+                }
+                
+                if (strcmp($fileName, "..") != 0 && strcmp($fileName, ".") != 0)
                 {
                     if (is_dir($fpath . "/" . $fileName))
                     {
@@ -120,10 +129,12 @@ class Filesystem
                         {
                             $subFilePath = $fpath . "/" . $fileName;
 
-                            $subFiles = self::getDirContents($subFilePath,
-                                                             $recursive,
-                                                             $includePath,
-                                                             $onlyFiles);
+                            $subFiles = self::getDirContents(
+                                $subFilePath,
+                                $recursive,
+                                $includePath,
+                                $onlyFiles
+                            );
 
                             $fileNames = array_merge($fileNames, $subFiles);
                         }
