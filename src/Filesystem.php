@@ -133,7 +133,8 @@ class Filesystem
                                 $subFilePath,
                                 $recursive,
                                 $includePath,
-                                $onlyFiles
+                                $onlyFiles,
+                                $includeHiddenFilesAndFolders
                             );
 
                             $fileNames = array_merge($fileNames, $subFiles);
