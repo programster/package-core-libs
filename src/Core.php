@@ -1017,4 +1017,18 @@ class Core
         $generatedSignature = Core::generateSignature($data, $serverSecret);
         return ($generatedSignature == $signature);
     }
+
+
+    /**
+     * A wrapper around var_dump that will return the result as a string rather than dumping 
+     * out immediately.
+     * @param mixed $variable - the variable you want to get the var_dump of
+     * @return string - the result of the var_dump
+     */
+    public static function var_dump($variable) : string
+    {
+        ob_start();
+        var_dump($variable);
+        return ob_get_clean();
+    }
 }
