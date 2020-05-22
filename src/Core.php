@@ -371,15 +371,15 @@ class Core
         # stream_set_timeout DOES NOT work for sockets created with
         # socket_create or socket_accept.
         # http://www.php.net/manual/en/function.stream-set-timeout.php
-        $socket_timout_spec = array(
+        $socketTimeoutSpec = array(
             'sec'  =>$timeout,
             'usec' => 0
         );
 
-        socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, $socket_timout_spec);
-        socket_set_option($socket, SOL_SOCKET, SO_SNDTIMEO, $socket_timout_spec);
+        socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, $socketTimeoutSpec);
+        socket_set_option($socket, SOL_SOCKET, SO_SNDTIMEO, $socketTimeoutSpec);
 
-        $attempts_made = 0;
+        $attemptsMade = 0;
         $socketErrors = array();
         $timeStart = time();
 
@@ -389,27 +389,30 @@ class Core
 
             if (!$connected)
             {
-                $socket_error_code   = socket_last_error($socket);
-                $socket_error_string = socket_strerror($socket_error_code);
-                $socketErrors[] = $socket_error_string;
+                $socketErrorCode   = socket_last_error($socket);
+                $socketErrorString = socket_strerror($socketErrorCode);
+                $socketErrors[] = $socketErrorString;
 
                 # socket_last_error does not clear the last error after having
                 # fetched it, have to  do this manually
                 socket_clear_error();
 
-                if ($attempts_made == $attemptsLimit)
+                if ($attemptsMade == $attemptsLimit)
                 {
+                    $totalWaitTime = time() - $timeStart;
+                    $socketErrorsString = print_r($socketErrors, true);
+
                     $errorMsg =
                         "Failed to make socket connection " . PHP_EOL .
-                        "host: [" . $host . "] " . PHP_EOL .
-                        "total time waited: [" . time() - $timeStart . "]" . PHP_EOL .
+                        "host: [{$host}] " . PHP_EOL .
+                        "total time waited: [{$totalWaitTime}]" . PHP_EOL .
                         "socket errors: " . PHP_EOL .
-                        print_r($socketErrors, true) . PHP_EOL;
+                        $socketErrorsString . PHP_EOL;
 
                     throw new \Exception($errorMsg);
                 }
 
-                $attempts_made++;
+                $attemptsMade++;
 
                 # The socket may just be "tied up", give it a bit of time
                 # before retrying.
@@ -1020,7 +1023,7 @@ class Core
 
 
     /**
-     * A wrapper around var_dump that will return the result as a string rather than dumping 
+     * A wrapper around var_dump that will return the result as a string rather than dumping
      * out immediately.
      * @param mixed $variable - the variable you want to get the var_dump of
      * @return string - the result of the var_dump
