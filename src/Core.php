@@ -1034,4 +1034,23 @@ class Core
         var_dump($variable);
         return ob_get_clean();
     }
+
+
+    /**
+     * Return whether the IP address provided is within the private or reserved.
+     * E.g. 192.168. 0.0 – 192.168.255.255, 172.16. 0.0 – 172.31.255.255, or 10.0. 0.0 – 10.255.255.255.
+     * This also applies to IPv6 though.
+     * @param string $ip - the IP address to check
+     * @return bool - true if a private/reserved IP, false if not.
+     */
+    public static function isPrivateIp(string $ip) : bool
+    {
+        $result = filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
+
+        return $result === false;
+    }
 }
