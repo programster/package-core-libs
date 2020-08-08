@@ -1053,4 +1053,64 @@ class Core
 
         return $result === false;
     }
+
+
+    /**
+     * Set the content of the users clipboard
+     * @param string $content - the content you wish to set int the clipboard.
+     * @return void
+     */
+    public static function setClipboard(string $content)
+    {
+        if (PHP_OS_FAMILY==="Windows")
+        {
+            // works on windows 7 +
+            $clip = popen("clip","wb");
+        }
+        elseif (PHP_OS_FAMILY==="Linux")
+        {
+            // tested, works on ArchLinux
+            $clip = popen('xclip -selection clipboard','wb');
+        }
+        elseif (PHP_OS_FAMILY==="Darwin")
+        {
+            // untested! 
+            $clip = popen('pbcopy','wb');
+        }
+        else
+        {
+            throw new \Exception("running on unsupported OS: " . PHP_OS_FAMILY . " - only Windows, Linux, and MacOS supported.");
+        }
+        
+        $written=fwrite($clip, $content);
+        return (pclose($clip)===0 && strlen($content)===$written);
+    }
+
+
+    /**
+     * Get the contents of the user's clipboard
+     * @return string - the content of the clipboard.
+     */
+    public static function getClipboard() : string
+    {
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            // works on windows 7 + (PowerShell v2 + )
+            return substr(shell_exec('powershell -sta "add-type -as System.Windows.Forms; [windows.forms.clipboard]::GetText()"'),0,-2);
+        }
+        elseif (PHP_OS_FAMILY === "Linux")
+        {
+            // untested! but should work on X.org-based linux GUI's
+            return substr(shell_exec('xclip -out -selection primary'), 0, -1);
+        }
+        elseif (PHP_OS_FAMILY === "Darwin")
+        {
+            // untested! 
+            return substr(shell_exec('pbpaste'), 0, -1);
+        }
+        else
+        {
+            throw new \Exception("running on unsupported OS: ".PHP_OS_FAMILY." - only Windows, Linux, and MacOS supported.");
+        }
+    }
 }
