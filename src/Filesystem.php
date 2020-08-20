@@ -78,13 +78,13 @@ class Filesystem
      *   Consider using the following instead:
      *   $directory = new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::CURRENT_AS_SELF);
      *   $iterator = new RecursiveIteratorIterator($directory, RecursiveIteratorIterator::CHILD_FIRST);
-     * 
+     *
      * @param string $dir - the path to the directory you wisht to find the contents of.
      * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
      * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
      *                            instead of just 'text.txt'
      * @param bool $onlyFiles - whether we include the directory itself in the returned list
-     * @param bool $includeHiddenFilesAndFolders - if false, then this will not include 
+     * @param bool $includeHiddenFilesAndFolders - if false, then this will not include
      *                                          hidden files and folders (those starting with '.')
      * @return array - the names of all the files/folders within the directory.
      */
@@ -108,7 +108,7 @@ class Filesystem
                 {
                     continue;
                 }
-                
+
                 if (strcmp($fileName, "..") != 0 && strcmp($fileName, ".") != 0)
                 {
                     if (is_dir($fpath . "/" . $fileName))
@@ -531,5 +531,67 @@ class Filesystem
         }
 
         return $downloadedFilepath;
+    }
+
+
+    /**
+     * A more human-readable version of the fileperms function. This one will output in the "-rw-r--r--" style format
+     * rather than a bunch of numbers. The code taken straight from the examples section of
+     * https://www.php.net/manual/en/function.fileperms.php
+     * @param string $filepath - the path to the file/folder we wish to get the permissions of.
+     * @return string - the file permissions string.
+     */
+    public static function fileperms(string $filepath) : string
+    {
+        $perms = fileperms($filepath);
+
+        switch ($perms & 0xF000) {
+            case 0xC000: // socket
+                $info = 's';
+                break;
+            case 0xA000: // symbolic link
+                $info = 'l';
+                break;
+            case 0x8000: // regular
+                $info = 'r';
+                break;
+            case 0x6000: // block special
+                $info = 'b';
+                break;
+            case 0x4000: // directory
+                $info = 'd';
+                break;
+            case 0x2000: // character special
+                $info = 'c';
+                break;
+            case 0x1000: // FIFO pipe
+                $info = 'p';
+                break;
+            default: // unknown
+                $info = 'u';
+        }
+
+        // Owner
+        $info .= (($perms & 0x0100) ? 'r' : '-');
+        $info .= (($perms & 0x0080) ? 'w' : '-');
+        $info .= (($perms & 0x0040) ?
+                    (($perms & 0x0800) ? 's' : 'x' ) :
+                    (($perms & 0x0800) ? 'S' : '-'));
+
+        // Group
+        $info .= (($perms & 0x0020) ? 'r' : '-');
+        $info .= (($perms & 0x0010) ? 'w' : '-');
+        $info .= (($perms & 0x0008) ?
+                    (($perms & 0x0400) ? 's' : 'x' ) :
+                    (($perms & 0x0400) ? 'S' : '-'));
+
+        // World
+        $info .= (($perms & 0x0004) ? 'r' : '-');
+        $info .= (($perms & 0x0002) ? 'w' : '-');
+        $info .= (($perms & 0x0001) ?
+                    (($perms & 0x0200) ? 't' : 'x' ) :
+                    (($perms & 0x0200) ? 'T' : '-'));
+
+        return $info;
     }
 }
