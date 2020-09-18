@@ -33,7 +33,7 @@ class CliLib
 
         $percentageStringLength += 3; // add 2 for () and a space before bar starts.
 
-        $terminalWidth = `tput cols`;
+        $terminalWidth = intval(shell_exec("tput cols"));
         $barWidth = $terminalWidth - ($percentageStringLength) - 2; // subtract 2 for [] around bar
         $numBars = round(($percentage) / 100 * ($barWidth));
         $numEmptyBars = $barWidth - $numBars;
