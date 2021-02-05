@@ -6,10 +6,6 @@
 
 namespace Programster\CoreLibs;
 
-use function Safe\file_get_contents;
-use function Safe\json_decode;
-use function Safe\json_encode;
-
 
 class Filesystem
 {
@@ -526,7 +522,7 @@ class Filesystem
         }
         else
         {
-            $content = file_get_contents($url);
+            $content = \Safe\file_get_contents($url);
             file_put_contents($downloadedFilepath, $content);
         }
 
@@ -593,5 +589,59 @@ class Filesystem
                     (($perms & 0x0200) ? 'T' : '-'));
 
         return $info;
+    }
+
+
+    /**
+     * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt"
+     * @param String $filename - the name of the file or the full file path
+     * @return String - the file extension.
+     */
+    public static function getFileExtension(string $filename) : string
+    {
+        return end(explode('.', $filename));
+    }
+
+
+    /**
+     * Serve up a file to the user. E.g. have their browser download it. This is particularly useful for CSV report
+     * downloads etc.
+     * @param string $filepath - the path to the file you wish to serve up as a download
+     * @param string $downloadFilename
+     * @param string $mimetype - optionally manually specify the mimetype. Can be null to force not setting mimetype on
+     * download. Defaults to "auto" which will have PHP try to dynamically figure out the mimetype of the file.
+     * @throws Exception - if mimetype set to auto and PHP could not open mimetype database for determining mimetype.
+     */
+    public static function streamFileToBrowser(string $filepath, string $downloadFilename, ?string $mimetype="auto")
+    {
+        if ($mimetype !== null)
+        {
+            if ($mimeType === "auto")
+            {
+                $finfo = new \finfo(FILEINFO_MIME);
+
+                if (!$finfo)
+                {
+                    throw new Exception("Could not open fileinfo database in order to automatically determine the file's mimetype.");
+                }
+
+                $mimetype = $finfo->file($filepath);
+            }
+
+            header("Content-type: {$mimetype}");
+        }
+
+        header("Content-Disposition: attachment; filename={$downloadFilename}");
+        header("Pragma: no-cache");
+        header("Expires: 0");
+        $fileHandle = fopen("php://output", 'w');
+        $reader = fopen($filepath, "r+");
+
+        while (($line = stream_get_line($reader, 1024 * 1024, PHP_EOL)) !== false)
+        {
+            print $line;
+        }
+
+        fclose($reader);
     }
 }

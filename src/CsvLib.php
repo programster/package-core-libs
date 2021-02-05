@@ -6,9 +6,6 @@
 
 namespace Programster\CoreLibs;
 
-use function Safe\file_get_contents;
-use function Safe\json_decode;
-use function Safe\json_encode;
 
 
 class CsvLib
@@ -64,11 +61,11 @@ class CsvLib
 
                 if ($compressed)
                 {
-                    $jsonString = json_encode($obj, JSON_UNESCAPED_SLASHES);
+                    $jsonString = \Safe\json_encode($obj, JSON_UNESCAPED_SLASHES);
                 }
                 else
                 {
-                    $jsonString = json_encode($obj, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                    $jsonString = \Safe\json_encode($obj, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
                 }
 
                 if (!$compressed)
@@ -171,23 +168,17 @@ class CsvLib
 
 
     /**
-     * Create a CSV file from the provided array of data.
-     * This is done in a memory efficient manner of writing one line at a time to the file
-     * rather then building a massive string and dumping the entire string to the file.
-     *
-     * @param string $filepath - the path to the file that we will write the csv to, creating
-     *                           if necessary.
-     * @param array $rows - a collection of assosciative name/value pairs for the data to fill the
-     *                      csv file. The values will be filled in in the order of the keys in
-     *                      the first row.
-     * @param bool $addHeader - specify whether the CSV file we should put the header row in for
-     *                          the csv file. If true, we will use the keys of the first row
-     *                          as we expect all keys to match.
+     * Create a CSV file from the provided array of data. This is done in a memory efficient manner of writing one
+     * line at a time to the file rather then building a massive string and dumping the entire string to the file.
+     * @param string $filepath - the path to the file that we will write the csv to, creating if necessary.
+     * @param array $rows - a collection of assosciative name/value pairs for the data to fill the csv file. The
+     * values will be filled in in the order of the keys in the first row.
+     * @param bool $addHeader - specify whether the CSV file we should put the header row in for the csv file. If true,
+     * we will use the keys of the first row as we expect all keys to match.
      * @param string $delimiter - optionally specify a delimiter if you dont wish to use the comma
      * @param string $enclosure - optionally specify the enclosure if you don't wish to use "
-     * @return void - all data written to the passed in filepath. Throws exception if anything
-     *                goes wrong.
-     * @throws Exception
+     * @param bool $addByteOrderMark
+     * @return void - all data written to the passed in filepath.
      * @throws \Exception
      */
     public static function convertArrayToCsv(
@@ -195,8 +186,9 @@ class CsvLib
         array $rows,
         bool $addHeader,
         string $delimiter = ",",
-        string $enclosure = '"'
-    )
+        string $enclosure = '"',
+        bool $addByteOrderMark = true
+    ) : void
     {
         $fileHandle = fopen($filepath, 'w');
 
@@ -208,6 +200,12 @@ class CsvLib
         if (count($rows) === 0)
         {
             throw new \Exception("Cannot create CSV file with no data.");
+        }
+
+        if ($addByteOrderMark)
+        {
+            $byteOrderMark = "\xEF\xBB\xBF";
+            fwrite($fileHandle, $byteOrderMark);
         }
 
         $firstRow = ArrayLib::getFirstElement($rows);

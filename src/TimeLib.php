@@ -6,14 +6,9 @@
 
 namespace Programster\CoreLibs;
 
-use function Safe\file_get_contents;
-use function Safe\json_decode;
-use function Safe\json_encode;
-
 
 class TimeLib
 {
-
     /**
      * Fetches the number of days in a given month.
      *
@@ -236,7 +231,7 @@ class TimeLib
      * @param \DateTime $timestamp - the timestamp we want the difference to
      * @return String - a human readable string to represent how long ago the timestamp was.
      */
-    public static function get_human_readble_time_difference(\DateTime $timestamp)
+    public static function getHumanReadbleTimeDifference(\DateTime $timestamp)
     {
         $resultString = "";
         $now = new \DateTime();

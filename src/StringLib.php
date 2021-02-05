@@ -6,10 +6,6 @@
 
 namespace Programster\CoreLibs;
 
-use function Safe\file_get_contents;
-use function Safe\json_decode;
-use function Safe\json_encode;
-
 
 class StringLib
 {
@@ -278,17 +274,6 @@ class StringLib
             OPENSSL_ZERO_PADDING,
             $initializationVector
         );
-    }
-
-
-    /**
-     * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt"
-     * @param String $filename - the name of the file or the full file path
-     * @return String - the file extension.
-     */
-    public static function getFileExtension(string $filename) : string
-    {
-        return end(explode('.', $filename));
     }
 
 

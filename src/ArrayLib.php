@@ -8,10 +8,6 @@
 
 namespace Programster\CoreLibs;
 
-use function Safe\file_get_contents;
-use function Safe\json_decode;
-use function Safe\json_encode;
-
 
 class ArrayLib
 {
@@ -134,18 +130,12 @@ class ArrayLib
 
     /**
      * Removes the specified indexes from the input array before returning it.
-     *
      * @param array $inputArray - the array we are manipulating
-     * @param array $indexes - array list of indexes whose elements we wish to
-     *                         remove
-     * @param bool $reIndex - override to true if your array needs re-indexing
-     *                        (e.g. 0,1,2,3)
-     *
+     * @param array $indexes - array list of indexes whose elements we wish to remove
+     * @param bool $reIndex - override to true if your array needs re-indexing (e.g. 0,1,2,3)
      * @return array $outputArray - the newly generated output array.
      */
-    public static function removeIndexes(array $inputArray,
-                                         array $indexes,
-                                         $reIndex=false)
+    public static function removeIndexes(array $inputArray, array $indexes, $reIndex=false)
     {
         if ($reIndex)
         {
@@ -187,7 +177,7 @@ class ArrayLib
      * @param $wrapString - string of characters we wish to wrap with.
      * @return array
      */
-    public static function wrapElements($inputArray, $wrapString)
+    public static function wrapElements(array $inputArray, string $wrapString)
     {
         foreach ($inputArray as &$value)
         {
@@ -206,7 +196,7 @@ class ArrayLib
      * @param array $array2 - array to compare
      * @return array - values in array1 but not array2
      */
-    public static function fastDiff($array1, $array2)
+    public static function fastDiff(array $array1, array $array2)
     {
         $missingValues = array();
         $flippedArray2 = array_flip($array2); # swaps indexes and values
@@ -233,7 +223,7 @@ class ArrayLib
      * @param array $array2 - array of integers or strings to compare
      * @return array - values that are in both arrays
      */
-    public static function fastIntersect($array1, $array2)
+    public static function fastIntersect(array $array1, array $array2)
     {
         $sharedValues = array();
         $flippedArray2 = array_flip($array2); # swaps indexes and values
@@ -251,8 +241,7 @@ class ArrayLib
 
 
     /**
-     * Fetches an array of values for the specified indexes from the provided
-     * array.
+     * Fetches an array of values for the specified indexes from the provided array.
      * All the specified indexes must be within the haystack.
      * This does NOT keep index association (e.g. returns a list of values)
      * @param array $haystack - the array we are pulling values from
@@ -342,7 +331,7 @@ class ArrayLib
      * If the input array is not assosciative, then it will be re-indexed. 0,1,2,3 etc
      * @param array $inputArray - the array to perform actions upon.
      */
-    public static function stripEmptyElements($inputArray)
+    public static function stripEmptyElements(array $inputArray)
     {
         $outputArray = array_filter($inputArray);
 
@@ -365,7 +354,7 @@ class ArrayLib
      *
      * @return array - combined assosciative array.
      */
-    public static function assoc_array_merge(array $array1, array $array2, \Closure $clashHandler)
+    public static function assocArrayMerge(array $array1, array $array2, \Closure $clashHandler)
     {
         $result_array = array();
 
@@ -407,7 +396,7 @@ class ArrayLib
      *                      If any of the rows have indexes, these will be lost.
      * @return array - the generated array list of rows.
      */
-    public static function array_combine_list(array $keys, array $rows)
+    public static function arrayCombineList(array $keys, array $rows)
     {
         $output = array();
 
@@ -441,7 +430,12 @@ class ArrayLib
      * @param bool $preserveKeys - if true key/value assosciation is maintained in the split arrays
      * @return array - an array of the resulting arrays.
      */
-    public static function split(array $inputArray, $numberOfArrays, $useBucketFill=true, $preserveKeys=false)
+    public static function split(
+        array $inputArray,
+        int $numberOfArrays,
+        bool $useBucketFill=true,
+        bool $preserveKeys=false
+    )
     {
         if ($useBucketFill)
         {
@@ -481,5 +475,31 @@ class ArrayLib
         }
 
         return $result;
+    }
+
+
+
+    /**
+     * Sets a variable to the specified default if it is not set within the
+     * provided input array. You can think of this as overriding the default
+     * if it is set in the $_REQUEST superglobal.
+     *
+     * @param string $key - the name of the variable if it would appear
+     *                          within the $_REQUEST
+     * @param mixed $defaultValue - the value to set if the var is not set
+     *                              within $_REQUEST
+     *
+     * @return mixed - the resulting value. (default value if not set)
+     */
+    public static function getValueOrDefault(array $inputArray, string $key, $defaultValue)
+    {
+        $returnVar = $defaultValue;
+
+        if (isset($inputArray[$key]))
+        {
+            $returnVar = $inputArray[$key];
+        }
+
+        return $returnVar;
     }
 }
