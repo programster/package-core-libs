@@ -311,11 +311,11 @@ namespace iRAP\CoreLibs;
      */
     public static function sanitizeRegExp($regExp)
     {
-        $pattern_parts = explode($regExp{0}, trim($regExp));
+        $pattern_parts = explode($regExp[0], trim($regExp));
         $pattern_last = sizeof($pattern_parts) - 1;
         $pattern_parts[$pattern_last] = str_replace('e', '', $pattern_parts[$pattern_last]);
         
-        return implode($regExp{0}, $pattern_parts);
+        return implode($regExp[0], $pattern_parts);
     }
     
     
