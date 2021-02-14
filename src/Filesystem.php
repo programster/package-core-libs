@@ -616,7 +616,7 @@ class Filesystem
     {
         if ($mimetype !== null)
         {
-            if ($mimeType === "auto")
+            if ($mimetype === "auto")
             {
                 $finfo = new \finfo(FILEINFO_MIME);
 
@@ -631,17 +631,10 @@ class Filesystem
             header("Content-type: {$mimetype}");
         }
 
+        header("Content-Length: " . filesize($filepath));
         header("Content-Disposition: attachment; filename={$downloadFilename}");
         header("Pragma: no-cache");
         header("Expires: 0");
-        $fileHandle = fopen("php://output", 'w');
-        $reader = fopen($filepath, "r+");
-
-        while (($line = stream_get_line($reader, 1024 * 1024, PHP_EOL)) !== false)
-        {
-            print $line;
-        }
-
-        fclose($reader);
+        readfile($filepath);
     }
 }
