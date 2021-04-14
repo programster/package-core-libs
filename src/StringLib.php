@@ -9,34 +9,25 @@ namespace Programster\CoreLibs;
 
 class StringLib
 {
-    # Thse are here because they 'belong' to the function below
-    const PASSWORD_DISABLE_LOWER_CASE    = 2;
-    const PASSWORD_DISABLE_UPPER_CASE    = 4;
-    const PASSWORD_DISABLE_NUMBERS       = 8;
-    const PASSWORD_DISABLE_SPECIAL_CHARS = 16;
-
-
     /**
      * Generates a random string. This can be useful for password generation
      * or to create a single-use token for the user to do something
      * (e.g. click an email link to register).
-     *
      * @param int $numChars - how many characters long the string should be
-     * @param int $charOptions - bitwise result of following vars
-     *          PASSWORD_DISABLE_LOWER_CASE
-     *          PASSWORD_DISABLE_UPPER_CASE
-     *          PASSWORD_DISABLE_NUMBERS
-     *          PASSWORD_DISABLE_SPECIAL_CHARS
-     *
-     * @return token - the generated string
+     * @param bool $useSpecialChars - whether to use special characters. Defaults to true.
+     * @param bool $useNumbers - whether to use numbers. Defaults to true.
+     * @param bool $useUppercase - whether to use uppercase. Defaults to true.
+     * @param bool $useLowercase - whether to contain lowercase letters. Defaults to true.
+     * @return string - the generated random string.
      */
-    public static function generateRandomString(int $numChars, $charOptions=0) : string
+    public static function generateRandomString(
+        int $numChars,
+        bool $useSpecialChars=true,
+        bool $useNumbers=true,
+        bool $useUppercase=true,
+        bool $useLowercase=true
+    ) : string
     {
-        $userLowerCase   = !($charOptions & self::PASSWORD_DISABLE_LOWER_CASE);
-        $useUppercase    = !($charOptions & self::PASSWORD_DISABLE_UPPER_CASE);
-        $useNumbers      = !($charOptions & self::PASSWORD_DISABLE_NUMBERS);
-        $useSpecialChars = !($charOptions & self::PASSWORD_DISABLE_SPECIAL_CHARS);
-
         $lowerCase      = str_split('abcdefghijklmnopqrstuvwxyz', 1);
         $numbers        = str_split('0123456789', 1);
         $capitalLetters = str_split('ABCDEFGHIJKLMNOPQRSTUVWXYZ', 1);
@@ -44,7 +35,7 @@ class StringLib
 
         $possibleChars = array();
 
-        if ($userLowerCase)
+        if ($useLowercase)
         {
             $possibleChars = array_merge($possibleChars, $lowerCase);
             $requirements['lower_case'] = $lowerCase;
