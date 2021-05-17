@@ -235,8 +235,20 @@ class Core
             curl_setopt($ch, CURLOPT_POSTFIELDS, $query_string);
             
             // @TODO - S.P. to review...
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+            // JBB - these turn off all SSL security checking
+            // curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+            // curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+            
+            // JBB - adding switch to check for a constant in the php bootstrap
+            // which defines the location of a cURL SSL certificate
+            if( defined("CURL_SSL_CERTIFICATE") && is_file(CURL_SSL_CERTIFICATE)) {
+                curl_setopt($ch, CURLOPT_CAINFO, CURL_SSL_CERTIFICATE);
+                curl_setopt($ch, CURLOPT_CAPATH, CURL_SSL_CERTIFICATE);
+            }
+            else {
+                throw new \Exception('cURL SSL certificate not found');
+            }
+
             
             // Manage if user provided headers.
             if (count($headers) > 0)
