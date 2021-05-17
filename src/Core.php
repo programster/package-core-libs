@@ -187,7 +187,12 @@ class Core
      * @return stdObject - json response object from the api server
      * @throws \Exception
      */
-    public static function sendApiRequest($url, array $parameters, $requestType="POST", $headers=array())
+    public static function sendApiRequest(
+        $url, 
+        array $parameters, 
+        $requestType="POST", 
+        $headers=array()
+    )
     {
         $allowedRequestTypes = array("GET", "POST", "PUT", "PATCH", "DELETE");
         $requestTypeUpper = strtoupper($requestType);
@@ -234,9 +239,23 @@ class Core
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $query_string);
             
-            // @TODO - S.P. to review...
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+            
+            // JBB - adding switch to check for a constant in the php bootstrap
+            // which defines the location of a cURL SSL certificate
+            if( defined("CURL_SSL_CERTIFICATE") && is_file(CURL_SSL_CERTIFICATE)) {
+                curl_setopt($ch, CURLOPT_CAINFO, CURL_SSL_CERTIFICATE);
+                curl_setopt($ch, CURLOPT_CAPATH, CURL_SSL_CERTIFICATE);
+            }
+            else {
+                // JBB - these turn off all SSL security checking
+                // @TODO - S.P. to review...
+                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+
+                // JBB - this is what should happen in this else statement....
+                // throw new \Exception('cURL SSL certificate not found');
+            }
+
             
             // Manage if user provided headers.
             if (count($headers) > 0)
