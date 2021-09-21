@@ -622,7 +622,7 @@ class Filesystem
 
                 if (!$finfo)
                 {
-                    throw new Exception("Could not open fileinfo database in order to automatically determine the file's mimetype.");
+                    throw new \Exception("Could not open fileinfo database in order to automatically determine the file's mimetype.");
                 }
 
                 $mimetype = $finfo->file($filepath);
