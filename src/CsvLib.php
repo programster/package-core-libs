@@ -168,6 +168,87 @@ class CsvLib
 
 
     /**
+     * "Walk" a CSV file like array_walk, except that instead of an array, we walk the CSV file, with each call to
+     * the callback calling the passed callable, with the array representing the CSV row.
+     * @param string $filepath - the path to the CSV file.
+     * @param callable $callback - the callback to execute on each row of CSV data. Typically, callback takes on two
+     *                             parameters. The array representing the row being the first, and the row index being
+     *                             being the second (starts from 0, but the data might start on row 1 if the CSV has
+     *                             headers).
+     * @param bool $hasHeaders - whether the CSV file's first row is the names for the columns. Usually this is true.
+     *                           If the CSV file has headers, then the array passed to the callable will be an
+     *                           associative array of name/value pairs with the name being the corresponding header.
+     * @param null|array $headers - optionally manually specify the headers if you wish to set the keys for the array
+     *                              that gets passed to the callable. If left as null, this is ignored. If set and
+     *                              hasHeaders is set to true, this will override any headers in the file.
+     * @param string $separator - separator to pass through to fgetcsv
+     * @param string $enclosure - enclosure to pass through to fgetcsv
+     * @param string $escape - excape value to pass through to fgetcsv
+     * @throws \Safe\Exceptions\FilesystemException - if the file at $filepath does not exist or cannot be opened.
+     * @return void
+     */
+    public static function csvWalk(
+        string $filepath,
+        callable $callback,
+        bool $hasHeaders = true,
+        ?array $headers = null,
+        string $delimiter = ",",
+        string $enclosure = "\"",
+        string $escape = '\\'
+    ) : void
+    {
+        $fileHandle = \Safe\fopen($filepath, 'r');
+        $firstRow = true;
+        $rowIndex = -1;
+
+        while ($row = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape))
+        {
+            $rowIndex++;
+
+            // Skip empty lines (users may accidentally put one at the end
+            // libre calc wont strip this either.
+            if (count($row) == 0 || $row[0] === "")
+            {
+                continue;
+            }
+
+            if ($firstRow)
+            {
+                $firstRow = false;
+
+                if ($hasHeaders)
+                {
+                    if ($headers === null)
+                    {
+                        $headers = $row;
+                    }
+
+                    continue;
+                }
+            }
+
+            if ($headers !== null)
+            {
+                if (count($headers) != count($row))
+                {
+                    $msg = "Cannot convert csv to array. Number of keys: " . count($headers) .
+                           " is not the same as the number of values: " . count($row);
+                    throw new \Exception($msg);
+                }
+
+                $arrayToRunCallbackOn = array_combine($headers, $row);
+            }
+            else
+            {
+                $arrayToRunCallbackOn = $row;
+            }
+
+            $callback($arrayToRunCallbackOn, $rowIndex);
+        }
+    }
+
+
+    /**
      * Create a CSV file from the provided array of data. This is done in a memory efficient manner of writing one
      * line at a time to the file rather then building a massive string and dumping the entire string to the file.
      * @param string $filepath - the path to the file that we will write the csv to, creating if necessary.
