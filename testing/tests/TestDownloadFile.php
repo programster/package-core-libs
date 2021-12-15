@@ -4,17 +4,17 @@ namespace Programster\CoreLibs\Testing\Tests;
 
 class TestDownloadFile extends \Programster\CoreLibs\Testing\AbstractTest
 {
-    public function getDescription(): string 
+    public function getDescription(): string
     {
         return "Test the downloadFile function works.";
     }
-    
-    
-    public function run() 
+
+
+    public function run()
     {
-        $largeFileUrl = "http://ipv4.download.thinkbroadband.com/50MB.zip";
+        $largeFileUrl = "https://files.programster.org/public/50MB.zip";
         $downloadedFile = \Programster\CoreLibs\Filesystem::downloadFile($largeFileUrl);
-        
+
         // If we didn't throw an exception we passed.
         if (filesize($downloadedFile) >= 50000000)
         {
@@ -24,7 +24,7 @@ class TestDownloadFile extends \Programster\CoreLibs\Testing\AbstractTest
         {
             $this->m_passed = false;
         }
-        
+
         unlink($downloadedFile);
     }
 }
