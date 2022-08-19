@@ -21,8 +21,8 @@ class Core
     {
         throw new \Exception($msg);
     }
-    
-    
+
+
     /**
      * Determines whether php is running as a CLI script or a website.
      * @param void
@@ -31,33 +31,33 @@ class Core
     public static function isCli()
     {
         $result = false;
-        
+
         if (defined('STDIN') )
         {
             $result = true;
         }
-        
+
         return $result;
     }
-    
-    
+
+
     /**
-     * Make PHP slightly more like java and allow printing a line. If this is 
+     * Make PHP slightly more like java and allow printing a line. If this is
      * in a web app then it will use <br /> as well.
      * @param String $message - the string to print out.
      * @return void - prints out immediately.
      */
     public static function println($message)
-    {   
+    {
         if (!self::isCli())
         {
             $message .= '<br />';
         }
-        
+
         print $message . PHP_EOL;
     }
-    
-    
+
+
     /**
      * Output messages only if debugging is enabled (DEBUG defined and true)
      * @param string message - the message to be logged.
@@ -65,14 +65,14 @@ class Core
     public static function debugPrintln($message)
     {
         global $globals;
-        
+
         if (isset($globals['DEBUG']) && $globals['DEBUG'] == true)
         {
             self::println($message);
         }
     }
-    
-    
+
+
     /**
      * Generates a unique id, which can be useful for javascript
      * @param prefix - optional - specify a prefix such as 'accordion' etc.
@@ -86,14 +86,14 @@ class Core
         return $id;
     }
 
-    
+
     /**
-     * Tiny helper function to help ensure that exit is always called after 
-     * redirection and allows the developer to only have to remember the 
+     * Tiny helper function to help ensure that exit is always called after
+     * redirection and allows the developer to only have to remember the
      * location they want. (wont forget 'location:')
-     * 
+     *
      * @param location - the location/address/url you want to redirect to.
-     * 
+     *
      * @return void - redirects the user and quits.
      */
     public static function redirectUser($location)
@@ -102,34 +102,34 @@ class Core
         exit();
     }
 
-    
+
     /**
-     * Allows us to re-direct the user using javascript when headers have 
+     * Allows us to re-direct the user using javascript when headers have
      * already been submitted.
-     * 
+     *
      * @param string url that we want to re-direct the user to.
-     * @param int numSeconds - optional integer specifying the number of 
+     * @param int numSeconds - optional integer specifying the number of
      *                         seconds to delay.
-     * 
+     *
      * @return htmlString - the html to print out in order to redirect the user.
      */
     public static function javascriptRedirectUser($url, $numSeconds = 0)
     {
         $htmlString = '';
-            
-        $htmlString .= 
+
+        $htmlString .=
             "<script type='text/javascript'>" .
-                "var redirectTime=" . $numSeconds * 1000 . ";" . PHP_EOL .
-                "var redirectURL='" . $url . "';" . PHP_EOL .
-                'setTimeout("location.href = redirectURL;", redirectTime);' . PHP_EOL .
+            "var redirectTime=" . $numSeconds * 1000 . ";" . PHP_EOL .
+            "var redirectURL='" . $url . "';" . PHP_EOL .
+            'setTimeout("location.href = redirectURL;", redirectTime);' . PHP_EOL .
             "</script>";
-            
+
         return $htmlString;
     }
-    
-    
+
+
     /**
-     * Sets the title of the process and will append the appropriate number of 
+     * Sets the title of the process and will append the appropriate number of
      * already existing processes with the same title.
      * WARNING - this will fail and return FALSE if you are on Windows
      * @param string $nameingPrefix - the name to give the process.
@@ -139,21 +139,21 @@ class Core
     {
         $succeeded = false;
         $num_running = self::getNumProcRunning($nameingPrefix);
-        
+
         if (function_exists('cli_set_process_title'))
         {
             cli_set_process_title($nameingPrefix . $num_running);
             $succeeded = true;
         }
-        
+
         return $succeeded;
     }
-    
-    
+
+
     /**
-     * Fetches the number of processes running with the given search name 
+     * Fetches the number of processes running with the given search name
      * (have it in their name)
-     * @param String $title - the string to search for a process by 
+     * @param String $title - the string to search for a process by
      *                        (e.g. its name/title)
      * @return int - the number of processes running with that title.
      */
@@ -162,10 +162,10 @@ class Core
         $cmd = "ps -ef | tr -s ' ' | cut -d ' ' -f 8";
         $processes = explode(PHP_EOL, shell_exec($cmd));
         $numRunning = 0;
-        
+
         # starts with our title and has one or more numbers afterwards.
         $regExp = "/^" . $title . "[0-9]+/";
-        
+
         foreach ($processes as $processName)
         {
             if (preg_match($regExp, $processName))
@@ -173,11 +173,11 @@ class Core
                 $numRunning++;
             }
         }
-        
+
         return $numRunning;
     }
-    
-    
+
+
     /**
      * Sends an api request through the use of CURL
      * @param string url - the url where the api is located.
@@ -188,121 +188,124 @@ class Core
      * @throws \Exception
      */
     public static function sendApiRequest(
-        $url, 
-        array $parameters, 
-        $requestType="POST", 
+        $url,
+        array $parameters,
+        $requestType="POST",
         $headers=array()
     )
     {
         $allowedRequestTypes = array("GET", "POST", "PUT", "PATCH", "DELETE");
         $requestTypeUpper = strtoupper($requestType);
-        
+
         if (!in_array($requestTypeUpper, $allowedRequestTypes))
         {
             throw new \Exception("API request needs to be one of GET, POST, PUT, PATCH, or DELETE.");
         }
-        
-        if ($requestType === "GET")
-        {
-            $ret = self::sendGetRequest($url, $parameters);
+
+        $query_string = http_build_query($parameters, '', '&');
+
+        $ch = curl_init();
+
+        if ($requestTypeUpper === 'GET') {
+            $url .= "?$query_string";
         }
-        else 
+
+        curl_setopt($ch, CURLOPT_URL, $url);
+
+        switch ($requestTypeUpper)
         {
-            $query_string = http_build_query($parameters, '', '&');
-            
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            
-            switch ($requestTypeUpper)
-            {
-                case "POST":
+            case "POST":
                 {
                     curl_setopt($ch, CURLOPT_POST, 1);
                 }
                 break;
-                
-                case "PUT":
-                case "PATCH":
-                case "DELETE":
+
+            case "PUT":
+            case "PATCH":
+            case "DELETE":
                 {
-                    curl_setopt($this->m_ch, CURLOPT_CUSTOMREQUEST, $requestTypeUpper);
+                    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $requestTypeUpper);
                 }
                 break;
-            
-                default:
-                {
-                    throw new \Exception("Unrecognized request type.");
-                }
-            }
-            
-            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $query_string);
-            
-            
-            // JBB - adding switch to check for a constant in the php bootstrap
-            // which defines the location of a cURL SSL certificate
-            if( defined("CURL_SSL_CERTIFICATE") && is_file(CURL_SSL_CERTIFICATE)) {
-                curl_setopt($ch, CURLOPT_CAINFO, CURL_SSL_CERTIFICATE);
-                curl_setopt($ch, CURLOPT_CAPATH, CURL_SSL_CERTIFICATE);
-            }
-            else {
-                // JBB - these turn off all SSL security checking
-                // @TODO - S.P. to review...
-                curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
 
-                // JBB - this is what should happen in this else statement....
-                // throw new \Exception('cURL SSL certificate not found');
-            }
+            case 'GET':
+                break;
 
-            
-            // Manage if user provided headers.
-            if (count($headers) > 0)
+            default:
             {
-                $headersStrings = array();
-                
-                foreach ($headers as $key=>$value)
-                {
-                    $headersStrings[] = "{$key}: {$value}";
-                }
-                
-                curl_setopt($this->m_ch, CURLOPT_HTTPHEADER, $this->m_headers);
-            }
-            
-            $jsondata = curl_exec($ch);
-            
-            if (curl_error($ch))
-            {
-                $errMsg = "Connection Error: " . curl_errno($ch) . 
-                          ' - ' . curl_error($ch);
-                
-                throw new \Exception($errMsg);
-            }
-            
-            curl_close($ch);
-            $ret = json_decode($jsondata); # Decode JSON String
-            
-            if ($ret == null)
-            {
-                $errMsg = 'Recieved a non json response from API: ' . $jsondata;
-                throw new \Exception($errMsg);
+                throw new \Exception("Unrecognized request type.");
             }
         }
-        
+
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+
+        if ($requestTypeUpper !== 'GET') {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $query_string);
+        }
+
+        // JBB - adding switch to check for a constant in the php bootstrap
+        // which defines the location of a cURL SSL certificate
+        if( defined("CURL_SSL_CERTIFICATE") && is_file(CURL_SSL_CERTIFICATE)) {
+            curl_setopt($ch, CURLOPT_CAINFO, CURL_SSL_CERTIFICATE);
+            curl_setopt($ch, CURLOPT_CAPATH, CURL_SSL_CERTIFICATE);
+        }
+        else {
+            // JBB - these turn off all SSL security checking
+            // @TODO - S.P. to review...
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, 0);
+
+            // JBB - this is what should happen in this else statement....
+            // throw new \Exception('cURL SSL certificate not found');
+        }
+
+
+        // Manage if user provided headers.
+        if (count($headers) > 0)
+        {
+            $headersStrings = array();
+
+            foreach ($headers as $key=>$value)
+            {
+                $headersStrings[] = "{$key}: {$value}";
+            }
+
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headersStrings);
+        }
+
+        $jsondata = curl_exec($ch);
+
+        if (curl_error($ch))
+        {
+            $errMsg = "Connection Error: " . curl_errno($ch) .
+                ' - ' . curl_error($ch);
+
+            throw new \Exception($errMsg);
+        }
+
+        curl_close($ch);
+        $ret = json_decode($jsondata); # Decode JSON String
+
+        if ($ret == null)
+        {
+            $errMsg = 'Recieved a non json response from API: ' . $jsondata;
+            throw new \Exception($errMsg);
+        }
+
         return $ret;
     }
-    
-    
+
+
     /**
      * Sends a GET request to a RESTful API through cURL.
-     * 
+     *
      * @param string url - the url where the api is located.
-     * @param array parameters - optional array of name value pairs for sending to 
+     * @param array parameters - optional array of name value pairs for sending to
      *                           the RESTful API.
-     * @param bool arrayForm - optional - set to true to return an array instead of 
+     * @param bool arrayForm - optional - set to true to return an array instead of
      *                                    a stdClass object.
-     * 
+     *
      * @return stdObject - json response object from the api server
      */
     public static function sendGetRequest($url, array $parameters=array(), $arrayForm=false)
@@ -310,72 +313,72 @@ class Core
         if (count($parameters) > 0)
         {
             $query_string = http_build_query($parameters, '', '&');
-            $url .= $query_string;
+            $url .= "?$query_string";
         }
-        
+
         # Get cURL resource
         $curl = curl_init();
-        
+
         # Set some options - we are passing in a useragent too here
         $curlOptions = array(
             CURLOPT_RETURNTRANSFER => 1,
             CURLOPT_URL => $url,
         );
-        
+
         curl_setopt_array($curl, $curlOptions);
-        
+
         # Send the request
         $rawResponse = curl_exec($curl);
-        
+
         # Close request to clear up some resources
         curl_close($curl);
-        
+
         # Convert to json object.
         $responseObj = json_decode($rawResponse, $arrayForm); # Decode JSON String
-        
+
         if ($responseObj == null)
         {
             $errMsg = 'Recieved a non json response from API: ' . $rawResponse;
             throw new \Exception($errMsg);
         }
-        
+
         return $responseObj;
     }
-    
-    
+
+
     /**
-     * This is the socket "equivalent" to the sendApiRequest function. However 
-     * unlike that funciton it does not require the curl library to be 
-     * installed, and will try to send/recieve information over a direct socket 
+     * This is the socket "equivalent" to the sendApiRequest function. However
+     * unlike that funciton it does not require the curl library to be
+     * installed, and will try to send/recieve information over a direct socket
      * connection.
      *
      * @param string $host - who to send the request to
      * @param int $port - the port number to make the connection on.
      * @param Array $request - map of name/value pairs to send.
-     * @param int $bufferSize - optionally define the size (num chars/bytes) of 
-     *                          the buffer. If this is too small your 
+     * @param int $bufferSize - optionally define the size (num chars/bytes) of
+     *                          the buffer. If this is too small your
      *                          information can get cut off, causing errors.
      *                          10485760 = 10 MiB
-     * @param int $timeout - (optional, default 2) the number of seconds before 
+     * @param int $timeout - (optional, default 2) the number of seconds before
      *                       connection attempt times out.
-     * @param int $attemptsLimit - (optional, default 5) the number of failed 
+     * @param int $attemptsLimit - (optional, default 5) the number of failed
      *                             connection attempts to make before giving up.
      * @return Array - the response from the api in name/value pairs.
      */
-    public static function sendTcpRequest($host, 
-                                          $port, 
+    public static function sendTcpRequest($host,
+                                          $port,
                                           $request,
-                                          $bufferSize=10485760, 
-                                          $timeout=2, 
+                                          $bufferSize=10485760,
+                                          $timeout=2,
                                           $attemptsLimit=100)
     {
         # The PHP_EOL endline is so that the reciever knows that is the end of 
         # the message with PHP_NORMAL_READ.
         $reqString = json_encode($request) . PHP_EOL;
-        
+
         $protocol = getprotobyname('tcp');
         $socket = socket_create(AF_INET, SOCK_STREAM, $protocol);
-        
+
         # stream_set_timeout DOES NOT work for sockets created with 
         # socket_create or socket_accept.
         # http://www.php.net/manual/en/function.stream-set-timeout.php
@@ -383,73 +386,73 @@ class Core
             'sec'  =>$timeout,
             'usec' => 0
         );
-        
+
         socket_set_option($socket, SOL_SOCKET, SO_RCVTIMEO, $socket_timout_spec);
         socket_set_option($socket, SOL_SOCKET, SO_SNDTIMEO, $socket_timout_spec);
-        
+
         $attempts_made = 0;
         $socketErrors = array();
         $timeStart = time();
-        
+
         do
         {
             $connected = socket_connect($socket, $host, $port);
-            
+
             if (!$connected)
             {
                 $socket_error_code   = socket_last_error($socket);
                 $socket_error_string = socket_strerror($socket_error_code);
                 $socketErrors[] = $socket_error_string;
-                
+
                 # socket_last_error does not clear the last error after having 
                 # fetched it, have to  do this manually
                 socket_clear_error();
-                
+
                 if ($attempts_made == $attemptsLimit)
                 {
-                    $errorMsg = 
+                    $errorMsg =
                         "Failed to make socket connection " . PHP_EOL .
                         "host: [" . $host . "] " . PHP_EOL .
                         "total time waited: [" . time() - $timeStart . "]" . PHP_EOL .
-                        "socket errors: " . PHP_EOL . 
+                        "socket errors: " . PHP_EOL .
                         print_r($socketErrors, true) . PHP_EOL;
-                    
+
                     throw new \Exception($errorMsg);
                 }
-                
+
                 $attempts_made++;
-                
+
                 # The socket may just be "tied up", give it a bit of time 
                 # before retrying.
                 print "Failed to connect so sleeping...." . PHP_EOL;
                 sleep(1);
             }
         } while (!$connected); # 110 = timeout error code
-        
+
         /* @var $socket Socket */
         $wroteBytes = socket_write($socket, $reqString, strlen($reqString));
-        
+
         if ($wroteBytes === false)
         {
             throw new \Exception('Failed to write request to socket.');
         }
-        
+
         # PHP_NORMAL_READ indicates end reading on newline
         $serverMessage = socket_read($socket, $bufferSize, PHP_NORMAL_READ);
         $response = json_decode($serverMessage, $arrayForm=true);
         socket_shutdown($socket, 2); # 0=shut read, 1=shut write, 2=both
         socket_close($socket);
-        
+
         return $response;
     }
-    
-    
+
+
     /**
-     * Fetches the specified list of arguments from $_REQUEST. This will return 
+     * Fetches the specified list of arguments from $_REQUEST. This will return
      * false if any parameters could not be found.
-     * 
+     *
      * @param args - array of all the argument names.
-     * 
+     *
      * @return result - false if any parameters could not be found.
      */
     public static function fetchReqArgs($args)
@@ -457,16 +460,16 @@ class Core
         $values = self::fetchReqArgsFromArray($args, $_REQUEST);
         return $values;
     }
-    
-    
+
+
     /**
-     * Fetches the specified list of arguments from $_REQUEST. This will return 
+     * Fetches the specified list of arguments from $_REQUEST. This will return
      * false if any parameters could not be found.
-     * 
+     *
      * @param array $args - array of all the argument names.
-     * @param array $input_array - array from which we are pulling the required 
+     * @param array $input_array - array from which we are pulling the required
      *                             args.
-     * 
+     *
      * @return result - false if any parameters could not be found.
      */
     public static function fetchReqArgsFromArray($args, $input_array)
@@ -489,10 +492,10 @@ class Core
 
         return $values;
     }
-    
-    
+
+
     /**
-     * Fetches as many of the specified list of arguments from $_REQUEST that it 
+     * Fetches as many of the specified list of arguments from $_REQUEST that it
      * can retrieve.
      * This will NOT throw an exception or return false if it fails to find one.
      * @param args - array of all the argument names.
@@ -503,22 +506,22 @@ class Core
         $values = self::fetchOptionalArgsFromArray($args, $_REQUEST);
         return $values;
     }
-    
-    
+
+
     /**
-     * Fetches as many of the specified list of arguments from $_REQUEST that 
+     * Fetches as many of the specified list of arguments from $_REQUEST that
      * it can retrieve.
      * This will NOT throw an exception or return false if it fails to find one.
-     * 
+     *
      * @param array $args - array of all the argument names.
      * @param array $input_array - array from which we are pulling the optional args.
-     * 
+     *
      * @return values - array of retrieved values
      */
     public static function fetchOptionalArgsFromArray($args, $input_array)
     {
         $values = array();
-        
+
         foreach ($args as $arg)
         {
             if (isset($input_array[$arg]))
@@ -526,19 +529,19 @@ class Core
                 $values[$arg] = $input_array[$arg];
             }
         }
-        
+
         return $values;
     }
-    
-    
+
+
     /**
-     * Retrieves the specified arguments from REQUEST. This will throw an 
-     * exception if a required argument is not present, but not if an optional 
+     * Retrieves the specified arguments from REQUEST. This will throw an
+     * exception if a required argument is not present, but not if an optional
      * argument is not.
-     * 
+     *
      * @param array reqArgs - required arguments that must exist
      * @param array optionalArgs - arguments that should be retrieved if exist
-     * 
+     *
      * @return values - map of argument name/value pairs retrieved.
      */
     public static function fetchArgs(array $reqArgs, array $optionalArgs)
@@ -547,53 +550,53 @@ class Core
         $values = array_merge($values, self::fetchOptionalArgs($optionalArgs));
         return $values;
     }
-    
-    
+
+
     /**
-     * Builds url of the current page, excluding any ?=&stuff,   
+     * Builds url of the current page, excluding any ?=&stuff,
      * @param void
-     * @return pageURL - full page url of the current page 
+     * @return pageURL - full page url of the current page
      *                   e.g. https://www.google.com/some-page
      */
-    public static function getCurrentUrl() 
+    public static function getCurrentUrl()
     {
         $pageURL = 'http';
-        
-        if (isset($_SERVER["HTTPS"])) 
+
+        if (isset($_SERVER["HTTPS"]))
         {
             $pageURL .= "s";
         }
-        
+
         $pageURL .= "://";
 
-        if ($_SERVER["SERVER_PORT"] != "80") 
+        if ($_SERVER["SERVER_PORT"] != "80")
         {
-            $pageURL .= $_SERVER["SERVER_NAME"] . ":" . 
-                        $_SERVER["SERVER_PORT"] . $_SERVER["REQUEST_URI"];
-        } 
-        else 
+            $pageURL .= $_SERVER["SERVER_NAME"] . ":" .
+                $_SERVER["SERVER_PORT"] . $_SERVER["REQUEST_URI"];
+        }
+        else
         {
             $pageURL .= $_SERVER["SERVER_NAME"] . $_SERVER["REQUEST_URI"];
         }
 
         return $pageURL;
     }
-    
-    
+
+
     /**
-     * Ensures that a given value is within the given range and if not, moves 
+     * Ensures that a given value is within the given range and if not, moves
      * it to the boundary.
-     * Note that this can work for objects if you install the following 
+     * Note that this can work for objects if you install the following
      * extension: http://pecl.php.net/package/operator
-     * 
+     *
      * @param mixed $value - the variable to make sure is within range.
      * @param mixed $max   - the max allowed value.
      * @param mixed $min   - the minimum allowed value
-     * 
+     *
      * @return $value - the clamped input.
      */
     public static function clampValue($value, $max, $min)
-    {        
+    {
         if ($value > $max)
         {
             $value = $max;
@@ -602,20 +605,20 @@ class Core
         {
             $value = $min;
         }
-        
+
         return $value;
     }
-    
-    
+
+
     /**
-     * Script function (not for websits) Fetches the password from the shell 
+     * Script function (not for websits) Fetches the password from the shell
      * without it being displayed whilst being typed. Only works on *nix systems
      * and requires shell_exec and stty.
-     * 
-     * @param bool stars - (optional) set to false to stop outputting stars as 
-     *                     user types password. This prevents onlookers seeing 
+     *
+     * @param bool stars - (optional) set to false to stop outputting stars as
+     *                     user types password. This prevents onlookers seeing
      *                     the password length but does make more difficult.
-     * 
+     *
      * @return string - the password that was typed in.
      */
     public static function getPasswordFromUserInput($stars = true)
@@ -623,33 +626,33 @@ class Core
         // Get current style
         $oldStyle = shell_exec('stty -g');
 
-        if ($stars === false) 
+        if ($stars === false)
         {
             shell_exec('stty -echo');
             $password = rtrim(fgets(STDIN), "\n");
-        } 
-        else 
+        }
+        else
         {
             shell_exec('stty -icanon -echo min 1 time 0');
 
             $password = '';
-            while (true) 
+            while (true)
             {
                 $char = fgetc(STDIN);
 
-                if ($char === "\n") 
+                if ($char === "\n")
                 {
                     break;
-                } 
-                else if (ord($char) === 127) 
+                }
+                else if (ord($char) === 127)
                 {
-                    if (strlen($password) > 0) 
+                    if (strlen($password) > 0)
                     {
                         fwrite(STDOUT, "\x08 \x08");
                         $password = substr($password, 0, -1);
                     }
-                } 
-                else 
+                }
+                else
                 {
                     fwrite(STDOUT, "*");
                     $password .= $char;
@@ -664,17 +667,17 @@ class Core
         // Return the password
         return $password;
     }
-    
-    
+
+
     /**
-     * Calculates the hostname including the starting http:// or https:// at 
-     * the beginning. This is useful for linking items by relative source and 
+     * Calculates the hostname including the starting http:// or https:// at
+     * the beginning. This is useful for linking items by relative source and
      * getting around htaccess url rewrites.
      * @return String  - The url e.g. 'http://www.technostu.com'
      */
     public static function getHostname()
     {
-        $hostname = $_SERVER['HTTP_HOST']; 
+        $hostname = $_SERVER['HTTP_HOST'];
 
         if (isset($_SERVER['HTTPS']))
         {
@@ -684,11 +687,11 @@ class Core
         {
             $hostname = 'http://' . $hostname;
         }
-        
+
         return $hostname;
     }
-    
-    
+
+
     /**
      * Generates a string of yes or no based on the input variable.
      * Note that this will consider string 0 or a 0 integer as 'false' values.
@@ -698,110 +701,110 @@ class Core
     public static function generateYesNoString($input)
     {
         $result = 'Yes';
-        
+
         if ($input == "0" || $input == 0 || $input == false)
         {
             $result = 'No';
         }
-        
+
         return $result;
     }
-    
-    
+
+
     /**
-     * Generates a string 'True' or 'False' based on whether the value passed 
+     * Generates a string 'True' or 'False' based on whether the value passed
      * in. This will consider string 0 or a 0 integer as 'false' values.
-     * @param mixed input - the input variable to decide whether to output true 
+     * @param mixed input - the input variable to decide whether to output true
      *                      or false on.
      * @return string - "True" or "False"
      */
     public static function generateTrueFalseString($input)
     {
         $result = 'True';
-        
+
         if ($input == "0" || $input == 0 || $input == false)
         {
             $result = 'False';
         }
-        
+
         return $result;
     }
-    
-    
+
+
     /**
-     * Sets a variable to the sepcified default if it is not set within the 
-     * $_REQUEST superglobal. You can think of this as overriding the default 
-     * if it is set in the $_REQUEST superglobal. 
-     * 
-     * @param string $varName - the name of the variable if it would appear 
+     * Sets a variable to the sepcified default if it is not set within the
+     * $_REQUEST superglobal. You can think of this as overriding the default
+     * if it is set in the $_REQUEST superglobal.
+     *
+     * @param string $varName - the name of the variable if it would appear
      *                          within the $_REQUEST
-     * @param mixed $defaultValue - the value to set if the var is not set 
+     * @param mixed $defaultValue - the value to set if the var is not set
      *                              within $_REQUEST
-     * 
-     * @return mixed - the resulting value. (default value if not set) 
+     *
+     * @return mixed - the resulting value. (default value if not set)
      */
     public static function overrideIfSet($varName, $defaultValue)
     {
         $returnVar = $defaultValue;
-        
+
         if (isset($_REQUEST[$varName]))
         {
             $returnVar = $_REQUEST[$varName];
         }
-        
+
         return $returnVar;
     }
-    
-    
+
+
     /**
-     * Implement a version guard. This will throw an exception if we do not 
+     * Implement a version guard. This will throw an exception if we do not
      * have the required version of PHP that is specified.
      * @param String $reqVersion - required version of php, e.g '5.4.0'
-     * @throws an exception if we do not meet the required php 
+     * @throws an exception if we do not meet the required php
      *                version.
      */
     public static function versionGuard($reqVersion, $errMsg='')
     {
-        if (version_compare(PHP_VERSION, $reqVersion) == -1) 
+        if (version_compare(PHP_VERSION, $reqVersion) == -1)
         {
             if ($errMsg == '')
             {
-                $errMsg = 'Required PHP version: ' . $reqVersion . 
-                                ', current Version: ' . PHP_VERSION;    
+                $errMsg = 'Required PHP version: ' . $reqVersion .
+                    ', current Version: ' . PHP_VERSION;
             }
-            
-            die($errMsg); 
+
+            die($errMsg);
         }
     }
-    
-    
+
+
     /**
      * Fetches what this computers IP address is. Please note that you may wish
-     * to run getPublicIp instead which may return a different IP address 
+     * to run getPublicIp instead which may return a different IP address
      * depending on your network.
-     * @param string $interface - the network interface that we want the IP of, 
+     * @param string $interface - the network interface that we want the IP of,
      *                            defaults to eth0
      * @return string - The ip of this machine on that interface. Will be empty
      *                  if there is no IP.
      */
     public static function getIp($interface = 'eth0')
     {
-        $command = 
+        $command =
             'ifconfig ' . $interface . ' | ' .
             'grep "inet addr" |  ' .
             'awk \'{print $2;}\' | ' .
             'cut -d : -f 2';
-        
+
         $result = shell_exec($command);
         return $result;
     }
-    
-    
+
+
     /**
-     * Determines what this computers public IP address is (this is not 
-     * necessarily the IP address of the computer, and you may need to setup 
+     * Determines what this computers public IP address is (this is not
+     * necessarily the IP address of the computer, and you may need to setup
      * port forwarding.
-     * This is a very quick and dirty method that relies on icanhazip.com 
+     * This is a very quick and dirty method that relies on icanhazip.com
      * remaining the same so use with  caution.
      * @param void
      * @return string $ip - the public ip address of this computer.
@@ -812,8 +815,8 @@ class Core
         $ip = trim($ip);
         return $ip;
     }
-    
-    
+
+
     /**
      * Checks to see if the specified port is open.
      * @param string $host - the host to check against.
@@ -823,14 +826,14 @@ class Core
     public static function isPortOpen($host, $port, $protocol)
     {
         $protocol = strtolower($protocol);
-        
+
         if ($protocol != 'tcp' && $protocol != 'udp')
         {
-            $errMsg = 'Unrecognized protocol [' . $protocol . '] ' . 
-                      'please specify [tcp] or [udp]';
+            $errMsg = 'Unrecognized protocol [' . $protocol . '] ' .
+                'please specify [tcp] or [udp]';
             throw new \Exception($errMsg);
         }
-        
+
         if (empty($host))
         {
             $host = self::getPublicIp();
@@ -851,14 +854,14 @@ class Core
                 $isOpen = false;
             }
         }
-        
+
         return $isOpen;
     }
-    
-    
+
+
     /**
-     * Fetches the number of vCPU on a Linux machine. I state vCPU instead of 
-     * CPU as this includes all hyperthreads/cores. (e.g. an i7 will show up as 
+     * Fetches the number of vCPU on a Linux machine. I state vCPU instead of
+     * CPU as this includes all hyperthreads/cores. (e.g. an i7 will show up as
      * 8 even though there is only 1 physical processor)
      * @return int - the number of threads this machine can concurrently run.
      */
@@ -868,89 +871,89 @@ class Core
         $numProcessors = intval(shell_exec($cmd));
         return $numProcessors;
     }
-    
-    
+
+
     /**
-     * Linux specific function that fetches information on how much RAM is in 
+     * Linux specific function that fetches information on how much RAM is in
      * the system in MiB (base 2, not base 10)
-     * @param bool $availableOnly - optionally specify that you want to know  
-     *                              onlyhow much ram is free and not the total 
+     * @param bool $availableOnly - optionally specify that you want to know
+     *                              onlyhow much ram is free and not the total
      *                              amount of RAM in the system.
-     * Based on: 
+     * Based on:
      * http://stackoverflow.com/questions/1455379/get-server-ram-with-php
      */
     public static function getRam($availableOnly=false)
     {
         $data = explode("\n", file_get_contents("/proc/meminfo"));
         $meminfo = array();
-        
-        foreach ($data as $line) 
+
+        foreach ($data as $line)
         {
             # remove the kB identifier at the end.
             $line = str_replace(' kB', '', $line);
-            
+
             $parts = explode(":", $line);
-            
+
             if (count($parts) == 2)
             {
                 $meminfo[$parts[0]] = trim($parts[1]);
             }
         }
-        
+
         $memory = $meminfo['MemTotal'];
-        
+
         if ($availableOnly)
         {
             $memory = $meminfo['MemFree'];
         }
-        
+
         # Convert from KiB to MiB
         $memory = $memory / 1024.0;
-        
+
         return $memory;
     }
-    
-    
+
+
     /**
-     * Generate a php config file to have the setting provided. This is useful 
-     * if we want to be able to update our config file through code, such as a 
-     * web ui to upadate settings. Platforms like wordpress allow updating the 
+     * Generate a php config file to have the setting provided. This is useful
+     * if we want to be able to update our config file through code, such as a
+     * web ui to upadate settings. Platforms like wordpress allow updating the
      * settings, but do this through a database.
-     * @param mixed $settings       - array or variable that we want to save to 
+     * @param mixed $settings       - array or variable that we want to save to
      *                                the file
-     * @param string $variableName  - name of the settings variable so that it 
+     * @param string $variableName  - name of the settings variable so that it
      *                                is reloaded correctly
-     * @param string $filePath      - path to the file where we want to save the 
+     * @param string $filePath      - path to the file where we want to save the
      *                                settings. (overwritten)
      * @return void - creates a config file, or throws an exception if failed.
-     * @throws Exception if failed to write to the specified filePath, e.g dont 
+     * @throws Exception if failed to write to the specified filePath, e.g dont
      *                   have permissions.
      */
     public static function generateConfig($settings, $variableName, $filePath)
     {
         $varStr = var_export($settings, true);
-        
-        $output = 
+
+        $output =
             '<?php' . PHP_EOL .
             '$' . $variableName . ' = ' . $varStr . ';';
-        
+
         # file_put_contents returns num bytes written or boolean false if fail
         $wroteFile = file_put_contents($filePath, $output);
-        
+
         if ($wroteFile === FALSE)
         {
             $msg = "Failed to generate config file. Check permissions!";
             throw new \Exception($msg);
         }
     }
-    
-    
+
+
     /**
      * Converts a raw password into a hash using PHP 5.5's new hashing method
      * @param String $rawPassword - the password we wish to hash
-     * @param int $cost - The two digit cost parameter is the base-2 logarithm 
-     *                    of the iteration count for the underlying 
-     *                    Blowfish-based hashing algorithmeter and must be in 
+     * @param int $cost - The two digit cost parameter is the base-2 logarithm
+     *                    of the iteration count for the underlying
+     *                    Blowfish-based hashing algorithmeter and must be in
      *                    range 04-31
      * @return string - the generated hash
      */
@@ -958,43 +961,43 @@ class Core
     {
         $cost = intval($cost);
         $cost = self::clampValue($cost, $max=31, $min=4);
-        
+
         # has to be 2 digits, eg. 04
         if ($cost < 10)
         {
             $cost = "0" . $cost;
         }
-        
+
         $options = array('cost' => $cost);
-        
+
         $hash = password_hash($rawPassword, PASSWORD_BCRYPT, $options);
         return $hash;
     }
-    
-    
+
+
     /**
-     * Counterpart to generate_password_hash. This function should be used to 
-     * verify that the provided password is correct. This just wraps around 
-     * password_verify (req 5.5) which automatically knows which algo and cost 
+     * Counterpart to generate_password_hash. This function should be used to
+     * verify that the provided password is correct. This just wraps around
+     * password_verify (req 5.5) which automatically knows which algo and cost
      * to use as they are burried in the hash.
      * @param string $rawPassword - the raw password that the user entered.
-     * @param string $expectedHash - the hash that we are expecting 
+     * @param string $expectedHash - the hash that we are expecting
      *                              (generated from generate_password_hash)
      * @return boolean - true if valid, false if not.
      */
     public static function verifyPassword($rawPassword, $expectedHash)
     {
         $verified = false;
-        
-        if (password_verify($rawPassword, $expectedHash)) 
+
+        if (password_verify($rawPassword, $expectedHash))
         {
             $verified = true;
         }
-        
+
         return $verified;
     }
-    
-    
+
+
     /**
      * Sign some data. If we get this data back again, we will know that it came from us
      * untampered (as long as the signature still matches). This is useful for things like
@@ -1008,8 +1011,8 @@ class Core
         $stringForm = json_encode($data);
         return hash_hmac("sha256", $stringForm, $secret);
     }
-    
-    
+
+
     /**
      * Check if the provided data has the correct signature.
      * @param array $data - the data we recieved that was signed. The signature MUST NOT be in this
