@@ -263,7 +263,7 @@ class MysqliLib
      * @param Bitmask $jsonOptions - any options you wish to specify, such as JSON_HEX_QUOT
      * @throws Exception
      */
-    public static function convertResultToJsonFile(\mysqli_result $result, string $filepath, $jsonOptions=null)
+    public static function convertResultToJsonFile(\mysqli_result $result, string $filepath, $jsonOptions=0)
     {
         if ($result === FALSE)
         {
