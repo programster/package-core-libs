@@ -75,31 +75,6 @@ class Core
 
 
     /**
-     * Allows us to re-direct the user using javascript when headers have
-     * already been submitted.
-     *
-     * @param string url that we want to re-direct the user to.
-     * @param int numSeconds - optional integer specifying the number of
-     *                         seconds to delay.
-     *
-     * @return htmlString - the html to print out in order to redirect the user.
-     */
-    public static function javascriptRedirectUser(string $url, int $numSeconds = 0) : string
-    {
-        $htmlString = '';
-
-        $htmlString .=
-            "<script type='text/javascript'>" .
-                "var redirectTime=" . $numSeconds * 1000 . ";" . PHP_EOL .
-                "var redirectURL='" . $url . "';" . PHP_EOL .
-                'setTimeout("location.href = redirectURL;", redirectTime);' . PHP_EOL .
-            "</script>";
-
-        return $htmlString;
-    }
-
-
-    /**
      * Sets the title of the process and will append the appropriate number of
      * already existing processes with the same title.
      * WARNING - this will fail and return FALSE if you are on Windows
