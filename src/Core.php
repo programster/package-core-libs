@@ -59,20 +59,6 @@ class Core
 
 
     /**
-     * Generates a unique id, which can be useful for javascript
-     * @param prefix - optional - specify a prefix such as 'accordion' etc.
-     * @return string id - the 'unique' id.
-     */
-    public static function generateUniqueId(string $prefix="") : string
-    {
-        static $counter = 0;
-        $counter++;
-        $id = $prefix . $counter;
-        return $id;
-    }
-
-
-    /**
      * Tiny helper function to help ensure that exit is always called after
      * redirection and allows the developer to only have to remember the
      * location they want. (wont forget 'location:')
