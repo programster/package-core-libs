@@ -19,6 +19,10 @@
     },
     "require-dev" : {
     },
+    "suggest": {
+        "ext-sockets": "Allows the use of the networking methods that require sockets.",
+        "ext-zip": "Allows the use of methods that assist with using zip file."
+    },
     "autoload": {
         "psr-4": {
             "Programster\\CoreLibs\\": "src/",
