@@ -611,7 +611,8 @@ class Filesystem
      */
     public static function getFileExtension(string $filename) : string
     {
-        return end(explode('.', $filename));
+        $parts = explode('.', $filename);
+        return ArrayLib::getLastElement($parts);
     }
 
 
