@@ -189,33 +189,46 @@ class Filesystem
 
     /**
      * Deletes a directory even if it is not already empty. This resolves the
-     * issue with trying to use unlink on a non-empty dir.
-     * @param String $dir - the path to the directory you wish to delete
-     * @return void - changes your filesystem
+     *  issue with trying to use unlink on a non-empty dir.
+     * @param string $dir - the path to the directory you wish to delete
+     * @return void
+     * @throws ExceptionFileDoesNotExist - if a directory does not exist at the path specified.
      */
-    public static function deleteDir($dir)
+    public static function deleteDir(string $dir) : void
     {
-        if (is_dir($dir))
-        {
-            $objects = scandir($dir);
+        Filesystem::emptyDir($dir);
+        rmdir($dir);
+    }
 
-            foreach ($objects as $object)
+
+    /**
+     * Deletes all files from a directory, but leaves the directory in place.
+     * @param string $dir - the path to the directory one wishes to empty.
+     * @return void
+     * @throws ExceptionFileDoesNotExist - if a directory does not exist at the path specified.
+     */
+    public static function emptyDir(string $dir) : void
+    {
+        if (!is_dir($dir))
+        {
+            throw new ExceptionFileDoesNotExist("There is no directory at {$dir}.");
+        }
+
+        $objects = scandir($dir);
+
+        foreach ($objects as $object)
+        {
+            if ($object != "." && $object != "..")
             {
-                if ($object != "." && $object != "..")
+                if (filetype($dir . "/" . $object) == "dir")
                 {
-                    if (filetype($dir . "/" . $object) == "dir")
-                    {
-                        self::deleteDir($dir . "/" . $object);
-                    }
-                    else
-                    {
-                        unlink($dir . "/" . $object);
-                    }
+                    self::deleteDir($dir . "/" . $object);
+                }
+                else
+                {
+                    unlink($dir . "/" . $object);
                 }
             }
-
-            reset($objects);
-            rmdir($dir);
         }
     }
 
