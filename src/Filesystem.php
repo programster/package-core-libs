@@ -7,6 +7,10 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Exceptions\ExceptionFileAlreadyExists;
+use Programster\CoreLibs\Exceptions\ExceptionFileDoesNotExist;
+use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
+
 class Filesystem
 {
     /**
@@ -358,25 +362,33 @@ class Filesystem
     /**
      * Zip a directory and all of its contents into a zip file.
      * @param string $sourceFolder - path to the folder we wish to zip up.
-     * @param string $dest - path and name to give the zipfile
-     *                       e.g. (/tmp/my_zip.zip)
-     * @param bool $deleteOnComplete - specify false if you want to keep the
-     *                                 original uncompressed files after they
-     *                                 have been zipped.
+     * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
+     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they have been zipped.
+     * @return void
+     * @throws ExceptionFileAlreadyExists
+     * @throws ExceptionFileDoesNotExist
+     * @throws ExceptionMissingExtension
      */
-    public static function zipDir($sourceFolder, $dest, $deleteOnComplete=true)
+    public static function zipDir(string $sourceFolder, string $dest, bool $deleteOnComplete=true) : void
     {
         if (!extension_loaded('zip') )
         {
-            throw new \Exception("Your PHP does not have the zip extesion.");
+            throw new ExceptionMissingExtension("Your PHP does not have the zip extension.");
         }
 
         if (!file_exists($sourceFolder))
         {
-            throw new \Exception("Cannot zip non-existent folder");
+            throw new ExceptionFileDoesNotExist("Cannot zip non-existent folder");
         }
 
-        $rootPath = realpath($sourceFolder);
+        if (file_exists($dest))
+        {
+            $msg =
+                "A file already exists at {$dest}. We do not wish to risk overwriting data. " .
+                "Please provide a destination filepath that doesn't already exist.";
+
+            throw new ExceptionFileAlreadyExists($msg);
+        }
 
         $zip = new \ZipArchive();
         $zip->open($dest, \ZipArchive::CREATE);
@@ -388,7 +400,6 @@ class Filesystem
 
         foreach ($files as $name => $filepath)
         {
-            #$filePath = $file->getRealPath();
             $relativePath = str_replace($sourceFolder, $baseDir, $filepath);
             $zip->addFile($filepath, $relativePath);
         }
@@ -402,6 +413,7 @@ class Filesystem
         }
     }
 
+
     /**
      * Unzip a zip file and all of its contents into a directory.
      *
@@ -411,11 +423,11 @@ class Filesystem
      *                                 original uncompressed files after they
      *                                 have been zipped.
      */
-    public static function unzip($sourceZip, $destinationFolder, $deleteOnComplete=true)
+    public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete=true)
     {
         if (!extension_loaded('zip') )
         {
-            throw new \Exception("Your PHP does not have the zip extesion.");
+            throw new ExceptionMissingExtension("Your PHP does not have the zip extension.");
         }
 
         if (!file_exists($destinationFolder))
