@@ -437,7 +437,7 @@ enum TimeZoneEnum : string
      * @return \DateTimeZone
      * @throws \Exception
      */
-    public function toDateTimezone() : \DateTimeZone
+    public function toDateTimeZone() : \DateTimeZone
     {
         return new \DateTimeZone($this->value);
     }
