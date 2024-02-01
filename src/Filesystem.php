@@ -502,7 +502,7 @@ class Filesystem
     /**
      * Create a temporary directory. This will be a randomly named directory in the system's
      * temporary directory folder (usually /tmp).
-     * @param octal $mode - the permissions the new temporary directory will have. Using the
+     * @param $mode - the permissions the new temporary directory will have. Using the
      *                      defaults from mkdir: http://php.net/manual/en/function.mkdir.php
      * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
      * @throws \Exception
@@ -636,7 +636,7 @@ class Filesystem
      * @param string $downloadFilename
      * @param string $mimetype - optionally manually specify the mimetype. Can be null to force not setting mimetype on
      * download. Defaults to "auto" which will have PHP try to dynamically figure out the mimetype of the file.
-     * @throws Exception - if mimetype set to auto and PHP could not open mimetype database for determining mimetype.
+     * @throws \Exception - if mimetype set to auto and PHP could not open mimetype database for determining mimetype.
      */
     public static function streamFileToBrowser(string $filepath, string $downloadFilename, ?string $mimetype="auto")
     {

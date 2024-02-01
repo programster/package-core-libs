@@ -14,14 +14,15 @@
         }
     ],
     "require": {
-        "php": ">=8.2.0",
+        "php": ">=8.3.0",
         "thecodingmachine/safe": ">=1.3 <2.0.0"
     },
     "require-dev" : {
     },
     "suggest": {
         "ext-sockets": "Allows the use of the networking methods that require sockets.",
-        "ext-zip": "Allows the use of methods that assist with using zip file."
+        "ext-zip": "Allows the use of methods that assist with using zip file.",
+        "ext-openssl": "Allows the use of methods that assist encryption/decryption."
     },
     "autoload": {
         "psr-4": {

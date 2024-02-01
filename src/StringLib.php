@@ -7,12 +7,15 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
+use Random\Randomizer;
+
 class StringLib
 {
     /**
-     * Generates a random string. This can be useful for password generation
-     * or to create a single-use token for the user to do something
-     * (e.g. click an email link to register).
+     * Generates a random string that has at least one of each of the required types of characters specified.
+     * E.g. if useSpecialChars is set to true (default) then the generated string will have at least one special
+     * character.
      * @param int $numChars - how many characters long the string should be
      * @param bool $useSpecialChars - whether to use special characters. Defaults to true.
      * @param bool $useNumbers - whether to use numbers. Defaults to true.
@@ -22,66 +25,65 @@ class StringLib
      */
     public static function generateRandomString(
         int $numChars,
-        bool $useSpecialChars=true,
-        bool $useNumbers=true,
-        bool $useUppercase=true,
-        bool $useLowercase=true
+        bool $useSpecialChars = true,
+        bool $useNumbers = true,
+        bool $useUppercase = true,
+        bool $useLowercase = true
     ) : string
     {
-        $lowerCase      = str_split('abcdefghijklmnopqrstuvwxyz', 1);
-        $numbers        = str_split('0123456789', 1);
-        $capitalLetters = str_split('ABCDEFGHIJKLMNOPQRSTUVWXYZ', 1);
-        $specialChars   = str_split('!@#$%^&*(){}[]+-/_', 1);
+        $lowerCase      = 'abcdefghijklmnopqrstuvwxyz';
+        $numbers        = '0123456789';
+        $capitalLetters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        $specialChars   = '!@#$%^&*(){}[]+-/_';
 
-        $possibleChars = array();
+        $possibleChars = "";
+        $requirements = [];
 
         if ($useLowercase)
         {
-            $possibleChars = array_merge($possibleChars, $lowerCase);
+            $possibleChars .= $lowerCase;
             $requirements['lower_case'] = $lowerCase;
         }
 
         if ($useUppercase)
         {
-            $possibleChars = array_merge($possibleChars, $capitalLetters);
+            $possibleChars .= $capitalLetters;
             $requirements['capitals'] = $capitalLetters;
         }
 
         if ($useNumbers)
         {
-            $possibleChars = array_merge($possibleChars, $numbers);
+            $possibleChars .= $numbers;
             $requirements['numbers'] = $numbers;
         }
 
         if ($useSpecialChars)
         {
-            $possibleChars = array_merge($possibleChars, $specialChars);
+            $possibleChars .= $specialChars;
             $requirements['special_characters'] = $specialChars;
         }
 
-        $acceptableToken = false;
+        if ($numChars < count($requirements))
+        {
+            throw new \Exception("It is impossible to create a string with " . count($requirements) . " different types of characters when the string can only be {$numChars} long.");
+        }
 
-        while (!$acceptableToken)
+        $randomizer = new Randomizer();
+
+        do
         {
             $outstandingRequirements = $requirements; #copy the array
-            $token = '';
+            $token = $randomizer->getBytesFromString($possibleChars, $numChars);
             $acceptableToken = true;
-            $maxPossibleCharIndex = count($possibleChars) - 1;
-
-            for ($s=0; $s<$numChars; $s++)
-            {
-                $token .= $possibleChars[rand(0, $maxPossibleCharIndex)];
-            }
-
             $stringArray = str_split($token);
 
             foreach ($stringArray as $character)
             {
                 if (count($outstandingRequirements) > 0) # must recalc each time
                 {
-                    foreach ($outstandingRequirements as $name => $arrayOfChars)
+                    foreach ($outstandingRequirements as $name => $possibleCharsForRequirement)
                     {
-                        if (array_search($character, $arrayOfChars) !== FALSE)
+                        if (str_contains($possibleCharsForRequirement, $character) !== FALSE)
                         {
                             unset($outstandingRequirements[$name]);
                             break;
@@ -95,11 +97,11 @@ class StringLib
                 }
             }
 
-            if (count($outstandingRequirements) != 0)
+            if (count($outstandingRequirements) !== 0)
             {
                 $acceptableToken = false;
             }
-        }
+        } while (!$acceptableToken);
 
         return $token;
     }
@@ -138,13 +140,12 @@ class StringLib
 
     /**
      * Checks to see if the string in $haystack begins with $needle.
-     *
-     * @param haystack         - the string to search in.
-     * @param needle           - the string to look for
-     * @param caseSensitive    - whether to enforce case sensitivity or not (default true)
-     * @param ignoreWhiteSpace - whether to ignore white space at the ends of the inputs
-     * functionfunction
-     * @return result - true if the haystack begins with the provided string. False otherwise.
+     * @param string $haystack - the string to search in.
+     * @param string $needle - the string to look for
+     * @param bool $caseSensitive - whether to enforce case sensitivity or not (default true)
+     * @param bool $ignoreWhiteSpace - whether to ignore white space at the ends of the inputs
+     *  functionfunction
+     * @return bool - true if the haystack begins with the provided string. False otherwise.
      */
     public static function startsWith(
         string $haystack,
@@ -179,7 +180,7 @@ class StringLib
     /**
      * Replaces the given string's <br> tags with newlines for textfields.
      * @param $input - the input string
-     * @return output - the output string that has been converted.
+     * @return string - the output string that has been converted.
      */
     public static function br2nl(string $input) : string
     {
@@ -235,6 +236,11 @@ class StringLib
      */
     public static function encrypt(string $textToEncrypt, string $key, string $initializationVector) : string
     {
+        if (!extension_loaded('openssl') )
+        {
+            throw new ExceptionMissingExtension("Your PHP does not have the openssl extension.");
+        }
+
         $cipherMethod = "AES-256-OFB";
 
         return openssl_encrypt(
@@ -249,8 +255,8 @@ class StringLib
 
     /**
      * Decrypt a string that was encrypted with our encrypt method.
-     * @param type $encryptedData - the encrypted text.
-     * @param type $key - the decryption key/password
+     * @param string $encryptedData - the encrypted text.
+     * @param string $key - the decryption key/password
      * @param string $initializationVector - a 16 character string to initialize the cipher.
      * @return string - the decrypted string
      */
