@@ -10,6 +10,7 @@ namespace Programster\CoreLibs;
 use Programster\CoreLibs\Exceptions\ExceptionFileAlreadyExists;
 use Programster\CoreLibs\Exceptions\ExceptionFileDoesNotExist;
 use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
+use Programster\CoreLibs\Exceptions\FilesystemException;
 
 class Filesystem
 {
@@ -495,6 +496,108 @@ class Filesystem
         else
         {
             throw new \Exception("fileWalk: Could not open file: " . $filepath);
+        }
+    }
+
+
+    /**
+     * Filters a file using the provided callback, in a memory efficient way so that it can
+     *  process very large files. This is inspired by array_filter (http://php.net/manual/en/function.array-walk.php)
+     * @param string $inputFile - the path to the file to operate upon.
+     * @param callable $filterCallback - the callback to execute on every line in the file to determine if ketp or not.
+     * Don't forget that this will include its line ending, so you may wish to use trim() before analysis.
+     * @param string|null $outputFilepath - optionally specify an output filepath to place the filtered content into.
+     * If this is not specified, then the existing file will be modified in-place. Please note that if not provided
+     * this function relies on the ability to create and remove a temporary file in a directory provided by a call to
+     * sys_get_temp_dir().
+     * @param int|null $streamChunkSize - optionally specify the chunk size when streaming content from the temporary
+     * file back into the original. This is not applicable when $outputFilepath was provided.
+     * @return void
+     * @throws FilesystemException
+     */
+    public static function fileFilter(
+        string   $inputFile,
+        callable $filterCallback,
+        ?string  $outputFilepath = null,
+        ?int     $streamChunkSize = null,
+    ) : void
+    {
+        $inputHandle = \Safe\fopen($inputFile, "rw"); // use rw now to ensure we have permission to write later.
+
+        if ($outputFilepath === null)
+        {
+            $tempFilename = tempnam(sys_get_temp_dir(), "filter-");
+        }
+        else
+        {
+            $tempFilename = $outputFilepath;
+        }
+
+        $outputHandle = fopen($tempFilename, "w");
+
+        if ($outputHandle === false)
+        {
+            throw new FilesystemException("Failed to open $tempFilename for writing.");
+        }
+
+        while (($line = fgets($inputHandle)) !== false)
+        {
+            if ($line === false)
+            {
+                throw new FilesystemException("Failed to read from input file handle.");
+            }
+
+            if ($filterCallback($line) === true)
+            {
+                // keeping the line
+                $wroteLine = fwrite($outputHandle, $line);
+
+                if ($wroteLine === false)
+                {
+                    throw new FilesystemException("Failed to write to {$tempFilename}.");
+                }
+            }
+        }
+
+        fclose($inputHandle);
+        fclose($outputHandle);
+
+        if ($outputFilepath === null)
+        {
+            // user wished to replace the exisitng input file, copy the contents across and remove the temporary file
+            $fromHandle = fopen($tempFilename, "r");
+
+            if ($fromHandle === false)
+            {
+                throw new FilesystemException("Failed to open $tempFilename for reading.");
+            }
+
+            $toHandle = fopen($inputFile, "w");
+
+            if ($toHandle === false)
+            {
+                throw new FilesystemException("Failed to open $inputFile for writing.");
+            }
+
+            if ($streamChunkSize !== null)
+            {
+                stream_set_chunk_size($fromHandle, $streamChunkSize);
+            }
+
+            $copiedBytes = stream_copy_to_stream($fromHandle, $toHandle);
+            fclose($fromHandle);
+            fclose($toHandle);
+
+            $unlinked = unlink($tempFilename);
+
+            if ($unlinked === false)
+            {
+                throw new FilesystemException("Failed to remove temporary file: {$tempFilename}");
+            }
+        }
+        else
+        {
+            // user wished to output to a new file, do nothing and keep it as is
         }
     }
 
