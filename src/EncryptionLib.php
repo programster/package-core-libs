@@ -7,8 +7,71 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
+
 class EncryptionLib
 {
+    /**
+     * Encrypt a String
+     * @param String $textToEncrypt - the text to encrypt
+     * @param String $key - the key to encrypt and then decrypt the message.
+     * @param string $initializationVector - a 16 character string to initialize the cipher.
+     *                                       this way two plaintext messages can result in different
+     *                                       encrypted strings. (like a salt in hashing).
+     * @return string - the encryptd form of the string
+     */
+    public static function encrypt(string $textToEncrypt, string $key, string $initializationVector) : string
+    {
+        if (!extension_loaded('openssl') )
+        {
+            throw new ExceptionMissingExtension("Your PHP does not have the openssl extension.");
+        }
+
+        $cipherMethod = "AES-256-OFB";
+
+        return openssl_encrypt(
+            $textToEncrypt,
+            $cipherMethod,
+            $key,
+            OPENSSL_ZERO_PADDING,
+            $initializationVector
+        );
+    }
+
+
+    /**
+     * Decrypt a string that was encrypted with our encrypt method.
+     * @param string $encryptedData - the encrypted text.
+     * @param string $key - the decryption key/password
+     * @param string $initializationVector - a 16 character string to initialize the cipher.
+     * @return string - the decrypted string
+     */
+    public static function decrypt(string $encryptedText, string $key, string $initializationVector) : string
+    {
+        $cipherMethod = "AES-256-OFB";
+
+        return openssl_decrypt(
+            $encryptedText,
+            $cipherMethod,
+            $key,
+            OPENSSL_ZERO_PADDING,
+            $initializationVector
+        );
+    }
+
+
+    /**
+     * Create an initialization vector suitable for our encrypt method.
+     * WARNING - you may likely wish to transport/store this string in a base64 encoded format.
+     * @return string
+     * @throws \Random\RandomException
+     */
+    public static function createInitializationVector() : string
+    {
+        return random_bytes(16);
+    }
+
+
     /**
      * Converts a raw password into a password hash
      * @param String $rawPassword - the password we wish to hash

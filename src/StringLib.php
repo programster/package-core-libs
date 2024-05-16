@@ -236,20 +236,8 @@ class StringLib
      */
     public static function encrypt(string $textToEncrypt, string $key, string $initializationVector) : string
     {
-        if (!extension_loaded('openssl') )
-        {
-            throw new ExceptionMissingExtension("Your PHP does not have the openssl extension.");
-        }
-
-        $cipherMethod = "AES-256-OFB";
-
-        return openssl_encrypt(
-            $textToEncrypt,
-            $cipherMethod,
-            $key,
-            OPENSSL_ZERO_PADDING,
-            $initializationVector
-        );
+        trigger_error('Method ' . __METHOD__ . ' is deprecated. Please use the EncryptionLib instead.', E_USER_DEPRECATED);
+        return EncryptionLib::encrypt($textToEncrypt, $key, $initializationVector);
     }
 
 
@@ -262,15 +250,8 @@ class StringLib
      */
     public static function decrypt(string $encryptedText, string $key, string $initializationVector) : string
     {
-        $cipherMethod = "AES-256-OFB";
-
-        return openssl_decrypt(
-            $encryptedText,
-            $cipherMethod,
-            $key,
-            OPENSSL_ZERO_PADDING,
-            $initializationVector
-        );
+        trigger_error('Method ' . __METHOD__ . ' is deprecated. Please use the EncryptionLib instead.', E_USER_DEPRECATED);
+        return EncryptionLib::decrypt($encryptedText, $key, $initializationVector);
     }
 
 
