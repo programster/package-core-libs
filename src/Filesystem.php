@@ -733,15 +733,23 @@ class Filesystem
 
 
     /**
-     * Serve up a file to the user. E.g. have their browser download it. This is particularly useful for CSV report
-     * downloads etc.
+     * Serve up a file to the user. This is particularly useful for CSV/PDF report downloads etc.
      * @param string $filepath - the path to the file you wish to serve up as a download
      * @param string $downloadFilename
      * @param string $mimetype - optionally manually specify the mimetype. Can be null to force not setting mimetype on
      * download. Defaults to "auto" which will have PHP try to dynamically figure out the mimetype of the file.
+     * @param bool $asAttachment - specify whether the file should be downloaded as an attachment in the browser
+     * (default), or set to false for the file to be "inline" so it just appears in the webview rather than being
+     * downloaded. E.g. for a PDF, the PDF could just be shown in the browser and not automatically downloaded, with
+     * the user choosing to download the file if they wish
      * @throws \Exception - if mimetype set to auto and PHP could not open mimetype database for determining mimetype.
      */
-    public static function streamFileToBrowser(string $filepath, string $downloadFilename, ?string $mimetype="auto")
+    public static function streamFileToBrowser(
+        string $filepath,
+        string $downloadFilename,
+        ?string $mimetype="auto",
+        bool $asAttachment=true
+    )
     {
         if ($mimetype !== null)
         {
@@ -761,6 +769,7 @@ class Filesystem
         }
 
         header("Content-Length: " . filesize($filepath));
+        $disposition = ($asAttachment) ? "attachment" : "inline";
         header("Content-Disposition: attachment; filename={$downloadFilename}");
         header("Pragma: no-cache");
         header("Expires: 0");
