@@ -204,7 +204,13 @@ class CsvLib
         
         if ($addHeader)
         {
-            fputcsv($fileHandle, $keys, $delimiter, $enclosure);
+            fputcsv(
+                stream: $fileHandle,
+                fields: $keys,
+                separator: $delimiter,
+                enclosure: $enclosure,
+                escape: ""
+            );
         }
         
         foreach ($rows as $index => $row)
@@ -243,7 +249,13 @@ class CsvLib
                 $rowOfValues[] = $value;
             }
             
-            fputcsv($fileHandle, $rowOfValues, $delimiter, $enclosure);
+            fputcsv(
+                stream: $fileHandle,
+                fields: $rowOfValues,
+                separator: $delimiter,
+                enclosure: $enclosure,
+                escape: ""
+            );
         }
     }
     
@@ -275,7 +287,12 @@ class CsvLib
                         $lineArray[$index] = trim($value);
                     }
                     
-                    fputcsv($tmpFile, $lineArray, ",");
+                    fputcsv(
+                        stream: $tmpFile,
+                        fields: $lineArray,
+                        separator: ",",
+                        escape: ""
+                    );
                 }
             }
             
@@ -328,7 +345,13 @@ class CsvLib
                         unset($lineArray[$columnIndex]);
                     }
                     
-                    fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
+                    fputcsv(
+                        stream: $tmpFile,
+                        fields: $lineArray,
+                        separator: $delimiter,
+                        enclosure: $enclosure,
+                        escape: ""
+                    );
                 }
                 
                 $lineNumber++;
@@ -370,7 +393,13 @@ class CsvLib
                 {
                     if (!in_array($lineNumber, $rowIndexes))
                     {
-                        fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
+                        fputcsv(
+                            stream: $tmpFile,
+                            fields: $lineArray,
+                            separator: $delimiter,
+                            enclosure: $enclosure,
+                            escape: ""
+                        );
                     }
                 }
                 
@@ -453,7 +482,13 @@ class CsvLib
                     }
                 }
                 
-                fputcsv($newFileHandle, $resultArray, $delimiter, $enclosure);
+                fputcsv(
+                    stream: $newFileHandle,
+                    fields: $resultArray,
+                    separator: $delimiter,
+                    enclosure: $enclosure,
+                    escape: ""
+                );
                 $lineNumber++;
             }
             
@@ -626,7 +661,13 @@ class CsvLib
                 
                 if ($copyLineAcross)
                 {
-                    fputcsv($outputFileHandle, $fields, $delimiter, $enclosure);
+                    fputcsv(
+                        stream: $outputFileHandle,
+                        fields: $fields,
+                        separator: $delimiter,
+                        enclosure: $enclosure,
+                        escape: ""
+                    );
                 }
             }
             

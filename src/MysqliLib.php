@@ -244,11 +244,19 @@ class MysqliLib
         {
             if ($firstRow && $includeHeaders)
             {
-                fputcsv($fileHandler, array_keys($row));
+                fputcsv(
+                    stream:$fileHandler,
+                    fields: array_keys($row),
+                    escape: ""
+                );
                 $firstRow = false;
             }
             
-            fputcsv($fileHandler, array_values($row));
+            fputcsv(
+                stream: $fileHandler,
+                fields: array_values($row),
+                escapce: ""
+            );
         }
         
         fclose($fileHandler);
