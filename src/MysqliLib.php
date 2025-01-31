@@ -255,7 +255,7 @@ class MysqliLib
             fputcsv(
                 stream: $fileHandler,
                 fields: array_values($row),
-                escapce: ""
+                escape: ""
             );
         }
         
