@@ -274,6 +274,22 @@ class StringLib
 
 
     /**
+     * Function to remove the e modifier from regular expressions.
+     * http://stackoverflow.com/questions/7243073/how-can-i-disable-the-e-preg-replace-eval-modifier-in-php
+     * @param string $regExp 
+     * @return string - the sanitized regexp without the modifier.
+     */
+    public static function sanitizeRegExp($regExp)
+    {
+        $pattern_parts = explode($regExp[0], trim($regExp));
+        $pattern_last = sizeof($pattern_parts) - 1;
+        $pattern_parts[$pattern_last] = str_replace('e', '', $pattern_parts[$pattern_last]);
+        
+        return implode($regExp[0], $pattern_parts);
+    }
+
+
+    /**
      * This is an wrapper around strtr that enforces the use of strings instead of arrays for
      * the parameters. If you want to substitute multiple items then please use replacePairs()
      * instead. Both methods wrap around strtr instead of str_replace because I believe that the

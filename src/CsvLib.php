@@ -258,7 +258,9 @@ class CsvLib
      * we will use the keys of the first row as we expect all keys to match.
      * @param string $delimiter - optionally specify a delimiter if you dont wish to use the comma
      * @param string $enclosure - optionally specify the enclosure if you don't wish to use "
-     * @param bool $addByteOrderMark
+     * @param bool $addByteOrderMark - whether to add the byte order mark to the csv, so that excel handles 
+     * UTF-8 characters.
+     * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void - all data written to the passed in filepath.
      * @throws \Exception
      */
@@ -268,7 +270,8 @@ class CsvLib
         bool $addHeader,
         string $delimiter = ",",
         string $enclosure = '"',
-        bool $addByteOrderMark = true
+        bool $addByteOrderMark = true,
+        string $escape="",
     ) : void
     {
         $fileHandle = fopen($filepath, 'w');
@@ -300,14 +303,20 @@ class CsvLib
 
         if ($addHeader)
         {
-            fputcsv($fileHandle, $keys, $delimiter, $enclosure);
+            fputcsv(
+                stream: $fileHandle,
+                fields: $keys,
+                separator: $delimiter,
+                enclosure: $enclosure,
+                escape: $escape
+            );
         }
 
         foreach ($rows as $index => $row)
         {
             if (count($keys) != count($row))
             {
-                $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) .
+                $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) . 
                        " is not the same as the number of values: " . count($row);
 
                 throw new \Exception($msg);
@@ -339,7 +348,13 @@ class CsvLib
                 $rowOfValues[] = $value;
             }
 
-            fputcsv($fileHandle, $rowOfValues, $delimiter, $enclosure);
+            fputcsv(
+                stream: $fileHandle,
+                fields: $rowOfValues,
+                separator: $delimiter,
+                enclosure: $enclosure,
+                escape: $escape,
+            );
         }
     }
 
@@ -350,11 +365,16 @@ class CsvLib
      * This will replace the existing file's contents, so if you need to keep that, make a copy
      * first.
      * @param sring $filepath - the path to the CSV file we are trimming
-     * @param string $delimiter - the delimiter used in the CSV. E.g. ',' or ';'
+     * @param string $delimiter - the delimiter/separator used in the CSV. E.g. ',' or ';'
+     * @param string $escape - the escape sequence to use when passing to fputcsv.
      * @throws \Exception
      * @return void
      */
-    public static function trim(string $filepath, string $delimiter)
+    public static function trim(
+        string $filepath, 
+        string $delimiter, 
+        string $escape="",
+    ) : void
     {
         $tmpFile = tmpfile();
         $uploaded_fh = fopen($filepath, "r");
@@ -372,7 +392,12 @@ class CsvLib
                         $lineArray[$index] = trim($value);
                     }
 
-                    fputcsv($tmpFile, $lineArray, ",");
+                    fputcsv(
+                        stream: $tmpFile,
+                        fields: $lineArray,
+                        separator: delimiter,
+                        escape: $escape
+                    );
                 }
             }
 
@@ -395,14 +420,16 @@ class CsvLib
      * @param array $columnIndexes - array of integers specifying the column indexes to remove, starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     * @param string $escape - optionally set the escape sequence to use then passint to fputcsv.
      * @return void
      */
     public static function removeColumns(
         string $filepath,
         array $columnIndexes,
         string $delimiter=",",
-        string $enclosure='"'
-    )
+        string $enclosure='"',
+        string $escape=""
+    ) : void
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
@@ -431,7 +458,13 @@ class CsvLib
                         unset($lineArray[$columnIndex]);
                     }
 
-                    fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
+                    fputcsv(
+                        stream: $tmpFile,
+                        fields: $lineArray,
+                        separator: $delimiter,
+                        enclosure: $enclosure,
+                        escape: $escape
+                    );
                 }
 
                 $lineNumber++;
@@ -458,7 +491,12 @@ class CsvLib
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @return void
      */
-    public static function removeRows(string $filepath, array $rowIndexes, string $delimiter=",", string $enclosure='"')
+    public static function removeRows(
+        string $filepath, 
+        array $rowIndexes, 
+        string $delimiter=",", 
+        string $enclosure='"'
+    ) : void
     {
         $tmpFile = tmpfile();
         $fileHandle = fopen($filepath, "r");
@@ -474,7 +512,13 @@ class CsvLib
                 {
                     if (!in_array($lineNumber, $rowIndexes))
                     {
-                        fputcsv($tmpFile, $lineArray, $delimiter, $enclosure);
+                        fputcsv(
+                            stream: $tmpFile,
+                            fields: $lineArray,
+                            separator: $delimiter,
+                            enclosure: $enclosure,
+                            escape: $escape
+                        );
                     }
                 }
 
@@ -502,6 +546,7 @@ class CsvLib
      * @param string $filepath2 - path to a CSV file to compare.
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     * @param string $escape - the escape sequence to use when passing to fputcsv.
      * @return string - the path to the created diff CSV file.
      * @throws \Exception
      */
@@ -509,7 +554,8 @@ class CsvLib
         string $filepath1,
         string $filepath2,
         string $delimiter=",",
-        string $enclosure='"'
+        string $enclosure='"',
+        string $escape="",
     ) : string
     {
         $newFileName = tempnam(sys_get_temp_dir(), "");
@@ -562,7 +608,14 @@ class CsvLib
                     }
                 }
 
-                fputcsv($newFileHandle, $resultArray, $delimiter, $enclosure);
+                fputcsv(
+                    stream: $newFileHandle,
+                    fields: $resultArray,
+                    separator: $delimiter,
+                    enclosure: $enclosure,
+                    escape: $escape
+                );
+
                 $lineNumber++;
             }
 
@@ -701,6 +754,7 @@ class CsvLib
      * @param bool $hasHeaders - specify if the files have headers or not.
      * @param string $delimiter - optinoally specify the delimiter being used in the files
      * @param string $enclosure - optionally specify the enclosure being used in the files
+     * @param string $escape - optionally specify the escape sequence to use when passing to fputcsv.
      * @throws Exception
      * @return void
      */
@@ -708,9 +762,10 @@ class CsvLib
         array $filepaths,
         string $mergedFilepath,
         bool $hasHeaders,
-        string $delimiter=",",
-        string $enclosure='"'
-    )
+        string $delimiter = ",",
+        string $enclosure = '"',
+        string $escape = "",
+    ) : void
     {
         $isFirstFile = true;
         $outputFileHandle = fopen($mergedFilepath, "w");
@@ -749,7 +804,13 @@ class CsvLib
 
                 if ($copyLineAcross)
                 {
-                    fputcsv($outputFileHandle, $fields, $delimiter, $enclosure);
+                    fputcsv(
+                        stream: $outputFileHandle,
+                        fields: $fields,
+                        separator: $delimiter,
+                        enclosure: $enclosure,
+                        escape: $escape,
+                    );
                 }
             }
 
