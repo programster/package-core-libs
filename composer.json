@@ -15,14 +15,16 @@
     ],
     "require": {
         "php": ">=8.3.0",
-        "thecodingmachine/safe": ">=1.3 <2.0.0"
+        "thecodingmachine/safe": ">=1.3 <2.0.0",
+        "ext-fileinfo": "*"
     },
     "require-dev" : {
     },
     "suggest": {
         "ext-sockets": "Allows the use of the networking methods that require sockets.",
         "ext-zip": "Allows the use of methods that assist with using zip file.",
-        "ext-openssl": "Allows the use of methods that assist encryption/decryption."
+        "ext-openssl": "Allows the use of methods that assist encryption/decryption.",
+        "ext-curl": "Facilitates downloads through curl instead of falling back to using file_get_contents."
     },
     "autoload": {
         "psr-4": {

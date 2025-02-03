@@ -11,14 +11,18 @@ use Programster\CoreLibs\Exceptions\ExceptionFileAlreadyExists;
 use Programster\CoreLibs\Exceptions\ExceptionFileDoesNotExist;
 use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
 use Programster\CoreLibs\Exceptions\FilesystemException;
+use ZipArchive;
 
 class Filesystem
 {
+    static array $s_fileLocks = [];
+
+
     /**
      * Retrieves a list of all the directories within the specified directory
      * It does not include the .. directory (dot directories)
      * This will NOT return any files
-     * @param String $path - the path to the directory that we want to search.
+     * @param string $path - the path to the directory that we want to search.
      * @param bool $recursive - whether to recursively loop through the
      *                          directories to find more.
      * @param bool $includePath - set to true to include the full path to the
@@ -26,10 +30,10 @@ class Filesystem
      * @return Array<String> - list of directories within the specified path.
      */
     public static function getDirectories(
-        $path,
-        $recursive=false,
-        $includePath=true
-    )
+        string $path,
+        bool $recursive = false,
+        bool $includePath = true
+    ) : array
     {
         $directories = array();
         $fpath     = realpath($path);
@@ -168,16 +172,22 @@ class Filesystem
      * will create all relevant parent directories
      *
      * @param string $dirPath - the path to the directory we wish to create
-     * @param int $perms      - optionally set the permissions to set for the
-     *                          directory
+     * @param string|null $perms - optionally set the permissions to set for the directory. E.g. "0700" or "755". If
+     * not provided, then this will default to "0755".
      * @param bool $recursive - override to false if you want to fail if parent
      *                          dirs dont exist.
      *
-     * @return boolean - true if the directory now exists, false otherwise
+     * @return bool - true if the directory now exists, false otherwise
      */
-    public static function mkdir($dirPath, $perms=0755, $recursive=true)
+    public static function mkdir(
+        string $dirPath,
+        string|null $perms = null,
+        bool $recursive = true
+    ) : bool
     {
         $result = true;
+        $perms = $perms ?? "0755";
+        $perms = octdec($perms);
 
         if (!is_dir($dirPath))
         {
@@ -246,15 +256,11 @@ class Filesystem
      * @param boolean $is_blocking - if true will wait to get lock.
      * @return boolean - true if we managed to lock the file, false otherwise.
      */
-    public static function lockFile($filePath, $is_write_lock, $is_blocking)
+    public static function lockFile(string $filePath, bool $is_write_lock, bool $is_blocking) : bool
     {
-        global $globals;
-
-        # This creates the file if it doesnt exist.
-        # we have to assign the file to a global variable, otherwise the file lock will be released
-        # as soon as we exit this function.
+        # This creates the file if it doesn't exist.
         # This MUST be a+ instead of w or w+ as using w will result in the file being wiped.
-        $globals['file_locks'][$filePath] = fopen($filePath, 'a+');
+        self::$s_fileLocks[$filePath] = fopen($filePath, 'a+');
 
         $lock_params = 0;
 
@@ -273,9 +279,7 @@ class Filesystem
             $lock_params = $lock_params | LOCK_NB;
         }
 
-        $result = flock($globals['file_locks'][$filePath], $lock_params);
-
-        return $result;
+        return flock(self::$s_fileLocks['file_locks'][$filePath], $lock_params);
     }
 
 
@@ -284,15 +288,13 @@ class Filesystem
      * @param String $filePath - the full path to the file that we wish to lock
      * @return void.
      */
-    public static function unlockFile($filePath)
+    public static function unlockFile(string $filePath) : void
     {
-        global $globals;
-
-        if (isset($globals['file_locks'][$filePath]))
+        if (isset(self::$s_fileLocks[$filePath]))
         {
             # This creates the file if it doesnt exist.
-            fclose($globals['file_locks'][$filePath]);
-            unset($globals['file_locks'][$filePath]);
+            fclose(self::$s_fileLocks[$filePath]);
+            unset(self::$s_fileLocks[$filePath]);
         }
     }
 
@@ -305,71 +307,15 @@ class Filesystem
      * src: http://stackoverflow.com/questions/478121/php-get-directory-size
      * @param string $dirPath - the path to the directory we wish to get the
      *                          size of
-     * @return int - the size in bytes of the directory and all its contents.
+     * @return int - the size (in bytes) of the directory and all its contents.
      */
-    public static function getDirSize($dirPath)
+    public static function getDirSize(string $dirPath) : int
     {
-        $io = popen ( '/usr/bin/du --bytes --summarize ' . $dirPath, 'r' );
-        $size = fgets ( $io, 4096);
-        $size = substr ( $size, 0, strpos ( $size, "\t" ) );
-        pclose ( $io );
-        return $size;
-    }
-
-
-    /**
-     * Creates an index of the files in the specified directory, by creating
-     * symlinks to them, which are separated into folders having the first
-     * letter.
-     * WARNING - this will only index files that start with alphabetical
-     * characters.
-     * @param string $dirToIndex - the directory we wish to index.
-     * @param string $indexLocation - where to stick the index.
-     * @return void
-     */
-    function createFileIndex($dirToIndex, $indexLocation)
-    {
-        # Don't let the user place the index in the same folder being indexed,
-        # otherwise the directory cannot be re-indexed later, otherwise we will
-        # be indexing the index.
-        if ($dirToIndex == $indexLocation)
-        {
-            $errMsg = 'Cannot place index in same folder being indexed!';
-            throw new \Exception($errMsg);
-        }
-
-        # delete the old index if one already exists.
-        if (file_exists($indexLocation))
-        {
-            self::deleteDir($indexLocation);
-        }
-
-        if (!mkdir($indexLocation))
-        {
-            $err = 'Failed to create index directory, check write permissions';
-            throw new \Exception($err);
-        }
-
-        $files = scandir($dirToIndex);
-
-        foreach ($files as $filename)
-        {
-            $first_letter = $filename[0];
-            $placement_dir = $indexLocation . "/" . strtoupper($first_letter);
-
-            if (ctype_alpha($first_letter))
-            {
-                # create the placement directory if it doesn't exist already
-                mkdir($placement_dir);
-
-                $newPath = $placement_dir . "/" . $filename;
-
-                if (!is_link($newPath))
-                {
-                    symlink($dirToIndex . '/' . $filename, $newPath);
-                }
-            }
-        }
+        $io = popen('/usr/bin/du --bytes --summarize ' . $dirPath, 'r' );
+        $size = fgets($io, 4096);
+        $size = substr($size, 0, strpos( $size, "\t" ));
+        pclose($io);
+        return intval($size);
     }
 
 
@@ -404,8 +350,8 @@ class Filesystem
             throw new ExceptionFileAlreadyExists($msg);
         }
 
-        $zip = new \ZipArchive();
-        $zip->open($dest, \ZipArchive::CREATE);
+        $zip = new ZipArchive();
+        $zip->open($dest, ZipArchive::CREATE);
 
         $files = self::getDirContents($sourceFolder, true, true, true);
 
@@ -433,11 +379,12 @@ class Filesystem
      *
      * @param string $sourceZip - zip file to unzip.
      * @param string $destinationFolder - path to the folder we wish to unzip into.
-     * @param bool $deleteOnComplete - specify false if you want to keep the
-     *                                 original uncompressed files after they
-     *                                 have been zipped.
+     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they have
+     * been zipped.
+     * @throws ExceptionFileDoesNotExist
+     * @throws ExceptionMissingExtension
      */
-    public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete=true)
+    public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete=true) : void
     {
         if (!extension_loaded('zip') )
         {
@@ -449,7 +396,7 @@ class Filesystem
             mkdir($destinationFolder);
         }
 
-        $zip = new \ZipArchive();
+        $zip = new ZipArchive();
         $open = $zip->open($sourceZip);
 
         if (!$open)
@@ -480,7 +427,7 @@ class Filesystem
      * @param \callable $callback - callback to execute on every line in the file.
      * @throws \Exception
      */
-    public static function fileWalk($filepath, callable $callback)
+    public static function fileWalk(string $filepath, callable $callback) : void
     {
         $handle = fopen($filepath, "r");
 
@@ -501,8 +448,8 @@ class Filesystem
 
 
     /**
-     * Filters a file using the provided callback, in a memory efficient way so that it can
-     *  process very large files. This is inspired by array_filter (http://php.net/manual/en/function.array-walk.php)
+     * Filters a file using the provided callback, in a memory efficient way so that it can process very large files.
+     * This is inspired by array_filter (http://php.net/manual/en/function.array-walk.php)
      * @param string $inputFile - the path to the file to operate upon.
      * @param callable $filterCallback - the callback to execute on every line in the file to determine if ketp or not.
      * Don't forget that this will include its line ending, so you may wish to use trim() before analysis.
@@ -605,16 +552,16 @@ class Filesystem
     /**
      * Create a temporary directory. This will be a randomly named directory in the system's
      * temporary directory folder (usually /tmp).
-     * @param $mode - the permissions the new temporary directory will have. Using the
-     *                      defaults from mkdir: http://php.net/manual/en/function.mkdir.php
+     * @param $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
+     * http://php.net/manual/en/function.mkdir.php
      * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
      * @throws \Exception
      */
-    public static function tmpDir($mode = 0777) : string
+    public static function tmpDir(string $mode = "0777") : string
     {
         $tempName = tempnam(sys_get_temp_dir(), '');
         unlink($tempName);
-        mkdir($tempName, $mode);
+        mkdir($tempName, octdec($mode));
 
         if (is_dir($tempName) === FALSE)
         {
@@ -631,6 +578,7 @@ class Filesystem
      * fallback to using file_get_contents.
      * @param string $url
      * @return string - the full filepath to the downloaded file on the server.
+     * @throws \Safe\Exceptions\FilesystemException
      */
     public static function downloadFile(string $url) : string
     {
@@ -669,31 +617,16 @@ class Filesystem
     {
         $perms = fileperms($filepath);
 
-        switch ($perms & 0xF000) {
-            case 0xC000: // socket
-                $info = 's';
-                break;
-            case 0xA000: // symbolic link
-                $info = 'l';
-                break;
-            case 0x8000: // regular
-                $info = 'r';
-                break;
-            case 0x6000: // block special
-                $info = 'b';
-                break;
-            case 0x4000: // directory
-                $info = 'd';
-                break;
-            case 0x2000: // character special
-                $info = 'c';
-                break;
-            case 0x1000: // FIFO pipe
-                $info = 'p';
-                break;
-            default: // unknown
-                $info = 'u';
-        }
+        $info = match ($perms & 0xF000) {
+            0xC000 => 's',
+            0xA000 => 'l',
+            0x8000 => 'r',
+            0x6000 => 'b',
+            0x4000 => 'd',
+            0x2000 => 'c',
+            0x1000 => 'p',
+            default => 'u',
+        };
 
         // Owner
         $info .= (($perms & 0x0100) ? 'r' : '-');
@@ -724,6 +657,7 @@ class Filesystem
      * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt"
      * @param String $filename - the name of the file or the full file path
      * @return String - the file extension.
+     * @throws \Exception
      */
     public static function getFileExtension(string $filename) : string
     {
@@ -749,7 +683,7 @@ class Filesystem
         string $downloadFilename,
         ?string $mimetype="auto",
         bool $asAttachment=true
-    )
+    ) : void
     {
         if ($mimetype !== null)
         {
