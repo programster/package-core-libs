@@ -98,6 +98,7 @@ class CsvLib
         }
 
         fwrite($jsonFile, "]");
+        fclose($jsonFile);
     }
 
 
@@ -163,6 +164,7 @@ class CsvLib
             }
         }
 
+        fclose($file);
         return $output;
     }
 
@@ -356,6 +358,8 @@ class CsvLib
                 escape: $escape,
             );
         }
+
+        fclose($fileHandle);
     }
 
 
@@ -395,7 +399,7 @@ class CsvLib
                     fputcsv(
                         stream: $tmpFile,
                         fields: $lineArray,
-                        separator: delimiter,
+                        separator: $delimiter,
                         escape: $escape
                     );
                 }
@@ -495,7 +499,8 @@ class CsvLib
         string $filepath, 
         array $rowIndexes, 
         string $delimiter=",", 
-        string $enclosure='"'
+        string $enclosure='"',
+        string $escape = "",
     ) : void
     {
         $tmpFile = tmpfile();
@@ -815,6 +820,9 @@ class CsvLib
             }
 
             $isFirstFile = false;
+            fclose($readHandle);
         }
+
+        fclose($outputFileHandle);
     }
 }
