@@ -98,6 +98,7 @@ class CsvLib
         }
 
         fwrite($jsonFile, "]");
+        fclose($jsonFile);
     }
 
 
@@ -163,6 +164,7 @@ class CsvLib
             }
         }
 
+        fclose($file);
         return $output;
     }
 
@@ -341,6 +343,8 @@ class CsvLib
 
             fputcsv($fileHandle, $rowOfValues, $delimiter, $enclosure);
         }
+
+        fclose($fileHandle);
     }
 
 
@@ -754,6 +758,9 @@ class CsvLib
             }
 
             $isFirstFile = false;
+            fclose($readHandle);
         }
+
+        fclose($outputFileHandle);
     }
 }
