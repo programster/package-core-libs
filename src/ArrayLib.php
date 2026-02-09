@@ -35,8 +35,7 @@ class ArrayLib
     {
         if (!$removeElement)
         {
-            $values = array_values($inputArray);
-            $element = array_shift($values); # split over two lines to prevent a NOTICE warning.
+            $element = array_first($inputArray);
         }
         else
         {
@@ -59,7 +58,7 @@ class ArrayLib
         {
             if (!$removeElement)
             {
-                $element = end($inputArray);
+                $element = array_last($inputArray);
             }
             else
             {
@@ -68,7 +67,7 @@ class ArrayLib
         }
         else
         {
-            throw new \Exception('inputArray has no elements');
+            throw new \Exception('Trying to get the last element of an array that has no elements.');
         }
 
         return $element;
