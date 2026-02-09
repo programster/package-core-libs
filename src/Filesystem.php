@@ -468,7 +468,7 @@ class Filesystem
 
         if ($deleteOnComplete)
         {
-            self::deleteDir($sourceZip);
+            unlink($sourceZip);
         }
     }
 
