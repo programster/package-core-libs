@@ -720,14 +720,15 @@ class Filesystem
      * @return bool - true if valid, false if contains non-UTF8 characters.
      * @throws ExceptionBadFilePermissions - if file exists but cannot be read.
      * @throws ExceptionFileDoesNotExist - if file does not exist.
-     * @throws \Exception - if something goes wrong with getting a file handle even though file exists and can be read.
-     * @throws ExceptionMissingRequiredExtension if you do not have the required mbstring extension.
+     * @throws FilesystemException - if something goes wrong with getting a file handle even though file exists and
+     * can be read.
+     * @throws ExceptionMissingExtension if you do not have the required mbstring extension.
      */
     public static function isValidUtf8File(string $filepath, int $chunkSize = 8192): bool
     {
         if (extension_loaded('mbstring') === FALSE)
         {
-            throw new ExceptionMissingRequiredExtension("The mbstring extension is not available.");
+            throw new ExceptionMissingExtension("The mbstring extension is not available.");
         }
 
         if (!file_exists($filepath))
