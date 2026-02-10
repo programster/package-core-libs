@@ -9,5 +9,5 @@ performance.
 This package recommends various extensions such as mbstring in order to be able to perform some of
 the provided methods. However, we did not wish to prevent this from allowing you to install the 
 package in case you did not need to use these limited methods. Thus, such methods will raise 
-the an `ExceptionMissingRequiredExtension` with details of which extension, if you try to execute a 
+the an `ExceptionMissingExtension` with details of which extension, if you try to execute a 
 method, without having the recommended extension installed.
