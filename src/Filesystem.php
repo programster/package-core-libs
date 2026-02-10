@@ -7,10 +7,12 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Exceptions\ExceptionBadFilePermissions;
 use Programster\CoreLibs\Exceptions\ExceptionFileAlreadyExists;
 use Programster\CoreLibs\Exceptions\ExceptionFileDoesNotExist;
 use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
 use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\ExceptionMissingRequiredExtension;
 
 class Filesystem
 {
@@ -765,5 +767,67 @@ class Filesystem
         header("Pragma: no-cache");
         header("Expires: 0");
         readfile($filepath);
+    }
+
+
+    /**
+     * Returns whether the file specified contains only valid UTF-8 character encoding or not.
+     * @param string $filepath - the path to the file that we wish to check.
+     * @param int $chunkSize - the size of each chunk to check at a time. This is a balance between
+     * memory and performance.
+     * @return bool - true if valid, false if contains non-UTF8 characters.
+     * @throws ExceptionBadFilePermissions - if file exists but cannot be read.
+     * @throws ExceptionFileDoesNotExist - if file does not exist.
+     * @throws \Exception - if something goes wrong with getting a file handle even though file exists and can be read.
+     * @throws ExceptionMissingRequiredExtension if you do not have the required mbstring extension.
+     */
+    public static function isValidUtf8File(string $filepath, int $chunkSize = 8192): bool
+    {
+        if (extension_loaded('mbstring') === FALSE)
+        {
+            throw new ExceptionMissingRequiredExtension("The mbstring extension is not available.");
+        }
+
+        if (!file_exists($filepath))
+        {
+            throw new ExceptionFileDoesNotExist($filepath . " does not exist.");
+        }
+
+        if (!is_readable($filepath))
+        {
+            throw new ExceptionBadFilePermissions("File exists but cannot read it: $filepath");
+        }
+
+        $handle = fopen($filepath, 'rb');
+
+        if ($handle === false)
+        {
+            throw new FilesystemException("Failed to get file handle for: $filepath");
+        }
+
+        while (!feof($handle))
+        {
+            $chunk = fread($handle, $chunkSize);
+
+            if ($chunk === false)
+            {
+                fclose($handle);
+                return false;
+            }
+
+            if ($chunk === '')
+            {
+                break;
+            }
+
+            if (!mb_check_encoding($chunk, 'UTF-8'))
+            {
+                fclose($handle);
+                return false;
+            }
+        }
+
+        fclose($handle);
+        return true;
     }
 }
