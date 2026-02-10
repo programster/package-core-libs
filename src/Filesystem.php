@@ -773,4 +773,95 @@ class Filesystem
         fclose($handle);
         return true;
     }
+
+
+    /**
+     * Detects file encoding and converts it to UTF-8 if needed.
+     * WARNING - this will overwrite/replace the file!
+     * @param string $inputFilepath - the path to the file to convert.
+     * @param array|null $encodingsToTry - optionally override the encodings to first try, in case you want to
+     * specifically set your own (e.g. chinese/japanese etc.)
+     * @return void
+     * @throws ExceptionBadFilePermissions - if input file cannot be read (but does exist).
+     * @throws ExceptionFileDoesNotExist - if input file does not exist.
+     * @throws ExceptionMissingExtension - if missing the mbstring extension which is required for this function.
+     * @throws FilesystemException - if anything should go wrong that is not covered by the other specific exceptions.
+     */
+    public static function convertFileToUtf8(string $inputFilepath, ?array $encodingsToTry = null): void
+    {
+        if (extension_loaded('mbstring') === FALSE)
+        {
+            throw new ExceptionMissingExtension("The mbstring extension is not available.");
+        }
+
+        if (!file_exists($inputFilepath) )
+        {
+            throw new ExceptionFileDoesNotExist("$inputFilepath file does not exist.");
+        }
+
+        if (!is_readable($inputFilepath))
+        {
+            throw new ExceptionBadFilePermissions("$inputFilepath file exists but cannot read.");
+        }
+
+        // Read the raw content
+        $content = file_get_contents($inputFilepath);
+
+        if ($content === false)
+        {
+            throw new FilesystemException("Failed to read file: $inputFilepath");
+        }
+
+        if (mb_check_encoding($content, 'UTF-8') === false)
+        {
+            // ------------------------------
+            // Step 2: Try common encodings in order of likelihood
+            // ------------------------------
+            $encodingsToTry = $encodingsToTry ?? [
+                'Windows-1252',     // very common in Western Europe & USA legacy files
+                'Windows-1251',     // Cyrillic
+                'Windows-1250',     // Central European
+                'ISO-8859-1',       // Latin-1
+                'ISO-8859-15',
+                'ISO-8859-2',
+                'UTF-16LE',
+                'UTF-16BE',
+            ];
+
+            $detectedEncoding = null;
+
+            foreach ($encodingsToTry as $enc)
+            {
+                if (mb_check_encoding($content, $enc) !== false)
+                {
+                    $detectedEncoding = $enc;
+                    break;
+                }
+            }
+
+            if ($detectedEncoding === null)
+            {
+                $detectedEncoding = mb_detect_encoding(
+                    $content,
+                    'auto',           // tries many encodings
+                    true              // strict mode
+                );
+            }
+
+            if ($detectedEncoding === false)
+            {
+                throw new FilesystemException("Could not detect encoding of the input file");
+            }
+
+            $converted = mb_convert_encoding($content, 'UTF-8', $detectedEncoding);
+
+            if ($converted === false)
+            {
+                throw new FilesystemException("Failed to convert file from $detectedEncoding to UTF-8");
+            }
+
+            $content = $converted;
+            file_put_contents($inputFilepath, $content);
+        }
+    }
 }
