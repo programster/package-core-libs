@@ -8,6 +8,7 @@ namespace Programster\CoreLibs;
 
 
 use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
+use Programster\CoreLibs\Exceptions\ExceptionStringConversionFailed;
 use Random\Randomizer;
 
 class StringLib
@@ -353,5 +354,43 @@ class StringLib
         # Need to be careful to by type sensitive here because could return value 0 which would
         # need to return true.
         return ($pos !== FALSE);
+    }
+
+
+    /**
+     * Create a base64 url-encoded string for JSON web tokens etc.
+     * @param string $input - the input string to encode.
+     * @return string - the resulting encoded form.
+     */
+    public static function base64UrlEncode(string $input): string
+    {
+        return rtrim(strtr(base64_encode($input), '+/', '-_'), '=');
+    }
+
+
+    /**
+     * Decode a base64UrlEncoded string.
+     * @param string $input - the input string to be decoded.
+     * @return string - the decoded string
+     * @throws ExceptionStringConversionFailed - if was unable to decode the string.
+     */
+    public static function base64UrlDecode(string $input): string
+    {
+        $padding = strlen($input) % 4;
+
+        if ($padding > 0)
+        {
+            $input .= str_repeat('=', 4 - $padding);
+        }
+
+        $step1 = strtr($input, '-_', '+/');
+        $result = base64_decode($step1);
+
+        if ($result === false)
+        {
+            throw new ExceptionStringConversionFailed("Failed to base64 decode string: $step1");
+        }
+
+        return $result;
     }
 }
