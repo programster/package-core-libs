@@ -112,13 +112,13 @@ class CsvLib
      * @param bool $hasHeader - specify whether the CSV file has a header which it will have to
      *                          skip for values, and may or may not be used for indexes of the
      *                          rows depending on whether $keys is provided.
-     * @param array $keys - optional parameter to specify the indexes to use in the rows. If not
+     * @param ?array $keys - optional parameter to specify the indexes to use in the rows. If not
      *                      provided and there is a header, then we will use the header columns
      *                      as indexes.
      *
      * @return array - an array list of indexed rows that the CSV has been converted into.
      */
-    public static function convertCsvToArray(string $filepath, bool $hasHeader, array $keys=null) : array
+    public static function convertCsvToArray(string $filepath, bool $hasHeader, ?array $keys=null) : array
     {
         $file = fopen($filepath, 'r');
         $output = array();
@@ -128,7 +128,7 @@ class CsvLib
         {
             // Skip empty lines (users may accidentally put one at the end
             // libre calc wont strip this either.
-            if (count($row) == 0 || $row[0] === "")
+            if (count($row) === 0 || $row[0] === "")
             {
                 continue;
             }
@@ -139,7 +139,7 @@ class CsvLib
 
                 if ($hasHeader)
                 {
-                    if ($keys == null)
+                    if ($keys === null)
                     {
                         $keys = $row;
                     }
@@ -148,9 +148,9 @@ class CsvLib
                 }
             }
 
-            if ($keys != null)
+            if ($keys !== null)
             {
-                if (count($keys) != count($row))
+                if (count($keys) !== count($row))
                 {
                     $msg = "Cannot convert csv to array. Number of keys: " . count($keys) .
                            " is not the same as the number of values: " . count($row);
@@ -209,7 +209,7 @@ class CsvLib
 
             // Skip empty lines (users may accidentally put one at the end
             // libre calc wont strip this either.
-            if (count($row) == 0 || $row[0] === "")
+            if (count($row) === 0 || $row[0] === "")
             {
                 continue;
             }
@@ -795,7 +795,7 @@ class CsvLib
                     {
                         $copyLineAcross = true;
                     }
-                    elseif ($hasHeaders == FALSE)
+                    elseif ($hasHeaders === FALSE)
                     {
                         $copyLineAcross = true;
                     }
