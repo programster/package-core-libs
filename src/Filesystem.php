@@ -704,7 +704,7 @@ class Filesystem
         }
 
         header("Content-Length: " . filesize($filepath));
-        $disposition = ($asAttachment) ? "attachment; filename={$downloadFilename}" : "inline";
+        $disposition = ($asAttachment) ? "attachment; filename={$downloadFilename}" : "inline; filename={$downloadFilename}";
         header("Content-Disposition: {$disposition}");
         header("Pragma: no-cache");
         header("Expires: 0");
