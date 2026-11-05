@@ -490,35 +490,6 @@ final class Core
 
 
     /**
-     * Generate a PHP config file to have the setting provided. This is useful if we want to be able to update our
-     * config file through code, such as a web UI to update settings. Platforms like WordPress allow updating the
-     * settings, but do this through a database.
-     * @param mixed $settings - array or variable that we want to save to the file
-     * @param string $variableName - name of the settings variable so that it is reloaded correctly
-     * @param string $filePath - path to the file where we want to save the settings. (overwritten)
-     * @return void - creates a config file, or throws an exception if failed.
-     * @throws ExceptionFilesystem - if failed to write to the specified filePath, e.g. don't have permissions.
-     */
-    public static function generateConfig(mixed $settings, string $variableName, string $filePath): void
-    {
-        $varStr = var_export($settings, true);
-
-        $output =
-            '<?php' . PHP_EOL .
-            '$' . $variableName . ' = ' . $varStr . ';';
-
-        # file_put_contents returns num bytes written or boolean false if fail
-        $wroteFile = file_put_contents($filePath, $output);
-
-        if ($wroteFile === FALSE)
-        {
-            $msg = "Failed to generate config file. Check permissions!";
-            throw new ExceptionFilesystem($msg);
-        }
-    }
-
-
-    /**
      * Sign some data. If we get this data back again, we will know that it came from us
      * untampered (as long as the signature still matches). This is useful for things like
      * tokens sent in emails allowing them to perform actions without having to sign in
