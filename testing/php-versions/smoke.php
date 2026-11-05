@@ -285,6 +285,13 @@ $smoke->run("other Core methods", function () {
     ob_end_clean();
     assert(Core::fetchReqArgsFromArray(["a"], ["a" => 1]) === ["a" => 1]);
     assert(Core::fetchOptionalArgsFromArray(["a", "z"], ["a" => 1]) === ["a" => 1]);
+
+    # A null value counts as provided, but a null argument name is not allowed.
+    assert(Core::fetchReqArgsFromArray(["a"], ["a" => null]) === ["a" => null]);
+    assert(Core::fetchOptionalArgsFromArray(["a", "z"], ["a" => null]) === ["a" => null]);
+    SmokeTest::expectException(BadArgumentException::class, fn() => Core::fetchReqArgsFromArray(["a"], ["b" => 1]));
+    SmokeTest::expectException(BadArgumentException::class, fn() => Core::fetchReqArgsFromArray([null], ["" => 1]));
+    SmokeTest::expectException(BadArgumentException::class, fn() => Core::fetchOptionalArgsFromArray([null], []));
     assert(str_contains(Core::var_dump(1), "int(1)"));
 });
 

@@ -136,13 +136,16 @@ final class Core
     /**
      * Fetches the specified list of arguments from the provided array (e.g. $_REQUEST). This will throw an
      * exception if any of them could not be found.
+     * An argument that is in $inputArray with a null value counts as provided, and its null is returned.
      *
-     * @param array $args - array of all the argument names.
+     * @param array $args - array of all the argument names. Each must be a string or an int (the types that array
+     *                      keys can be), so null is not allowed.
      * @param array $inputArray - array from which we are pulling the required
      *                             args.
      *
      * @return array - the name/value pairs of the arguments.
-     * @throws BadArgumentException - if any of the arguments could not be found.
+     * @throws BadArgumentException - if any of the arguments could not be found, or one of the names in $args is not a
+     *                                string or an int.
      */
     public static function fetchReqArgsFromArray(array $args, array $inputArray): array
     {
@@ -150,7 +153,10 @@ final class Core
 
         foreach ($args as $arg)
         {
-            if (isset($inputArray[$arg]))
+            self::validateArgName($arg);
+
+            # Use array_key_exists() rather than isset(), as isset() is false for a key that exists with a null value.
+            if (array_key_exists($arg, $inputArray))
             {
                 $values[$arg] = $inputArray[$arg];
             }
@@ -169,11 +175,14 @@ final class Core
      * Fetches as many of the specified list of arguments from $_REQUEST that
      * it can retrieve.
      * This will NOT throw an exception or return false if it fails to find one.
+     * An argument that is in $inputArray with a null value counts as provided, and its null is returned.
      *
-     * @param array $args - array of all the argument names.
+     * @param array $args - array of all the argument names. Each must be a string or an int (the types that array
+     *                      keys can be), so null is not allowed.
      * @param array $inputArray - array from which we are pulling the optional args.
      *
      * @return array - array of retrieved values
+     * @throws BadArgumentException - if one of the names in $args is not a string or an int.
      */
     public static function fetchOptionalArgsFromArray(array $args, array $inputArray): array
     {
@@ -181,13 +190,35 @@ final class Core
 
         foreach ($args as $arg)
         {
-            if (isset($inputArray[$arg]))
+            self::validateArgName($arg);
+
+            # Use array_key_exists() rather than isset(), as isset() is false for a key that exists with a null value.
+            if (array_key_exists($arg, $inputArray))
             {
                 $values[$arg] = $inputArray[$arg];
             }
         }
 
         return $values;
+    }
+
+
+    /**
+     * Check that an argument name, for fetchReqArgsFromArray() and fetchOptionalArgsFromArray(), is a string or an
+     * int, as those are the only types an array key can be. Anything else, such as null, would be quietly converted
+     * to a different key (e.g. null becomes "").
+     * @param mixed $arg - the argument name to check.
+     * @return void
+     * @throws BadArgumentException - if it isn't a string or an int.
+     */
+    private static function validateArgName(mixed $arg): void
+    {
+        if (!is_string($arg) && !is_int($arg))
+        {
+            throw new BadArgumentException(
+                "Argument names must be strings or ints, but one is " . get_debug_type($arg) . "."
+            );
+        }
     }
 
 
