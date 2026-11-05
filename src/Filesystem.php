@@ -647,10 +647,22 @@ final class Filesystem
      * @param string $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
      * http://php.net/manual/en/function.mkdir.php
      * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
+     * @throws \InvalidArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g.
+     *                                     "755", "0755", "0o755" or "1777".
      * @throws ExceptionFilesystem - if the temporary directory could not be created.
      */
     public static function tmpDir(string $mode = "0777"): string
     {
+        # Without this, octdec() silently ignores invalid characters, giving the wrong permissions. E.g. an octal int
+        # like 0755 arrives here as the string "493", which would become 043.
+        if (preg_match('/^(0o?)?[0-7]{3,4}$/D', $mode) !== 1)
+        {
+            throw new \InvalidArgumentException(
+                "tmpDir: \$mode must be a string of 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. " .
+                "\"0755\" or \"0o755\", but is \"{$mode}\"."
+            );
+        }
+
         # tempnam() is only used to get a unique name, so remove the file it creates and make a directory there.
         $tempName = tempnam(sys_get_temp_dir(), '');
 
