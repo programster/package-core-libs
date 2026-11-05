@@ -395,10 +395,25 @@ $smoke->run("downloadFile", function () use ($dir) {
 
 $smoke->run("zipDir / unzip", function () use ($dir) {
     mkdir("{$dir}/ziptest/sub", 0777, true);
+    mkdir("{$dir}/ziptest/empty/nested-empty", 0777, true);
     file_put_contents("{$dir}/ziptest/sub/a.txt", "zipped content");
     Filesystem::zipDir("{$dir}/ziptest", "{$dir}/test.zip", false);
     Filesystem::unzip("{$dir}/test.zip", "{$dir}/unzipped", false);
     assert(file_get_contents("{$dir}/unzipped/ziptest/sub/a.txt") === "zipped content");
+
+    # Empty directories must be kept, including ones nested inside other empty directories.
+    assert(is_dir("{$dir}/unzipped/ziptest/empty/nested-empty"));
+
+    # A relative path with a trailing slash used to put the files' full paths into the zip.
+    $originalDir = getcwd();
+    chdir($dir);
+    Filesystem::zipDir("ziptest/", "{$dir}/relative.zip", false);
+    chdir($originalDir);
+    $zip = new ZipArchive();
+    $zip->open("{$dir}/relative.zip");
+    assert($zip->locateName("ziptest/sub/a.txt") !== false);
+    assert($zip->locateName("ziptest/empty/nested-empty/") !== false);
+    $zip->close();
 
     # ZipArchive::open() returns an error code (which is truthy) rather than false on failure, so check it's caught.
     file_put_contents("{$dir}/bad.zip", "this is not a zip file");

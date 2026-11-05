@@ -399,14 +399,17 @@ final class Filesystem
 
     /**
      * Zip a directory and all of its contents into a zip file.
+     * The zip contains a single folder, named after $sourceFolder (e.g. zipping "/var/www/project" gives
+     * "project/..."), however the path is written (relative, with a trailing slash, through a symlink etc.).
+     * Empty subdirectories are included, so they are recreated when the zip is extracted.
      * @param string $sourceFolder - path to the folder we wish to zip up.
      * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they
      *                                have been zipped.
      * @return void
-     * @throws FileAlreadyExistsException
-     * @throws FileDoesNotExistException
-     * @throws MissingExtensionException
+     * @throws FileAlreadyExistsException - if there is already a file at $dest.
+     * @throws FileDoesNotExistException - if there is no folder at $sourceFolder.
+     * @throws MissingExtensionException - if the zip extension isn't installed.
      * @throws FilesystemException - if the zip file could not be created or written.
      */
     public static function zipDir(string $sourceFolder, string $dest, bool $deleteOnComplete=true): void
@@ -416,9 +419,9 @@ final class Filesystem
             throw new MissingExtensionException("Your PHP does not have the zip extension.");
         }
 
-        if (!file_exists($sourceFolder))
+        if (!is_dir($sourceFolder))
         {
-            throw new FileDoesNotExistException("Cannot zip non-existent folder");
+            throw new FileDoesNotExistException("Cannot zip {$sourceFolder}, as there is no folder there.");
         }
 
         if (file_exists($dest))
@@ -439,15 +442,37 @@ final class Filesystem
             throw new FilesystemException("Unable to create the zip file {$dest} (ZipArchive error code {$opened}).");
         }
 
-        $files = self::getDirContents($sourceFolder, true, true, true);
+        # getDirContents() returns full, resolved paths (via realpath()), so resolve the source folder the same way, so
+        # that it can be removed from the start of each one. Otherwise a relative path, a trailing slash, or a symlink
+        # would leave the files' full paths in the zip.
+        $resolvedSourceFolder = realpath($sourceFolder);
 
-        $baseDir = basename($sourceFolder);
+        # Include the directories as well as the files ($onlyFiles = false), so that empty directories are kept.
+        $paths = self::getDirContents($resolvedSourceFolder, true, true, false);
+
+        # Name the folder in the zip after the path we were given (e.g. a symlink's own name, rather than what it points
+        # to), unless that has no name of its own, such as ".".
+        $baseDir = basename(rtrim($sourceFolder, '/'));
+
+        if ($baseDir === '' || $baseDir === '.' || $baseDir === '..')
+        {
+            $baseDir = basename($resolvedSourceFolder);
+        }
+
         $zip->addEmptyDir($baseDir);
 
-        foreach ($files as $name => $filepath)
+        foreach ($paths as $path)
         {
-            $relativePath = str_replace($sourceFolder, $baseDir, $filepath);
-            $zip->addFile($filepath, $relativePath);
+            $relativePath = $baseDir . substr($path, strlen($resolvedSourceFolder));
+
+            if (is_dir($path))
+            {
+                $zip->addEmptyDir($relativePath);
+            }
+            else
+            {
+                $zip->addFile($path, $relativePath);
+            }
         }
 
         # The files are only actually read and written into the zip when it is closed, so this is where most failures
