@@ -387,19 +387,53 @@ final class Network
      * port forwarding.
      * This is a very quick and dirty method that relies on icanhazip.com
      * remaining the same so use with caution.
+     * This uses HTTPS, so that the answer can't be tampered with on the way, which needs the openssl extension. It may
+     * return an IPv6 address, if that is how this computer connects to icanhazip.com.
+     * @param float $timeout - optionally specify how many seconds to wait for icanhazip.com to respond. Defaults to 5.
      * @return string - the public ip address of this computer.
-     * @throws NetworkException - if we failed to get a response from icanhazip.com
+     * @throws NetworkException - if we failed to get a response from icanhazip.com, or the response wasn't an IP
+     *                            address.
      */
-    public static function getPublicIp(): string
+    public static function getPublicIp(float $timeout = 5.0): string
     {
-        $response = file_get_contents('http://icanhazip.com/');
+        # Without a timeout, this would wait for PHP's default_socket_timeout, which is normally 60 seconds.
+        $context = stream_context_create(['http' => ['timeout' => $timeout]]);
+
+        # Capture the warning to put its reason in the exception, rather than letting it through. This uses a temporary
+        # error handler rather than @ and error_get_last(), as error_get_last() is empty if the application has its
+        # own error handler.
+        $error = 'unknown error';
+        set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
+            $error = $errorMessage;
+            return true;
+        });
+
+        try
+        {
+            $response = file_get_contents('https://icanhazip.com/', false, $context);
+        }
+        finally
+        {
+            restore_error_handler();
+        }
 
         if ($response === false)
         {
-            throw new NetworkException("Failed to fetch public IP from icanhazip.com");
+            throw new NetworkException("Failed to fetch public IP from icanhazip.com: {$error}");
         }
 
-        return trim($response);
+        $ip = trim($response);
+
+        # Check we really got an IP address, rather than e.g. an error page from a proxy or captive portal.
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false)
+        {
+            # Only include the start of the response, in case it's a whole web page.
+            throw new NetworkException(
+                "Expected icanhazip.com to respond with an IP address, but got: " . substr($ip, 0, 100)
+            );
+        }
+
+        return $ip;
     }
 
 

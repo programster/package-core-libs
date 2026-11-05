@@ -19,6 +19,7 @@ use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\DecryptionFailedException;
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\NetworkException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
 use Programster\CoreLibs\Exceptions\StringConversionFailedException;
@@ -120,6 +121,64 @@ final class SmokeTest
     # Accessors
     public function getNumPassed(): int { return $this->m_numPassed; }
     public function getFailures(): array { return $this->m_failures; }
+}
+
+
+
+/**
+ * A stand-in for the https:// stream wrapper, so that methods that fetch a URL (such as Network::getPublicIp()) can be
+ * tested without the internet. Register it with FakeHttpsStream::install(), and put things back with uninstall().
+ */
+final class FakeHttpsStream
+{
+    # PHP sets this on every stream wrapper, and requires it to be a public property.
+    public $context;
+
+    # The body to respond with, or null to fail as if the server couldn't be reached.
+    private static ?string $s_response = null;
+    private int $m_position = 0;
+
+
+    /**
+     * Replace the https:// stream wrapper with this one.
+     * @param ?string $response - the body every request gets, or null for every request to fail.
+     * @return void
+     */
+    public static function install(?string $response): void
+    {
+        self::$s_response = $response;
+        stream_wrapper_unregister("https");
+        stream_wrapper_register("https", self::class);
+    }
+
+
+    /**
+     * Put the real https:// stream wrapper back.
+     * @return void
+     */
+    public static function uninstall(): void
+    {
+        stream_wrapper_restore("https");
+    }
+
+
+    public function stream_open(string $path, string $mode, int $options, ?string &$openedPath): bool
+    {
+        # Returning false makes PHP raise a "Failed to open stream" warning, as it would for a real failure.
+        return self::$s_response !== null;
+    }
+
+
+    public function stream_read(int $count): string
+    {
+        $chunk = substr(self::$s_response, $this->m_position, $count);
+        $this->m_position += strlen($chunk);
+        return $chunk;
+    }
+
+
+    public function stream_eof(): bool { return $this->m_position >= strlen(self::$s_response); }
+    public function stream_stat(): array { return []; }
 }
 
 
@@ -450,6 +509,37 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
 # ---------------------------------------------------------------------------------------------------------------------
 # Network
 # ---------------------------------------------------------------------------------------------------------------------
+$smoke->run("getPublicIp", function () {
+    # Fake icanhazip.com's responses, so this doesn't need the internet.
+    try
+    {
+        FakeHttpsStream::install("203.0.113.7\n");
+        assert(Network::getPublicIp() === "203.0.113.7");
+
+        # A response that isn't an IP address, such as a proxy's error page, must be rejected.
+        FakeHttpsStream::install("<html>Please log in to the Wi-Fi</html>");
+        SmokeTest::expectException(NetworkException::class, fn() => Network::getPublicIp());
+
+        # As must the server not being reachable, with PHP's reason in the message rather than "unknown error".
+        FakeHttpsStream::install(null);
+        SmokeTest::expectException(NetworkException::class, fn() => Network::getPublicIp());
+
+        try
+        {
+            Network::getPublicIp();
+        }
+        catch (NetworkException $e)
+        {
+            assert(str_contains($e->getMessage(), "Failed to open stream"));
+            assert(!str_contains($e->getMessage(), "unknown error"));
+        }
+    }
+    finally
+    {
+        FakeHttpsStream::uninstall();
+    }
+});
+
 $smoke->run("isPrivateIp / isPortOpen / getIps", function () {
     assert(Network::isPrivateIp("10.0.0.1") && !Network::isPrivateIp("8.8.8.8"));
     assert(Network::isPrivateIp("127.0.0.1") && Network::isPrivateIp("fd00::1"));
