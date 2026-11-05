@@ -15,6 +15,7 @@ use Programster\CoreLibs\Core;
 use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\DataSizeUnitEnum;
 use Programster\CoreLibs\EncryptionLib;
+use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\DecryptionFailedException;
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
@@ -402,6 +403,13 @@ $smoke->run("sendTcpRequest", function () {
 # ---------------------------------------------------------------------------------------------------------------------
 $smoke->run("StringLib", function () {
     assert(strlen(StringLib::generateRandomString(20)) === 20);
+    SmokeTest::expectException(BadArgumentException::class, fn() => StringLib::generateRandomString(0));
+    SmokeTest::expectException(BadArgumentException::class, fn() => StringLib::generateRandomString(-1));
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => StringLib::generateRandomString(5, false, false, false, false)
+    );
+    SmokeTest::expectException(BadArgumentException::class, fn() => StringLib::generateRandomString(3));
     assert(StringLib::base64UrlDecode(StringLib::base64UrlEncode("hi?>")) === "hi?>");
     SmokeTest::expectException(StringConversionFailedException::class, fn() => StringLib::base64UrlDecode("a"));
     assert(StringLib::startsWith("abc", "a") && StringLib::endsWith("abc", "c"));

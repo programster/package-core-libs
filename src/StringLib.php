@@ -23,7 +23,8 @@ final class StringLib
      * @param bool $useUppercase - whether to use uppercase. Defaults to true.
      * @param bool $useLowercase - whether to contain lowercase letters. Defaults to true.
      * @return string - the generated random string.
-     * @throws BadArgumentException - if $numChars is too short to fit one of each required type of character.
+     * @throws BadArgumentException - if $numChars is less than 1, all four types of character are turned off, or
+     *                                $numChars is too short to fit one of each required type of character.
      */
     public static function generateRandomString(
         int $numChars,
@@ -63,6 +64,22 @@ final class StringLib
         {
             $possibleChars .= $specialChars;
             $requirements['special_characters'] = $specialChars;
+        }
+
+        # Check these here, as otherwise Randomizer::getBytesFromString() throws a less helpful ValueError.
+        if ($numChars < 1)
+        {
+            throw new BadArgumentException(
+                "generateRandomString: \$numChars must be at least 1, but {$numChars} was given."
+            );
+        }
+
+        if (count($requirements) === 0)
+        {
+            throw new BadArgumentException(
+                "generateRandomString: at least one type of character (special characters, numbers, uppercase or " .
+                "lowercase) must be turned on."
+            );
         }
 
         if ($numChars < count($requirements))
