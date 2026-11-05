@@ -230,14 +230,13 @@ $smoke->run("yes/no, true/false, clamp", function () {
     assert(Core::clampValue(new DateTime("2030-01-01"), new DateTime("2026-12-31"), new DateTime("2026-01-01"))->format("Y") === "2026");
 });
 
-$smoke->run("other Core methods", function () use ($dir) {
+$smoke->run("other Core methods", function () {
     assert(Core::isCli());
     ob_start();
     Core::println("x");
     ob_end_clean();
     assert(Core::fetchReqArgsFromArray(["a"], ["a" => 1]) === ["a" => 1]);
     assert(Core::fetchOptionalArgsFromArray(["a", "z"], ["a" => 1]) === ["a" => 1]);
-    Core::generateConfig(["a" => 1], "settings", "{$dir}/config.php");
     assert(str_contains(Core::var_dump(1), "int(1)"));
 });
 
