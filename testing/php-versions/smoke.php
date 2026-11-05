@@ -19,6 +19,7 @@ use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\DecryptionFailedException;
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\NoFileExtensionException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
 use Programster\CoreLibs\Exceptions\StringConversionFailedException;
 use Programster\CoreLibs\Filesystem;
@@ -296,6 +297,12 @@ $smoke->run("directories and files", function () use ($dir) {
     assert(file_get_contents("{$dir}/sub/deep/f.txt") === "abc\n");
     Filesystem::fileperms("{$dir}/sub/deep/f.txt");
     assert(Filesystem::getFileExtension("a.tar.gz") === "gz");
+    SmokeTest::expectException(NoFileExtensionException::class, fn() => Filesystem::getFileExtension("README"));
+    SmokeTest::expectException(
+        NoFileExtensionException::class,
+        fn() => Filesystem::getFileExtension("/var/v1.2/README")
+    );
+    SmokeTest::expectException(NoFileExtensionException::class, fn() => Filesystem::getFileExtension("file."));
     Filesystem::deleteDir(Filesystem::tmpDir());
     assert(Filesystem::lockFile("{$dir}/lock", true, false));
     Filesystem::unlockFile("{$dir}/lock");

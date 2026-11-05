@@ -12,6 +12,7 @@ use Programster\CoreLibs\Exceptions\CommandFailedException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\MissingExtensionException;
+use Programster\CoreLibs\Exceptions\NoFileExtensionException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
@@ -837,13 +838,23 @@ final class Filesystem
 
     /**
      * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt"
+     * This only looks at the last part of a path, so dots in directory names are ignored (e.g. "/var/v1.2/README" has
+     * no extension). The extension's case is kept as it is (e.g. "JPG"). As with PHP's pathinfo(), a name that starts
+     * with a dot and has no other dots, such as ".bashrc", is treated as having that extension ("bashrc").
      * @param string $filename - the name of the file or the full file path
-     * @return string - the file extension.
+     * @return string - the file extension, without the dot.
+     * @throws NoFileExtensionException - if there is no file extension, such as "README", "file." or "dir/".
      */
     public static function getFileExtension(string $filename): string
     {
-        $parts = explode('.', $filename);
-        return ArrayLib::getLastElement($parts);
+        $extension = pathinfo($filename, PATHINFO_EXTENSION);
+
+        if ($extension === '')
+        {
+            throw new NoFileExtensionException("There is no file extension in \"{$filename}\".");
+        }
+
+        return $extension;
     }
 
 
