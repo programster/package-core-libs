@@ -13,7 +13,7 @@ class TimeLib
      * Fetches the number of days in a given month.
      *
      * @param month - optional integer representing which month of the year.
-     *                          e.g. 00 = january
+     *                          e.g. 1 = January
      *                if not specified we assume the current month.
      * @param year - optional integer representing which year. e.g. 2013 and
      *               not 13
@@ -33,7 +33,7 @@ class TimeLib
      * Fetches the number of days in the month that the timestamp is in.
      *
      * @param timestamp - the timestamp in the month you want to get the number
-     *                    of. If blank thenwe assume the current time.
+     *                    of. If blank then we assume the current time.
      * @return int numDays - the number of days in that month/year.
      */
     public static function getDaysInMonthOfTimestamp($timestamp = '')
@@ -53,13 +53,13 @@ class TimeLib
      * Fetches the timestamp (int) of the first of the specified month.
      *
      * @param month - optional integer representing which month of the year.
-     *                e.g. 00 = january
+     *                e.g. 1 = January
      *                if not specified we assume the current month.
      * @param year - optional integer representing which year.
      *               e.g. 2013 and not 13
      *               if not specified we assume the current year.
      *
-     * @return numDays - the number of days in that month/year.
+     * @return timestamp - the timestamp of the first of that month.
      */
     public static function getFirstOfMonth($month='', $year='')
     {
@@ -104,10 +104,10 @@ class TimeLib
 
     /**
      * Returns the timestamp at midnight on the specified day. If any parameter
-     * is left alone, then we assume todays day/month/ or year.
+     * is left alone, then we assume today's day, month or year.
      *
-     * @param day   - the day of the month e.g. 01 - 32
-     * @param month - the month of the year e.g .01 - 12
+     * @param day   - the day of the month e.g. 01 - 31
+     * @param month - the month of the year e.g. 01 - 12
      * @param year  - the year e.g. 2013
      *
      * @return $timestamp - the timestamp of that day at midnight
@@ -154,7 +154,7 @@ class TimeLib
 
 
     /**
-     * Rounds a timestamp down to midnight on Monday of time it was taken
+     * Rounds a timestamp down to midnight on the Monday of the week it was taken
      * @param timestamp - the timestamp to round off.
      * @return roundedTimestamp - the rounded timestamp
      */
@@ -203,12 +203,12 @@ class TimeLib
 
 
     /**
-     * Calculates the number of days there are between two unix timestamps
+     * Calculates the number of days there are between two Unix timestamps
      * (seconds since epoch). The times do not need to be specified in any
      * particular order.
      *
-     * @param time1 - a unix timestamp
-     * @param time2 - a unix timestamp.
+     * @param time1 - a Unix timestamp
+     * @param time2 - a Unix timestamp.
      *
      * @return int $numDays - the number of whole days there are between the
      *                        two timestamps.

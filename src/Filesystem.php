@@ -86,7 +86,7 @@ class Filesystem
      *   $directory = new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::CURRENT_AS_SELF);
      *   $iterator = new RecursiveIteratorIterator($directory, RecursiveIteratorIterator::CHILD_FIRST);
      *
-     * @param string $dir - the path to the directory you wisht to find the contents of.
+     * @param string $dir - the path to the directory you wish to find the contents of.
      * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
      * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
      *                            instead of just 'text.txt'
@@ -177,7 +177,7 @@ class Filesystem
      * @param string|null $perms - optionally set the permissions to set for the directory. E.g. "0700" or "755". If
      * not provided, then this will default to "0755".
      * @param bool $recursive - override to false if you want to fail if parent
-     *                          dirs dont exist.
+     *                          dirs don't exist.
      *
      * @return bool - true if the directory now exists, false otherwise
      */
@@ -248,7 +248,7 @@ class Filesystem
 
     /**
      * Lock a file so that only we can use it.
-     * This will NOT block untill the file can be locked, but would return false immediately if
+     * This will NOT block until the file can be locked, but would return false immediately if it
      * cannot grab the lock.
      * Note that this only allows other processes to see that you have locked it and does not
      * actually guarantee that it cannot be edited at the same time on Linux.
@@ -293,14 +293,14 @@ class Filesystem
 
     /**
      * Unlock a file so that others may use it.
-     * @param String $filePath - the full path to the file that we wish to lock
+     * @param String $filePath - the full path to the file that we wish to unlock
      * @return void.
      */
     public static function unlockFile(string $filePath) : void
     {
         if (isset(self::$s_fileLocks[$filePath]))
         {
-            # This creates the file if it doesnt exist.
+            # This creates the file if it doesn't exist.
             fclose(self::$s_fileLocks[$filePath]);
             unset(self::$s_fileLocks[$filePath]);
         }
@@ -464,7 +464,7 @@ class Filesystem
 
     /**
      * Filters a file using the provided callback, in a memory efficient way so that it can process very large files.
-     * This is inspired by array_filter (http://php.net/manual/en/function.array-walk.php)
+     * This is inspired by array_filter (http://php.net/manual/en/function.array-filter.php)
      * @param string $inputFile - the path to the file to operate upon.
      * @param callable $filterCallback - the callback to execute on every line in the file to determine if kept or not.
      * Don't forget that this will include its line ending, so you may wish to use trim() before analysis.
@@ -616,7 +616,7 @@ class Filesystem
     /**
      * Download a file from the provided URL
      * This will use curl if it is available, if not it will
-     * fallback to using file_get_contents.
+     * fall back to using file_get_contents.
      * @param string $url
      * @return string - the full filepath to the downloaded file on the server.
      * @throws FilesystemException - if the temporary file could not be created/written to, or the download failed.
@@ -674,7 +674,7 @@ class Filesystem
 
     /**
      * A more human-readable version of the fileperms function. This one will output in the "-rw-r--r--" style format
-     * rather than a bunch of numbers. The code taken straight from the examples section of
+     * rather than a bunch of numbers. The code is taken straight from the examples section of
      * https://www.php.net/manual/en/function.fileperms.php
      * @param string $filepath - the path to the file/folder we wish to get the permissions of.
      * @return string - the file permissions string.

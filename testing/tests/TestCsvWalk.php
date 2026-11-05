@@ -29,7 +29,7 @@ class TestCsvWalk extends \Programster\CoreLibs\Testing\AbstractTest
             {
                 case 0:
                 {
-                    // should not get here because have headers.
+                    // should not get here because we have headers.
                     $this->m_passed = false;
                 }
                 break;
@@ -100,7 +100,7 @@ class TestCsvWalk extends \Programster\CoreLibs\Testing\AbstractTest
             {
                 case 0:
                 {
-                    // should not get here because have headers.
+                    // should not get here because we have headers.
                     $this->m_passed = false;
                 }
                 break;
@@ -171,7 +171,7 @@ class TestCsvWalk extends \Programster\CoreLibs\Testing\AbstractTest
             {
                 case 0:
                 {
-                    // should not get here because have headers.
+                    // should not get here because we have headers.
                     if (count($row) !== 2)
                     {
                         $this->m_passed = false;

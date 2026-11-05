@@ -18,7 +18,7 @@ class EncryptionLib
      * @param string $initializationVector - a 16 character string to initialize the cipher.
      *                                       this way two plaintext messages can result in different
      *                                       encrypted strings. (like a salt in hashing).
-     * @return string - the encryptd form of the string
+     * @return string - the encrypted form of the string
      */
     public static function encrypt(string $textToEncrypt, string $key, string $initializationVector) : string
     {
@@ -84,13 +84,13 @@ class EncryptionLib
 
 
     /**
-     * Counterpart to generate_password_hash. This function should be used to
+     * Counterpart to generatePasswordHash. This function should be used to
      * verify that the provided password is correct. This just wraps around
      * password_verify (req 5.5) which automatically knows which algo and cost
-     * to use as they are burried in the hash.
+     * to use as they are buried in the hash.
      * @param string $rawPassword - the raw password that the user entered.
      * @param string $expectedHash - the hash that we are expecting
-     *                              (generated from generate_password_hash)
+     *                              (generated from generatePasswordHash)
      * @return boolean - true if valid, false if not.
      */
     public static function verifyPassword(string $rawPassword, string $expectedHash) : bool

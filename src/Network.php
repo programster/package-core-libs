@@ -1,7 +1,7 @@
 <?php
 
 /*
- * This is a general library that can be used to "extend" the standard libary.
+ * This is a general library that can be used to "extend" the standard library.
  * Only functions that are used frequently and are completely generic should
  * be placed here. Wherever possible, please use more specific libraries such
  * as the StringLib, Filesystem, and HtmlGenerator
@@ -19,8 +19,8 @@ class Network
 {
     /**
      * This is the socket "equivalent" to the sendApiRequest function. However
-     * unlike that funciton it does not require the curl library to be
-     * installed, and will try to send/recieve information over a direct socket
+     * unlike that function it does not require the curl library to be
+     * installed, and will try to send/receive information over a direct socket
      * connection.
      *
      * @param string $host - who to send the request to
@@ -103,7 +103,7 @@ class Network
                 $socketErrors[] = $socketErrorString;
 
                 # socket_last_error does not clear the last error after having
-                # fetched it, have to  do this manually
+                # fetched it, have to do this manually
                 socket_clear_error();
 
                 if ($attemptsMade == $attemptsLimit)
@@ -161,8 +161,8 @@ class Network
     /**
      * Calculates the hostname including the starting http:// or https:// at
      * the beginning. This is useful for linking items by relative source and
-     * getting around htaccess url rewrites.
-     * @return String  - The url e.g. 'http://www.technostu.com'
+     * getting around htaccess URL rewrites.
+     * @return String  - The URL e.g. 'http://www.technostu.com'
      */
     public static function getHostname() : string
     {
@@ -220,11 +220,11 @@ class Network
 
 
     /**
-     * Determines what this computers public IP address is. This is not
+     * Determines what this computer's public IP address is. This is not
      * necessarily the IP address of the computer, and you may need to set up
      * port forwarding.
      * This is a very quick and dirty method that relies on icanhazip.com
-     * remaining the same so use with  caution.
+     * remaining the same so use with caution.
      * @param void
      * @return string $ip - the public ip address of this computer.
      * @throws \Exception - if we failed to get a response from icanhazip.com
@@ -281,7 +281,7 @@ class Network
 
 
     /**
-     * Return whether the IP address provided is within the private or reserved.
+     * Return whether the IP address provided is within the private or reserved ranges.
      * E.g. 192.168. 0.0 – 192.168.255.255, 172.16. 0.0 – 172.31.255.255, or 10.0. 0.0 – 10.255.255.255.
      * This also applies to IPv6 though.
      * @param string $ip - the IP address to check

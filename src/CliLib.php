@@ -59,13 +59,13 @@ class CliLib
 
 
     /**
-     * Script function (not for websits) Fetches the password from the shell
+     * Script function (not for websites) Fetches the password from the shell
      * without it being displayed whilst being typed. Only works on *nix systems
      * and requires shell_exec and stty.
      *
      * @param bool stars - (optional) set to false to stop outputting stars as
      *                     user types password. This prevents onlookers seeing
-     *                     the password length but does make more difficult.
+     *                     the password length but does make it more difficult.
      *
      * @return string - the password that was typed in.
      */

@@ -1,7 +1,7 @@
 <?php
 
 /*
- * An enum for all the possible timezones. This values for this can be regenerated from
+ * An enum for all the possible timezones. The values for this can be regenerated from
  * running: "print implode(PHP_EOL, timezone_identifiers_list());"
  */
 

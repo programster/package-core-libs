@@ -14,7 +14,7 @@ class ArrayLib
     /**
      * Returns true or false based on whether the provided array is an
      * associative array or not.
-     * Note that this will return true if it is integer based but they index
+     * Note that this will return true if it is integer based but the index
      * does not start at 0.
      * @param array arr - the array to check
      * @return bool - true if the array is associative, false otherwise.
@@ -26,10 +26,10 @@ class ArrayLib
 
 
     /**
-     * Returns the first element of the array (useful for maps/hashtables or if you dont know)
+     * Returns the first element of the array (useful for maps/hashtables or if you don't know)
      * @param array $inputArray - the array we want the first element of.
      * @param bool $removeElement - optionally override to true to remove the element from the array
-     * @return mixed $element - the last element of the array.
+     * @return mixed $element - the first element of the array.
      */
     public static function getFirstElement(array &$inputArray, $removeElement=false)
     {
@@ -168,7 +168,7 @@ class ArrayLib
 
 
     /**
-     * Wrap all of elements in an array with the string (before and after)
+     * Wrap all of the elements in an array with the string (before and after)
      * e.g. wrapElements on array(foo,bar), "`" would create array(`foo`,`bar`)
      * If you are wrapping values for insertion into a MySQL database, please use MySqliLib::mysqliWrapValues()
      * as that will gracefully convert null values to string "NULL".
@@ -327,7 +327,7 @@ class ArrayLib
 
     /**
      * Remove empty elements from the provided array.
-     * If the input array is not assosciative, then it will be re-indexed. 0,1,2,3 etc
+     * If the input array is not associative, then it will be re-indexed. 0,1,2,3 etc
      * @param array $inputArray - the array to perform actions upon.
      */
     public static function stripEmptyElements(array $inputArray)
@@ -344,14 +344,14 @@ class ArrayLib
 
 
     /**
-     * Merge two assosciative arrays. The indexes will be in the order of the first array, then the second
-     * @param Array $array1 - an assosciative array to merge
-     * @param Array $array2 - an assosciative array to merge.
-     * @param \Closure $clashHandler - callback function to return the value should keep, should we encounter
+     * Merge two associative arrays. The indexes will be in the order of the first array, then the second
+     * @param Array $array1 - an associative array to merge
+     * @param Array $array2 - an associative array to merge.
+     * @param \Closure $clashHandler - callback function to return the value we should keep, should we encounter
      *                                 the same index in the two arrays. This will take as params:
      *                                 [index], [array1 value], [array2 value]
      *
-     * @return array - combined assosciative array.
+     * @return array - combined associative array.
      */
     public static function assocArrayMerge(array $array1, array $array2, \Closure $clashHandler)
     {
@@ -385,12 +385,12 @@ class ArrayLib
     /**
      * Wrapper around array_combine that works on a list of arrays for the
      * values instead of being given a single array for the values. The result is a
-     * list of arrays who's keys are provided by the keys parameter and the values are the
+     * list of arrays whose keys are provided by the keys parameter and the values are the
      * corresponding values in the rows' arrays.
      *
      * @param array $keys - list of keys to set for the rows. The length should be exactly the
      *                      same as the length of every row in the rows array.
-     * @param array $rows - list of arrays that whill have array_combine performed on. Every row
+     * @param array $rows - list of arrays that will have array_combine performed on. Every row
      *                      in this list should have the same length as keys.
      *                      If any of the rows have indexes, these will be lost.
      * @return array - the generated array list of rows.
@@ -426,7 +426,7 @@ class ArrayLib
      *                              E.G. true  - [1,2,3,4,5] / 2 -> [ [1,2,3], [4,5] ]
      *                              E.g. false - [1,2,3,4,5] / 2 -> [ [1,3,5], [2,4] ]
      *
-     * @param bool $preserveKeys - if true key/value assosciation is maintained in the split arrays
+     * @param bool $preserveKeys - if true key/value association is maintained in the split arrays
      * @return array - an array of the resulting arrays.
      */
     public static function split(

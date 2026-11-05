@@ -74,7 +74,7 @@ class CsvLib
             elseif (self::isBlankRow($data))
             {
                 // Skip empty lines (users may accidentally put one at the end
-                // libre calc wont strip this either.
+                // and LibreOffice Calc won't strip this either).
             }
             else
             {
@@ -171,7 +171,7 @@ class CsvLib
         while ($row = fgetcsv($file, 0, $delimiter, $enclosure, $escape))
         {
             // Skip empty lines (users may accidentally put one at the end
-            // libre calc wont strip this either.
+            // and LibreOffice Calc won't strip this either).
             if (self::isBlankRow($row))
             {
                 continue;
@@ -218,7 +218,7 @@ class CsvLib
      * the callback calling the passed callable, with the array representing the CSV row.
      * @param string $filepath - the path to the CSV file.
      * @param callable $callback - the callback to execute on each row of CSV data. Typically, callback takes on two
-     *                             parameters. The array representing the row being the first, and the row index being
+     *                             parameters. The array representing the row being the first, and the row index
      *                             being the second (starts from 0, but the data might start on row 1 if the CSV has
      *                             headers).
      * @param bool $hasHeaders - whether the CSV file's first row is the names for the columns. Usually this is true.
@@ -227,9 +227,9 @@ class CsvLib
      * @param null|array $headers - optionally manually specify the headers if you wish to set the keys for the array
      *                              that gets passed to the callable. If left as null, this is ignored. If set and
      *                              hasHeaders is set to true, this will override any headers in the file.
-     * @param string $separator - separator to pass through to fgetcsv
+     * @param string $delimiter - delimiter to pass through to fgetcsv
      * @param string $enclosure - enclosure to pass through to fgetcsv
-     * @param string $escape - excape value to pass through to fgetcsv
+     * @param string $escape - escape value to pass through to fgetcsv
      * @throws FilesystemException - if the file at $filepath does not exist or cannot be opened.
      * @return void
      */
@@ -258,7 +258,7 @@ class CsvLib
             $rowIndex++;
 
             // Skip empty lines (users may accidentally put one at the end
-            // libre calc wont strip this either.
+            // and LibreOffice Calc won't strip this either).
             if (self::isBlankRow($row))
             {
                 continue;
@@ -304,15 +304,15 @@ class CsvLib
 
     /**
      * Create a CSV file from the provided array of data. This is done in a memory efficient manner of writing one
-     * line at a time to the file rather then building a massive string and dumping the entire string to the file.
+     * line at a time to the file rather than building a massive string and dumping the entire string to the file.
      * @param string $filepath - the path to the file that we will write the csv to, creating if necessary.
-     * @param array $rows - a collection of assosciative name/value pairs for the data to fill the csv file. The
+     * @param array $rows - a collection of associative name/value pairs for the data to fill the csv file. The
      * values will be filled in in the order of the keys in the first row.
-     * @param bool $addHeader - specify whether the CSV file we should put the header row in for the csv file. If true,
+     * @param bool $addHeader - specify whether we should put a header row in the CSV file. If true,
      * we will use the keys of the first row as we expect all keys to match.
-     * @param string $delimiter - optionally specify a delimiter if you dont wish to use the comma
+     * @param string $delimiter - optionally specify a delimiter if you don't wish to use the comma
      * @param string $enclosure - optionally specify the enclosure if you don't wish to use "
-     * @param bool $addByteOrderMark - whether to add the byte order mark to the csv, so that excel handles 
+     * @param bool $addByteOrderMark - whether to add the byte order mark to the csv, so that Excel handles 
      * UTF-8 characters.
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void - all data written to the passed in filepath.
@@ -350,7 +350,7 @@ class CsvLib
 
         if (ArrayLib::isAssoc($firstRow) === FALSE)
         {
-            throw new \Exception("convertArrayToCsv expects a list of assosciative arrays.");
+            throw new \Exception("convertArrayToCsv expects a list of associative arrays.");
         }
 
         $keys = array_keys($firstRow);
@@ -420,7 +420,7 @@ class CsvLib
      * This saves memory by working line by line rather than reading everything into memory
      * This will replace the existing file's contents, so if you need to keep that, make a copy
      * first.
-     * @param sring $filepath - the path to the CSV file we are trimming
+     * @param string $filepath - the path to the CSV file we are trimming
      * @param string $delimiter - the delimiter/separator used in the CSV. E.g. ',' or ';'
      * @param string $escape - the escape sequence to use when passing to fputcsv.
      * @throws \Exception
@@ -477,7 +477,7 @@ class CsvLib
      * @param array $columnIndexes - array of integers specifying the column indexes to remove, starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
-     * @param string $escape - optionally set the escape sequence to use then passint to fputcsv.
+     * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void
      * @throws \Exception - if the file contains a blank line before the end of the data (blank lines at the very end
      * of the file are allowed and are kept), or a row doesn't have one of the columns being removed. The original
@@ -633,7 +633,7 @@ class CsvLib
 
     /**
      * Calculate the mathematical differences between two CSV files. If this comes across string
-     * values, it will check if they are the same and put the the string in if they are, otherwise,
+     * values, it will check if they are the same and put the string in if they are, otherwise,
      * it will concatenate the two values with a | divider.
      * WARNING - this expects the two files to have the same number of columns and rows.
      * @param string $filepath1 - path to a CSV file to compare.
@@ -739,11 +739,11 @@ class CsvLib
      *
      * @param string $filepath1 - the path to the file we are checking
      * @param array $tolerances - array of column index / tolerance pairs. For this function,
-     *                            the columns indexes start from 1, not 0.
+     *                            the column indexes start from 1, not 0.
      * @param bool $compareOtherColumns - optionally specify false to tell this function to ignore
      *                                    all the other columns and only compare the ones specified
      *                                    in the tolerances array.
-     * @param type $delimiter - optionally specify the delimiter to pass to fgetcsv (comma default)
+     * @param string $delimiter - optionally specify the delimiter to pass to fgetcsv (comma default)
      * @param string $enclosure - optionally specify the enclosure to pass to fgetcsv (default: ")
      * @param string $escape - optionally specify the escape character to pass to fgetcsv.
      * @return bool - true if the files are the same, false if different.
@@ -851,7 +851,7 @@ class CsvLib
      * @param string $mergedFilepath - where to write the merged file. This will overwrite
      *                                 any existing file if there is one there already.
      * @param bool $hasHeaders - specify if the files have headers or not.
-     * @param string $delimiter - optinoally specify the delimiter being used in the files
+     * @param string $delimiter - optionally specify the delimiter being used in the files
      * @param string $enclosure - optionally specify the enclosure being used in the files
      * @param string $escape - optionally specify the escape sequence to use when passing to fputcsv.
      * @throws Exception

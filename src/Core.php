@@ -1,7 +1,7 @@
 <?php
 
 /*
- * This is a general library that can be used to "extend" the standard libary.
+ * This is a general library that can be used to "extend" the standard library.
  * Only functions that are used frequently and are completely generic should
  * be placed here. Wherever possible, please use more specific libraries such
  * as the StringLib, Filesystem, and HtmlGenerator
@@ -26,7 +26,7 @@ class Core
 
 
     /**
-     * Determines whether php is running as a CLI script or a website.
+     * Determines whether PHP is running as a CLI script or a website.
      * @param void
      * @return result (boolean) - true if CLI false if website.
      */
@@ -44,7 +44,7 @@ class Core
 
 
     /**
-     * Make PHP slightly more like java and allow printing a line. If this is
+     * Make PHP slightly more like Java and allow printing a line. If this is
      * in a web app then it will use <br /> as well.
      * @param String $message - the string to print out.
      * @return void - prints out immediately.
@@ -63,9 +63,9 @@ class Core
     /**
      * Tiny helper function to help ensure that exit is always called after
      * redirection and allows the developer to only have to remember the
-     * location they want. (wont forget 'location:')
+     * location they want. (won't forget 'location:')
      *
-     * @param location - the location/address/url you want to redirect to.
+     * @param location - the location/address/URL you want to redirect to.
      *
      * @return void - redirects the user and quits.
      */
@@ -187,9 +187,9 @@ class Core
 
 
     /**
-     * Builds url of the current page, excluding any ?=&stuff,
+     * Builds the URL of the current page, excluding any ?=&stuff,
      * @param void
-     * @return pageURL - full page url of the current page
+     * @return pageURL - full page URL of the current page
      *                   e.g. https://www.google.com/some-page
      */
     public static function getCurrentUrl() : string
@@ -272,8 +272,8 @@ class Core
     /**
      * Implement a version guard. This will throw an exception if we do not
      * have the required version of PHP that is specified.
-     * @param String $reqVersion - required version of php, e.g '5.4.0'
-     * @throws an exception if we do not meet the required php
+     * @param String $reqVersion - required version of PHP, e.g. '5.4.0'
+     * @throws an exception if we do not meet the required PHP
      *                version.
      */
     public static function versionGuard($reqVersion, $errMsg='')
@@ -498,8 +498,8 @@ class Core
 
 
     /**
-     * Generate a php config file to have the setting provided. This is useful if we want to be able to update our
-     * config file through code, such as a web ui to upadate settings. Platforms like wordpress allow updating the
+     * Generate a PHP config file to have the setting provided. This is useful if we want to be able to update our
+     * config file through code, such as a web UI to update settings. Platforms like WordPress allow updating the
      * settings, but do this through a database.
      * @param mixed $settings - array or variable that we want to save to the file
      * @param string $variableName - name of the settings variable so that it is reloaded correctly
@@ -546,7 +546,7 @@ class Core
      * @param array $data - the data we received that was signed. The signature MUST NOT be in this
      *                      array.
      * @param string $signature - the signature that came with the data. This is what we will check
-     *                            if is valid for the data received.
+     *                            is valid for the data received.
      * @param string $serverSecret - the server's secret that it uses for generating signatures.
      * @return bool - true if the signature is correct for the data, or false if not (in which case
      *                a user probably tried to manipulate the data).

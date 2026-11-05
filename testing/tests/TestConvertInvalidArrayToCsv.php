@@ -24,7 +24,7 @@ class TestConvertInvalidArrayToCsv extends \Programster\CoreLibs\Testing\Abstrac
         {
             \Programster\CoreLibs\CsvLib::convertArrayToCsv($filepath, $rowsOfData, TRUE);
             
-            // if we get here, we didnt throw an exception and fail.
+            // if we get here, we didn't throw an exception and fail.
             $this->m_passed = false;
         } 
         catch (\Exception $ex) 

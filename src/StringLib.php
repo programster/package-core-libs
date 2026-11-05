@@ -118,7 +118,7 @@ class StringLib
     * @param bool ignoreWhiteSpace - whether to ignore white space at the ends
     *                                of the inputs
     *
-    * @return true if haystack begins with the provided string.  False otherwise.
+    * @return true if haystack ends with the provided string. False otherwise.
     */
     public static function endsWith(
         string $haystack,
@@ -145,7 +145,6 @@ class StringLib
      * @param string $needle - the string to look for
      * @param bool $caseSensitive - whether to enforce case sensitivity or not (default true)
      * @param bool $ignoreWhiteSpace - whether to ignore white space at the ends of the inputs
-     *  functionfunction
      * @return bool - true if the haystack begins with the provided string. False otherwise.
      */
     public static function startsWith(
@@ -179,7 +178,7 @@ class StringLib
 
 
     /**
-     * Replaces the given string's <br> tags with newlines for textfields.
+     * Replaces the given string's <br> tags with newlines for text fields.
      * @param $input - the input string
      * @return string - the output string that has been converted.
      */
@@ -193,7 +192,7 @@ class StringLib
 
     /**
      * My own 'extended' version of nl2br which works in a lot of cases where
-     * the standard nl2br doesnot
+     * the standard nl2br doesn't
      * @param string $input - the input string to convert
      * @return string $output - the converted string
      */
@@ -206,7 +205,7 @@ class StringLib
 
 
     /**
-     * Converts any newlines to the systems format.
+     * Converts any newlines to the system's format.
      * The use of " instead of ' is very important!
      * @param $input - any string input
      * @return $output - the newly reformatted string
@@ -219,7 +218,7 @@ class StringLib
         # There are some strange cases where it is just \r
         $output = str_replace("\r",   "\n",  $output);
 
-        # the system might be windows!
+        # the system might be Windows!
         $output = str_replace("\n", PHP_EOL, $output);
 
         return $output;
@@ -233,7 +232,7 @@ class StringLib
      * @param string $initializationVector - a 16 character string to initialize the cipher.
      *                                       this way two plaintext messages can result in different
      *                                       encrypted strings. (like a salt in hashing).
-     * @return string - the encryptd form of the string
+     * @return string - the encrypted form of the string
      */
     public static function encrypt(string $textToEncrypt, string $key, string $initializationVector) : string
     {
@@ -291,10 +290,10 @@ class StringLib
 
 
     /**
-     * This is an wrapper around strtr that enforces the use of strings instead of arrays for
+     * This is a wrapper around strtr that enforces the use of strings instead of arrays for
      * the parameters. If you want to substitute multiple items then please use replacePairs()
      * instead. Both methods wrap around strtr instead of str_replace because I believe that the
-     * behaviour is closer to what the developer would expect if they hadn't ready any documentation
+     * behaviour is closer to what the developer would expect if they hadn't read any documentation
      * For information about how strtr may be safer than str_replace, please read the comments
      * in http://php.net/manual/en/function.strtr.php
      * @param string $search - the string to search for within the subject that needs replacing
@@ -319,7 +318,7 @@ class StringLib
 
     /**
      * An alias for strtr (http://php.net/manual/en/function.strtr.php).
-     * This will operation will perform multiple substitutions in a single pass so you don't
+     * This operation will perform multiple substitutions in a single pass so you don't
      * need to worry about your replacement pairs clashing with each other. This is faster and
      * simpler to understand but if you need this recursive behaviour, please use the in-built
      * str_replace method instead.
@@ -334,7 +333,7 @@ class StringLib
 
 
     /**
-     * Find out whether the $needle string contains the $haystack string.
+     * Find out whether the $haystack string contains the $needle string.
      * This will use strpos rather than strstr because strpos is faster and less
      * memory intensive.
      * https://stackoverflow.com/questions/5820586/which-method-is-preferred-strstr-or-strpos
@@ -351,7 +350,7 @@ class StringLib
             $pos = stripos($haystack, $needle);
         }
 
-        # Need to be careful to by type sensitive here because could return value 0 which would
+        # Need to be careful to be type sensitive here because could return value 0 which would
         # need to return true.
         return ($pos !== FALSE);
     }
