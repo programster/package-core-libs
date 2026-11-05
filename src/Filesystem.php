@@ -473,6 +473,7 @@ final class Filesystem
      * @param string $destinationFolder - path to the folder we wish to unzip into.
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they have
      * been zipped.
+     * @return void
      * @throws FileDoesNotExistException
      * @throws MissingExtensionException
      * @throws FilesystemException - if the zip file could not be opened or extracted.
@@ -521,6 +522,7 @@ final class Filesystem
      * This is inspired by array_walk (http://php.net/manual/en/function.array-walk.php)
      * @param string $filepath - path to the file to open and loop over.
      * @param callable $callback - callback to execute on every line in the file.
+     * @return void
      * @throws FilesystemException - if the file could not be opened.
      */
     public static function fileWalk(string $filepath, callable $callback): void
@@ -856,6 +858,7 @@ final class Filesystem
      * (default), or set to false for the file to be "inline" so it just appears in the webview rather than being
      * downloaded. E.g. for a PDF, the PDF could just be shown in the browser and not automatically downloaded, with
      * the user choosing to download the file if they wish
+     * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file exists but cannot be read.
      * @throws FilesystemException - if the mimetype or size of the file could not be determined, or the file could not

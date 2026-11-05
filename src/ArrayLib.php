@@ -431,6 +431,7 @@ final class ArrayLib
      * Remove empty elements from the provided array.
      * If the input array is not associative, then it will be re-indexed. 0,1,2,3 etc
      * @param array $inputArray - the array to perform actions upon.
+     * @return array - the array without its empty elements.
      */
     public static function stripEmptyElements(array $inputArray): array
     {

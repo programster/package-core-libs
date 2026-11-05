@@ -248,6 +248,7 @@ final class StringLib
      * Check whether the provided string is a regexp.
      * Reference:
      * http://stackoverflow.com/questions/8825025/test-if-a-regular-expression-is-a-valid-one-in-php
+     * @return bool - true if the string is a valid regular expression, false if not.
      */
     public static function isRegExp(string $regexp): bool
     {
