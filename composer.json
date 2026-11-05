@@ -15,15 +15,16 @@
     ],
     "require": {
         "php": ">=8.3.0",
-        "ext-fileinfo": "*"
+        "ext-fileinfo": "*",
+        "ext-sodium": "*"
     },
     "require-dev" : {
     },
     "suggest": {
-        "ext-mbstring": "*",
+        "ext-mbstring": "Allows the use of Filesystem::convertFileToUtf8().",
         "ext-sockets": "Allows the use of the networking methods that require sockets.",
         "ext-zip": "Allows the use of methods that assist with using zip file.",
-        "ext-openssl": "Allows the use of methods that assist encryption/decryption.",
+        "ext-openssl": "Allows the use of EncryptionLib::decryptLegacy(), for decrypting data encrypted with version 2 of this library.",
         "ext-curl": "Facilitates downloads through curl instead of falling back to using file_get_contents."
     },
     "autoload": {

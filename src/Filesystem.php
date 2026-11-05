@@ -879,16 +879,10 @@ final class Filesystem
      * @throws ExceptionFileDoesNotExist - if file does not exist.
      * @throws ExceptionFilesystem - if something goes wrong with getting a file handle even though file exists and
      * can be read, or reading the file fails part way through.
-     * @throws ExceptionMissingExtension if you do not have the required mbstring extension.
      * @throws \InvalidArgumentException - if $chunkSize is less than 1.
      */
     public static function isValidUtf8File(string $filepath, int $chunkSize = 8192): bool
     {
-        if (extension_loaded('mbstring') === FALSE)
-        {
-            throw new ExceptionMissingExtension("The mbstring extension is not available.");
-        }
-
         if ($chunkSize < 1)
         {
             throw new \InvalidArgumentException("isValidUtf8File: \$chunkSize must be at least 1.");
@@ -939,11 +933,26 @@ final class Filesystem
                 $bytes = $unfinishedCharacter . $chunk;
                 $unfinishedCharacter = self::getUnfinishedUtf8Character($bytes);
                 $bytesToCheck = substr($bytes, 0, strlen($bytes) - strlen($unfinishedCharacter));
-                $isValid = mb_check_encoding($bytesToCheck, 'UTF-8');
+                $isValid = self::isValidUtf8($bytesToCheck);
             }
         }
 
         fclose($handle);
+        return $isValid;
+    }
+
+
+    /**
+     * Check whether a string is valid UTF-8, without needing the mbstring extension. This uses PCRE, which is always
+     * part of PHP, and rejects the same things that mb_check_encoding() does, such as overlong encodings, surrogates,
+     * and code points above U+10FFFF.
+     * @param string $bytes - the bytes to check.
+     * @return bool - true if the bytes are valid UTF-8 (an empty string is), false if not.
+     */
+    private static function isValidUtf8(string $bytes): bool
+    {
+        # With the u modifier, preg_match() returns false instead of matching if the subject isn't valid UTF-8.
+        $isValid = (preg_match('//u', $bytes) === 1);
         return $isValid;
     }
 
@@ -1057,7 +1066,7 @@ final class Filesystem
             throw new ExceptionFilesystem("Failed to read file: $inputFilepath");
         }
 
-        if (mb_check_encoding($content, 'UTF-8') === false)
+        if (self::isValidUtf8($content) === false)
         {
             # A byte order mark reliably tells us the encoding. Check the UTF-32 ones first, as the UTF-32LE BOM starts
             # with the same two bytes as the UTF-16LE one.
