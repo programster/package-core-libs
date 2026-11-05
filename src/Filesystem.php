@@ -405,6 +405,7 @@ final class Filesystem
      * @throws FileAlreadyExistsException
      * @throws FileDoesNotExistException
      * @throws MissingExtensionException
+     * @throws FilesystemException - if the zip file could not be created or written.
      */
     public static function zipDir(string $sourceFolder, string $dest, bool $deleteOnComplete=true): void
     {
@@ -428,7 +429,13 @@ final class Filesystem
         }
 
         $zip = new ZipArchive();
-        $zip->open($dest, ZipArchive::CREATE);
+        $opened = $zip->open($dest, ZipArchive::CREATE);
+
+        # open() returns true on success, but an error code (a non-zero int, which is truthy) on failure.
+        if ($opened !== true)
+        {
+            throw new FilesystemException("Unable to create the zip file {$dest} (ZipArchive error code {$opened}).");
+        }
 
         $files = self::getDirContents($sourceFolder, true, true, true);
 
@@ -441,7 +448,14 @@ final class Filesystem
             $zip->addFile($filepath, $relativePath);
         }
 
-        $zip->close();
+        # The files are only actually read and written into the zip when it is closed, so this is where most failures
+        # show up (e.g. a file that can't be read, or the disk being full). This raises a warning as well as returning
+        # false, so suppress it and include the reason in the exception instead.
+        if (@$zip->close() === false)
+        {
+            $error = error_get_last()['message'] ?? $zip->getStatusString();
+            throw new FilesystemException("Failed to write the zip file {$dest}: {$error}");
+        }
 
         # Delete all files from "delete list"
         if ($deleteOnComplete)
@@ -475,11 +489,12 @@ final class Filesystem
         }
 
         $zip = new ZipArchive();
-        $open = $zip->open($sourceZip);
+        $opened = $zip->open($sourceZip);
 
-        if (!$open)
+        # open() returns true on success, but an error code (a non-zero int, which is truthy) on failure.
+        if ($opened !== true)
         {
-            throw new FilesystemException('Unable to open zip file: ' . $sourceZip);
+            throw new FilesystemException("Unable to open zip file: {$sourceZip} (ZipArchive error code {$opened}).");
         }
 
         $unzip = $zip->extractTo($destinationFolder);

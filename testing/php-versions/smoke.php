@@ -17,6 +17,7 @@ use Programster\CoreLibs\DataSizeUnitEnum;
 use Programster\CoreLibs\EncryptionLib;
 use Programster\CoreLibs\Exceptions\DecryptionFailedException;
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
+use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
 use Programster\CoreLibs\Exceptions\StringConversionFailedException;
 use Programster\CoreLibs\Filesystem;
@@ -270,7 +271,7 @@ $smoke->run("directories and files", function () use ($dir) {
     Filesystem::mkdir("{$dir}/sub/deep"); # already existing is fine
     $isFile = "{$dir}/sub/deep/f.txt";
     file_put_contents($isFile, "");
-    SmokeTest::expectException(\Programster\CoreLibs\Exceptions\FilesystemException::class, fn() => Filesystem::mkdir("{$isFile}/child"));
+    SmokeTest::expectException(FilesystemException::class, fn() => Filesystem::mkdir("{$isFile}/child"));
     file_put_contents("{$dir}/sub/deep/f.txt", "abc\nxyz\n");
     Filesystem::getDirectories($dir, true);
     Filesystem::getDirContents($dir);
@@ -295,6 +296,24 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
 });
 
 $smoke->run("downloadFile", fn() => assert(filesize(Filesystem::downloadFile("file:///etc/hostname")) > 0));
+
+$smoke->run("zipDir / unzip", function () use ($dir) {
+    mkdir("{$dir}/ziptest/sub", 0777, true);
+    file_put_contents("{$dir}/ziptest/sub/a.txt", "zipped content");
+    Filesystem::zipDir("{$dir}/ziptest", "{$dir}/test.zip", false);
+    Filesystem::unzip("{$dir}/test.zip", "{$dir}/unzipped", false);
+    assert(file_get_contents("{$dir}/unzipped/ziptest/sub/a.txt") === "zipped content");
+
+    # ZipArchive::open() returns an error code (which is truthy) rather than false on failure, so check it's caught.
+    file_put_contents("{$dir}/bad.zip", "this is not a zip file");
+    SmokeTest::expectException(FilesystemException::class, fn() => Filesystem::unzip("{$dir}/bad.zip", "{$dir}/bad", false));
+
+    # The zip is only written when it is closed, so this checks that a failed close() is caught.
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::zipDir("{$dir}/ziptest", "/nonexistent-dir/test.zip", false)
+    );
+});
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Network

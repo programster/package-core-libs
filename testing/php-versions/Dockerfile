@@ -4,7 +4,10 @@ ARG PHP_VERSION=8.3
 FROM php:${PHP_VERSION}-cli
 
 # ps and ip are used by Core::getNumProcRunning() and Network::getIps(), but aren't in the official image.
-RUN apt-get update -qq > /dev/null && apt-get install -y -qq procps iproute2 > /dev/null && rm -rf /var/lib/apt/lists/*
+# libzip-dev is needed to build the zip extension.
+RUN apt-get update -qq > /dev/null && apt-get install -y -qq procps iproute2 libzip-dev > /dev/null \
+    && rm -rf /var/lib/apt/lists/*
 
-# sockets is used by Network::sendTcpRequest(), and pcntl by the smoke test to run a test server.
-RUN docker-php-ext-install sockets pcntl > /dev/null
+# sockets is used by Network::sendTcpRequest(), zip by Filesystem::zipDir() and unzip(), and pcntl by the smoke test
+# to run a test server.
+RUN docker-php-ext-install sockets zip pcntl > /dev/null
