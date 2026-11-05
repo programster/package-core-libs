@@ -169,6 +169,11 @@ $smoke->run("other ArrayLib methods", function () {
     assert(ArrayLib::getValues(["a" => 1], ["a"]) === [1]);
     assert(ArrayLib::stripEmptyElements([0, 1, "", 2]) === [1, 2]);
     assert(ArrayLib::assocArrayMerge(["a" => 1], ["a" => 2, "b" => 3], fn($k, $x, $y) => $x + $y) === ["a" => 3, "b" => 3]);
+
+    # Keys that exist with a null value must be treated as existing.
+    assert(ArrayLib::getValues(["a" => null], ["a"]) === [null]);
+    assert(ArrayLib::removeIndexes(["a" => null, "b" => 1], ["a"]) === ["b" => 1]);
+    assert(ArrayLib::assocArrayMerge(["a" => 1], ["a" => null], fn($k, $x, $y) => "handled") === ["a" => "handled"]);
     assert(ArrayLib::arrayCombineList(["k"], [[1], [2]]) === [["k" => 1], ["k" => 2]]);
     assert(ArrayLib::getValueOrDefault([], "a", 5) === 5 && ArrayLib::getValueOrDefault(["a" => null], "a", 5) === null);
 });

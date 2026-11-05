@@ -204,12 +204,11 @@ final class ArrayLib
         }
         else
         {
+            # unset() does nothing for a key that doesn't exist, so there's no need to check first. (Checking with
+            # isset() would also skip keys that exist with a null value, leaving them in the array.)
             foreach ($indexes as $index)
             {
-                if (isset($inputArray[$index]))
-                {
-                    unset($inputArray[$index]);
-                }
+                unset($inputArray[$index]);
             }
 
             $outputArray = $inputArray;
@@ -304,7 +303,8 @@ final class ArrayLib
 
         foreach ($indexes as $index)
         {
-            if (!isset($haystack[$index]))
+            # Use array_key_exists() rather than isset(), as isset() is false for a key that exists with a null value.
+            if (!array_key_exists($index, $haystack))
             {
                 $msg = "index [$index] does not exist in the provided array.";
                 throw new BadArgumentException($msg);
@@ -412,7 +412,9 @@ final class ArrayLib
 
         foreach ($array1 as $index => $value)
         {
-            if (isset($array2[$index]))
+            # Use array_key_exists() rather than isset(), so that a key with a null value in $array2 still counts as a
+            # clash, rather than its null silently overwriting the value from $array1.
+            if (array_key_exists($index, $array2))
             {
                 # override the value by running the clash handler callback to decide.
                 $value = $clashHandler($index, $array1[$index], $array2[$index]);
