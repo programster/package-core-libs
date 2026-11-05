@@ -716,9 +716,12 @@ final class Filesystem
      * Download a file from the provided URL
      * This will use curl if it is available, if not it will
      * fall back to using file_get_contents.
-     * @param string $url
+     * An HTTP error response (a status of 400 or above, such as 404 Not Found) counts as a failed download, rather
+     * than downloading the error page.
+     * @param string $url - the URL of the file to download.
      * @return string - the full filepath to the downloaded file on the server.
      * @throws FilesystemException - if the temporary file could not be created/written to, or the download failed.
+     *                               The temporary file is removed if this happens.
      */
     public static function downloadFile(string $url): string
     {
@@ -729,42 +732,58 @@ final class Filesystem
             throw new FilesystemException("Failed to create a temporary file to download {$url} into.");
         }
 
-        // use curl if installed. Faster and probably more memory efficient.
-        if (function_exists('curl_version'))
+        try
         {
-            $fp = fopen($downloadedFilepath, 'w+');
-
-            if ($fp === false)
+            // use curl if installed. Faster and probably more memory efficient.
+            if (function_exists('curl_version'))
             {
-                throw new FilesystemException("Failed to open {$downloadedFilepath} for writing.");
+                $fp = fopen($downloadedFilepath, 'w+');
+
+                if ($fp === false)
+                {
+                    throw new FilesystemException("Failed to open {$downloadedFilepath} for writing.");
+                }
+
+                $ch = curl_init(str_replace(" ", "%20", $url));
+                curl_setopt($ch, CURLOPT_TIMEOUT, 50);
+                curl_setopt($ch, CURLOPT_FILE, $fp);
+                curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+
+                # Without this, curl treats an HTTP error such as a 404 as a success, and "downloads" the error page.
+                # This also matches the file_get_contents() fallback below, which fails on these.
+                curl_setopt($ch, CURLOPT_FAILONERROR, true);
+
+                $downloaded = curl_exec($ch);
+                $curlError = curl_error($ch);
+                fclose($fp);
+
+                if ($downloaded === false)
+                {
+                    throw new FilesystemException("Failed to download {$url}: {$curlError}");
+                }
             }
-
-            $ch = curl_init(str_replace(" ", "%20", $url));
-            curl_setopt($ch, CURLOPT_TIMEOUT, 50);
-            curl_setopt($ch, CURLOPT_FILE, $fp);
-            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-            $downloaded = curl_exec($ch);
-            $curlError = curl_error($ch);
-            fclose($fp);
-
-            if ($downloaded === false)
+            else
             {
-                throw new FilesystemException("Failed to download {$url}: {$curlError}");
+                # Suppress the warning, as we throw an exception instead.
+                $content = @file_get_contents($url);
+
+                if ($content === false)
+                {
+                    $error = error_get_last()['message'] ?? 'unknown error';
+                    throw new FilesystemException("Failed to download {$url}: {$error}");
+                }
+
+                if (file_put_contents($downloadedFilepath, $content) === false)
+                {
+                    throw new FilesystemException("Failed to write the downloaded content to {$downloadedFilepath}.");
+                }
             }
         }
-        else
+        catch (FilesystemException $e)
         {
-            $content = file_get_contents($url);
-
-            if ($content === false)
-            {
-                throw new FilesystemException("Failed to download {$url}.");
-            }
-
-            if (file_put_contents($downloadedFilepath, $content) === false)
-            {
-                throw new FilesystemException("Failed to write the downloaded content to {$downloadedFilepath}.");
-            }
+            # Don't leave a partly downloaded (or empty) temporary file behind.
+            @unlink($downloadedFilepath);
+            throw $e;
         }
 
         return $downloadedFilepath;

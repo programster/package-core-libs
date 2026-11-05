@@ -295,7 +295,50 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
     assert(Filesystem::isValidUtf8File("{$dir}/u.txt", 3));
 });
 
-$smoke->run("downloadFile", fn() => assert(filesize(Filesystem::downloadFile("file:///etc/hostname")) > 0));
+$smoke->run("downloadFile", function () use ($dir) {
+    assert(filesize(Filesystem::downloadFile("file:///etc/hostname")) > 0);
+
+    # Serve a directory with PHP's built-in web server, so that HTTP can be tested without the internet.
+    mkdir("{$dir}/www");
+    file_put_contents("{$dir}/www/ok.txt", "downloaded content");
+    $portFinder = stream_socket_server("tcp://127.0.0.1:0");
+    $port = (int) substr(strrchr(stream_socket_get_name($portFinder, false), ":"), 1);
+    fclose($portFinder);
+    $nullDevice = ['file', '/dev/null', 'w'];
+    $server = proc_open(
+        [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', "{$dir}/www"],
+        [1 => $nullDevice, 2 => $nullDevice],
+        $pipes
+    );
+
+    try
+    {
+        # Wait for the server to start listening.
+        for ($i = 0; $i < 50 && !Network::isPortOpen("127.0.0.1", $port, 0.1); $i++)
+        {
+            usleep(100000);
+        }
+
+        $tempFilesBefore = glob(sys_get_temp_dir() . "/*");
+        assert(file_get_contents(Filesystem::downloadFile("http://127.0.0.1:{$port}/ok.txt")) === "downloaded content");
+
+        # An HTTP error must fail, rather than "downloading" the error page.
+        SmokeTest::expectException(
+            FilesystemException::class,
+            fn() => Filesystem::downloadFile("http://127.0.0.1:{$port}/does-not-exist.txt")
+        );
+
+        # As must a server that can't be reached, which also checks that the temporary files are cleaned up.
+        SmokeTest::expectException(FilesystemException::class, fn() => Filesystem::downloadFile("http://127.0.0.1:1/x"));
+        $newTempFiles = array_diff(glob(sys_get_temp_dir() . "/*"), $tempFilesBefore);
+        assert(count($newTempFiles) === 1, "expected only the successful download's file to be left behind");
+    }
+    finally
+    {
+        proc_terminate($server);
+        proc_close($server);
+    }
+});
 
 $smoke->run("zipDir / unzip", function () use ($dir) {
     mkdir("{$dir}/ziptest/sub", 0777, true);
