@@ -212,6 +212,38 @@ $smoke->run("CSV methods", function () use ($dir) {
     CsvLib::mergeFiles(["{$dir}/a.csv", "{$dir}/a.csv"], "{$dir}/merged.csv", true);
 });
 
+$smoke->run("CSV byte order marks", function () use ($dir) {
+    $bom = "\xEF\xBB\xBF";
+
+    # convertArrayToCsv() adds a byte order mark by default, so reading the file back must not include it in the
+    # first column's name.
+    CsvLib::convertArrayToCsv("{$dir}/bom.csv", [["name" => "x", "age" => 1]], true);
+    assert(str_starts_with(file_get_contents("{$dir}/bom.csv"), $bom));
+    assert(CsvLib::convertCsvToArray("{$dir}/bom.csv", true) === [["name" => "x", "age" => "1"]]);
+    $walkedKeys = [];
+    CsvLib::csvWalk("{$dir}/bom.csv", function (array $row) use (&$walkedKeys) { $walkedKeys = array_keys($row); });
+    assert($walkedKeys === ["name", "age"]);
+    CsvLib::convertCsvToJson("{$dir}/bom.csv", "{$dir}/bom.json", true);
+    assert(file_get_contents("{$dir}/bom.json") === '[{"name":"x","age":"1"}]');
+
+    # A file with a byte order mark must compare as equal to the same data without one.
+    file_put_contents("{$dir}/with-bom.csv", "{$bom}1,2\n");
+    file_put_contents("{$dir}/without-bom.csv", "1,2\n");
+    $diffFile = CsvLib::decimalDiff("{$dir}/with-bom.csv", "{$dir}/without-bom.csv");
+    assert(str_starts_with(file_get_contents($diffFile), "0,0\n"));
+
+    # Methods that rewrite the file keep its byte order mark, even when the first column is removed.
+    file_put_contents("{$dir}/rewrite.csv", "{$bom}id,name\n1,x\n");
+    CsvLib::removeColumns("{$dir}/rewrite.csv", [1]);
+    assert(file_get_contents("{$dir}/rewrite.csv") === "{$bom}name\nx\n");
+    CsvLib::removeRows("{$dir}/rewrite.csv", [2]);
+    assert(file_get_contents("{$dir}/rewrite.csv") === "{$bom}name\n");
+
+    # Merging only puts a byte order mark at the start, never in the middle.
+    CsvLib::mergeFiles(["{$dir}/with-bom.csv", "{$dir}/with-bom.csv"], "{$dir}/merged-bom.csv", false);
+    assert(file_get_contents("{$dir}/merged-bom.csv") === "{$bom}1,2\n1,2\n");
+});
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Core
 # ---------------------------------------------------------------------------------------------------------------------

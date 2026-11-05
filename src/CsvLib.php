@@ -14,6 +14,10 @@ use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 final class CsvLib
 {
+    # The UTF-8 byte order mark, which some programs (e.g. Excel) put at the start of a CSV file, and which
+    # convertArrayToCsv() adds by default.
+    private const BYTE_ORDER_MARK = "\xEF\xBB\xBF";
+
     /**
      * Converts a CSV file into a JSON file.
      * @param string $csvFilepath - location of the CSV file we wish to convert.
@@ -43,6 +47,12 @@ final class CsvLib
         if ($lines === false)
         {
             throw new FilesystemException("Failed to read CSV file: {$csvFilepath}");
+        }
+
+        # Remove a byte order mark, so that it doesn't become part of the first header's name.
+        if (count($lines) > 0 && str_starts_with($lines[0], self::BYTE_ORDER_MARK))
+        {
+            $lines[0] = substr($lines[0], strlen(self::BYTE_ORDER_MARK));
         }
 
         $jsonFile = fopen($jsonFilepath, "w");
@@ -169,6 +179,8 @@ final class CsvLib
             throw new FilesystemException("Failed to open {$filepath} for reading.");
         }
 
+        self::skipByteOrderMark($file);
+
         $output = array();
         $firstRow = true;
 
@@ -254,6 +266,8 @@ final class CsvLib
         {
             throw new FilesystemException("Failed to open {$filepath} for reading.");
         }
+
+        self::skipByteOrderMark($fileHandle);
 
         $firstRow = true;
         $rowIndex = -1;
@@ -362,8 +376,7 @@ final class CsvLib
 
         if ($addByteOrderMark)
         {
-            $byteOrderMark = "\xEF\xBB\xBF";
-            fwrite($fileHandle, $byteOrderMark);
+            fwrite($fileHandle, self::BYTE_ORDER_MARK);
         }
 
         $keys = array_keys($firstRow);
@@ -450,6 +463,12 @@ final class CsvLib
 
         if ($uploadedFileHandle)
         {
+            # Keep the byte order mark if the file had one, but don't let it become part of the first value.
+            if (self::skipByteOrderMark($uploadedFileHandle))
+            {
+                fwrite($tmpFile, self::BYTE_ORDER_MARK);
+            }
+
             while (!feof($uploadedFileHandle))
             {
                 $lineArray = fgetcsv($uploadedFileHandle, 0, $delimiter, escape: $escape);
@@ -517,6 +536,12 @@ final class CsvLib
 
         if ($fileHandle)
         {
+            # Keep the byte order mark if the file had one, but don't let it become part of the first value.
+            if (self::skipByteOrderMark($fileHandle))
+            {
+                fwrite($tmpFile, self::BYTE_ORDER_MARK);
+            }
+
             while (!feof($fileHandle))
             {
                 $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape);
@@ -614,6 +639,12 @@ final class CsvLib
 
         if ($fileHandle)
         {
+            # Keep the byte order mark if the file had one, but don't let it become part of the first value.
+            if (self::skipByteOrderMark($fileHandle))
+            {
+                fwrite($tmpFile, self::BYTE_ORDER_MARK);
+            }
+
             while (!feof($fileHandle))
             {
                 $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape);
@@ -688,6 +719,10 @@ final class CsvLib
 
         if ($fileHandle1 && $fileHandle2)
         {
+            # Skip any byte order marks, otherwise the first value would never match or be seen as a number.
+            self::skipByteOrderMark($fileHandle1);
+            self::skipByteOrderMark($fileHandle2);
+
             while (!feof($fileHandle1))
             {
                 $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape);
@@ -788,6 +823,10 @@ final class CsvLib
         {
             throw new FilesystemException("diffTolerance: Failed to open CSV files for comparison.");
         }
+
+        # Skip any byte order marks, otherwise the first value would never match or be seen as a number.
+        self::skipByteOrderMark($fileHandle1);
+        self::skipByteOrderMark($fileHandle2);
 
         while (!feof($fileHandle1) && $hasFailed === FALSE)
         {
@@ -905,6 +944,13 @@ final class CsvLib
                 throw new FilesystemException("Unable to read file for merging: {$filepath}");
             }
 
+            # Skip every file's byte order mark, so that none end up in the middle of the merged file. If the first
+            # file had one, the merged file gets one at the start.
+            if (self::skipByteOrderMark($readHandle) && $isFirstFile)
+            {
+                fwrite($outputFileHandle, self::BYTE_ORDER_MARK);
+            }
+
             while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure, $escape)) !== FALSE)
             {
                 $copyLineAcross = false;
@@ -957,5 +1003,28 @@ final class CsvLib
     private static function isBlankRow(array $row): bool
     {
         return $row === [null];
+    }
+
+
+    /**
+     * If a file starts with a UTF-8 byte order mark, move past it, so that it doesn't end up as part of the first
+     * value read (e.g. making the first column's name "\xEF\xBB\xBFname" rather than "name"). This must be called
+     * straight after opening the file, before anything has been read from it.
+     * @param resource $handle - the file handle, opened for reading. PHP can't declare a resource type, so this is
+     *                           only documented here.
+     * @return bool - true if the file started with a byte order mark (which has now been skipped), false if not.
+     */
+    private static function skipByteOrderMark($handle): bool
+    {
+        $start = fread($handle, strlen(self::BYTE_ORDER_MARK));
+        $hasByteOrderMark = ($start === self::BYTE_ORDER_MARK);
+
+        if (!$hasByteOrderMark)
+        {
+            # Go back to the start, so the bytes we just read are read again as normal.
+            rewind($handle);
+        }
+
+        return $hasByteOrderMark;
     }
 }
