@@ -7,12 +7,14 @@
 namespace Programster\CoreLibs;
 
 
-use Programster\CoreLibs\Exceptions\ExceptionBadFilePermissions;
-use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
-use Programster\CoreLibs\Exceptions\ExceptionFileAlreadyExists;
-use Programster\CoreLibs\Exceptions\ExceptionFileDoesNotExist;
-use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
-use Programster\CoreLibs\Exceptions\ExceptionFilesystem;
+use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
+use Programster\CoreLibs\Exceptions\CommandFailedException;
+use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
+use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
+use Programster\CoreLibs\Exceptions\MissingExtensionException;
+use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
+use Programster\CoreLibs\Exceptions\InvalidArgumentException;
 use ZipArchive;
 
 final class Filesystem
@@ -180,7 +182,7 @@ final class Filesystem
      *                          dirs don't exist.
      *
      * @return void
-     * @throws ExceptionFilesystem - if the directory doesn't exist and could not be created.
+     * @throws FilesystemException - if the directory doesn't exist and could not be created.
      */
     public static function mkdir(
         string $dirPath,
@@ -196,7 +198,7 @@ final class Filesystem
         if (!is_dir($dirPath) && !@mkdir($dirPath, $perms, $recursive) && !is_dir($dirPath))
         {
             $error = error_get_last()['message'] ?? 'unknown error';
-            throw new ExceptionFilesystem("Failed to create the directory {$dirPath}: {$error}");
+            throw new FilesystemException("Failed to create the directory {$dirPath}: {$error}");
         }
     }
 
@@ -206,7 +208,7 @@ final class Filesystem
      *  issue with trying to use unlink on a non-empty dir.
      * @param string $dir - the path to the directory you wish to delete
      * @return void
-     * @throws ExceptionFileDoesNotExist - if a directory does not exist at the path specified.
+     * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
      */
     public static function deleteDir(string $dir): void
     {
@@ -219,13 +221,13 @@ final class Filesystem
      * Deletes all files from a directory, but leaves the directory in place.
      * @param string $dir - the path to the directory one wishes to empty.
      * @return void
-     * @throws ExceptionFileDoesNotExist - if a directory does not exist at the path specified.
+     * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
      */
     public static function emptyDir(string $dir): void
     {
         if (!is_dir($dir))
         {
-            throw new ExceptionFileDoesNotExist("There is no directory at {$dir}.");
+            throw new FileDoesNotExistException("There is no directory at {$dir}.");
         }
 
         $objects = scandir($dir);
@@ -259,7 +261,7 @@ final class Filesystem
      * @param bool $isBlocking - if true will wait to get lock.
      * @return bool - true if we managed to lock the file. False is only returned when $isBlocking is false and
      *                something else already holds a conflicting lock, so a blocking lock always returns true.
-     * @throws ExceptionFilesystem - if the file could not be opened, or locking it failed for any other reason.
+     * @throws FilesystemException - if the file could not be opened, or locking it failed for any other reason.
      */
     public static function lockFile(string $filePath, bool $isWriteLock, bool $isBlocking): bool
     {
@@ -269,7 +271,7 @@ final class Filesystem
 
         if ($fileHandle === false)
         {
-            throw new ExceptionFilesystem("Failed to open {$filePath} in order to lock it.");
+            throw new FilesystemException("Failed to open {$filePath} in order to lock it.");
         }
 
         $lockParams = 0;
@@ -304,7 +306,7 @@ final class Filesystem
             # a normal result. Anything else is a genuine failure.
             if ($wouldBlock !== 1)
             {
-                throw new ExceptionFilesystem("Failed to lock {$filePath}.");
+                throw new FilesystemException("Failed to lock {$filePath}.");
             }
         }
 
@@ -338,8 +340,8 @@ final class Filesystem
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults to bytes.
      * @return float - the size of the directory and all its contents, in the specified unit. E.g. 1.5 for 1536 bytes
      *                 in KiB.
-     * @throws ExceptionCommandFailed - if the du command failed, such as if there is nothing at $dirPath.
-     * @throws \Exception - if the output of du was not in the expected format.
+     * @throws CommandFailedException - if the du command failed, such as if there is nothing at $dirPath.
+     * @throws UnexpectedOutputException - if the output of du was not in the expected format.
      */
     public static function getDirSize(string $dirPath, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
     {
@@ -349,7 +351,7 @@ final class Filesystem
 
         if (!ctype_digit($size))
         {
-            throw new \Exception("getDirSize: unexpected output from du: {$output}");
+            throw new UnexpectedOutputException("getDirSize: unexpected output from du: {$output}");
         }
 
         return $unit->convertFromBytes((int) $size);
@@ -362,8 +364,8 @@ final class Filesystem
      * @param string $filepath - the path to the file to get the size of.
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults to bytes.
      * @return float - the size of the file in the specified unit. E.g. 1.5 for a 1536 byte file in KiB.
-     * @throws ExceptionFileDoesNotExist - if there is no file at $filepath, or it is a directory (use getDirSize()).
-     * @throws ExceptionFilesystem - if the size of the file could not be determined.
+     * @throws FileDoesNotExistException - if there is no file at $filepath, or it is a directory (use getDirSize()).
+     * @throws FilesystemException - if the size of the file could not be determined.
      */
     public static function getFileSize(string $filepath, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
     {
@@ -373,21 +375,21 @@ final class Filesystem
 
         if (is_dir($filepath))
         {
-            throw new ExceptionFileDoesNotExist(
+            throw new FileDoesNotExistException(
                 "{$filepath} is a directory, not a file. Please use getDirSize() to get the size of a directory."
             );
         }
 
         if (!is_file($filepath))
         {
-            throw new ExceptionFileDoesNotExist("There is no file at {$filepath}.");
+            throw new FileDoesNotExistException("There is no file at {$filepath}.");
         }
 
         $numBytes = filesize($filepath);
 
         if ($numBytes === false)
         {
-            throw new ExceptionFilesystem("Failed to get the size of {$filepath}.");
+            throw new FilesystemException("Failed to get the size of {$filepath}.");
         }
 
         return $unit->convertFromBytes($numBytes);
@@ -400,20 +402,20 @@ final class Filesystem
      * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they have been zipped.
      * @return void
-     * @throws ExceptionFileAlreadyExists
-     * @throws ExceptionFileDoesNotExist
-     * @throws ExceptionMissingExtension
+     * @throws FileAlreadyExistsException
+     * @throws FileDoesNotExistException
+     * @throws MissingExtensionException
      */
     public static function zipDir(string $sourceFolder, string $dest, bool $deleteOnComplete=true): void
     {
         if (!extension_loaded('zip') )
         {
-            throw new ExceptionMissingExtension("Your PHP does not have the zip extension.");
+            throw new MissingExtensionException("Your PHP does not have the zip extension.");
         }
 
         if (!file_exists($sourceFolder))
         {
-            throw new ExceptionFileDoesNotExist("Cannot zip non-existent folder");
+            throw new FileDoesNotExistException("Cannot zip non-existent folder");
         }
 
         if (file_exists($dest))
@@ -422,7 +424,7 @@ final class Filesystem
                 "A file already exists at {$dest}. We do not wish to risk overwriting data. " .
                 "Please provide a destination filepath that doesn't already exist.";
 
-            throw new ExceptionFileAlreadyExists($msg);
+            throw new FileAlreadyExistsException($msg);
         }
 
         $zip = new ZipArchive();
@@ -456,14 +458,15 @@ final class Filesystem
      * @param string $destinationFolder - path to the folder we wish to unzip into.
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they have
      * been zipped.
-     * @throws ExceptionFileDoesNotExist
-     * @throws ExceptionMissingExtension
+     * @throws FileDoesNotExistException
+     * @throws MissingExtensionException
+     * @throws FilesystemException - if the zip file could not be opened or extracted.
      */
     public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete=true): void
     {
         if (!extension_loaded('zip') )
         {
-            throw new ExceptionMissingExtension("Your PHP does not have the zip extension.");
+            throw new MissingExtensionException("Your PHP does not have the zip extension.");
         }
 
         if (!file_exists($destinationFolder))
@@ -476,14 +479,16 @@ final class Filesystem
 
         if (!$open)
         {
-            throw new \Exception('Unable to open zip file: ' . $sourceZip);
+            throw new FilesystemException('Unable to open zip file: ' . $sourceZip);
         }
 
         $unzip = $zip->extractTo($destinationFolder);
 
         if (!$unzip)
         {
-            throw new \Exception('Unable to unzip file: ' . $sourceZip . ' to destination: ' . $destinationFolder);
+            throw new FilesystemException(
+                'Unable to unzip file: ' . $sourceZip . ' to destination: ' . $destinationFolder
+            );
         }
 
         $zip->close();
@@ -499,8 +504,8 @@ final class Filesystem
      * Applies the user-defined callback function to each line of a file.
      * This is inspired by array_walk (http://php.net/manual/en/function.array-walk.php)
      * @param string $filepath - path to the file to open and loop over.
-     * @param \callable $callback - callback to execute on every line in the file.
-     * @throws \Exception
+     * @param callable $callback - callback to execute on every line in the file.
+     * @throws FilesystemException - if the file could not be opened.
      */
     public static function fileWalk(string $filepath, callable $callback): void
     {
@@ -517,7 +522,7 @@ final class Filesystem
         }
         else
         {
-            throw new \Exception("fileWalk: Could not open file: " . $filepath);
+            throw new FilesystemException("fileWalk: Could not open file: " . $filepath);
         }
     }
 
@@ -535,7 +540,7 @@ final class Filesystem
      * @param int|null $streamChunkSize - optionally specify the chunk size when streaming content from the temporary
      * file back into the original. This is only applicable when modifying the file in-place.
      * @return void
-     * @throws ExceptionFilesystem
+     * @throws FilesystemException
      */
     public static function fileFilter(
         string   $inputFile,
@@ -559,14 +564,14 @@ final class Filesystem
 
             if ($inputHandle === false)
             {
-                throw new ExceptionFilesystem("Failed to open {$inputFile} for reading and writing.");
+                throw new FilesystemException("Failed to open {$inputFile} for reading and writing.");
             }
 
             $tempFilename = tempnam(sys_get_temp_dir(), "filter-");
 
             if ($tempFilename === false)
             {
-                throw new ExceptionFilesystem("Failed to create a temporary file to filter {$inputFile} into.");
+                throw new FilesystemException("Failed to create a temporary file to filter {$inputFile} into.");
             }
         }
         else
@@ -575,7 +580,7 @@ final class Filesystem
 
             if ($inputHandle === false)
             {
-                throw new ExceptionFilesystem("Failed to open {$inputFile} for reading.");
+                throw new FilesystemException("Failed to open {$inputFile} for reading.");
             }
 
             $tempFilename = $outputFilepath;
@@ -585,14 +590,14 @@ final class Filesystem
 
         if ($outputHandle === false)
         {
-            throw new ExceptionFilesystem("Failed to open $tempFilename for writing.");
+            throw new FilesystemException("Failed to open $tempFilename for writing.");
         }
 
         while (($line = fgets($inputHandle)) !== false)
         {
             if ($line === false)
             {
-                throw new ExceptionFilesystem("Failed to read from input file handle.");
+                throw new FilesystemException("Failed to read from input file handle.");
             }
 
             if ($filterCallback($line) === true)
@@ -602,7 +607,7 @@ final class Filesystem
 
                 if ($wroteLine === false)
                 {
-                    throw new ExceptionFilesystem("Failed to write to {$tempFilename}.");
+                    throw new FilesystemException("Failed to write to {$tempFilename}.");
                 }
             }
         }
@@ -617,14 +622,14 @@ final class Filesystem
 
             if ($fromHandle === false)
             {
-                throw new ExceptionFilesystem("Failed to open $tempFilename for reading.");
+                throw new FilesystemException("Failed to open $tempFilename for reading.");
             }
 
             $toHandle = fopen($inputFile, "w");
 
             if ($toHandle === false)
             {
-                throw new ExceptionFilesystem("Failed to open $inputFile for writing.");
+                throw new FilesystemException("Failed to open $inputFile for writing.");
             }
 
             if ($streamChunkSize !== null)
@@ -640,7 +645,7 @@ final class Filesystem
 
             if ($unlinked === false)
             {
-                throw new ExceptionFilesystem("Failed to remove temporary file: {$tempFilename}");
+                throw new FilesystemException("Failed to remove temporary file: {$tempFilename}");
             }
         }
         else
@@ -656,9 +661,9 @@ final class Filesystem
      * @param string $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
      * http://php.net/manual/en/function.mkdir.php
      * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
-     * @throws \InvalidArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g.
-     *                                     "755", "0755", "0o755" or "1777".
-     * @throws ExceptionFilesystem - if the temporary directory could not be created.
+     * @throws InvalidArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g.
+     *                                    "755", "0755", "0o755" or "1777".
+     * @throws FilesystemException - if the temporary directory could not be created.
      */
     public static function tmpDir(string $mode = "0777"): string
     {
@@ -666,7 +671,7 @@ final class Filesystem
         # like 0755 arrives here as the string "493", which would become 043.
         if (preg_match('/^(0o?)?[0-7]{3,4}$/D', $mode) !== 1)
         {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "tmpDir: \$mode must be a string of 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. " .
                 "\"0755\" or \"0o755\", but is \"{$mode}\"."
             );
@@ -677,7 +682,7 @@ final class Filesystem
 
         if ($tempName === false)
         {
-            throw new ExceptionFilesystem("Failed to get a unique name for a temporary directory.");
+            throw new FilesystemException("Failed to get a unique name for a temporary directory.");
         }
 
         unlink($tempName);
@@ -685,7 +690,7 @@ final class Filesystem
 
         if (is_dir($tempName) === FALSE)
         {
-            throw new ExceptionFilesystem("Failed to create a temporary directory.");
+            throw new FilesystemException("Failed to create a temporary directory.");
         }
 
         return $tempName;
@@ -698,7 +703,7 @@ final class Filesystem
      * fall back to using file_get_contents.
      * @param string $url
      * @return string - the full filepath to the downloaded file on the server.
-     * @throws ExceptionFilesystem - if the temporary file could not be created/written to, or the download failed.
+     * @throws FilesystemException - if the temporary file could not be created/written to, or the download failed.
      */
     public static function downloadFile(string $url): string
     {
@@ -706,7 +711,7 @@ final class Filesystem
 
         if ($downloadedFilepath === false)
         {
-            throw new ExceptionFilesystem("Failed to create a temporary file to download {$url} into.");
+            throw new FilesystemException("Failed to create a temporary file to download {$url} into.");
         }
 
         // use curl if installed. Faster and probably more memory efficient.
@@ -716,7 +721,7 @@ final class Filesystem
 
             if ($fp === false)
             {
-                throw new ExceptionFilesystem("Failed to open {$downloadedFilepath} for writing.");
+                throw new FilesystemException("Failed to open {$downloadedFilepath} for writing.");
             }
 
             $ch = curl_init(str_replace(" ", "%20", $url));
@@ -729,7 +734,7 @@ final class Filesystem
 
             if ($downloaded === false)
             {
-                throw new ExceptionFilesystem("Failed to download {$url}: {$curlError}");
+                throw new FilesystemException("Failed to download {$url}: {$curlError}");
             }
         }
         else
@@ -738,12 +743,12 @@ final class Filesystem
 
             if ($content === false)
             {
-                throw new ExceptionFilesystem("Failed to download {$url}.");
+                throw new FilesystemException("Failed to download {$url}.");
             }
 
             if (file_put_contents($downloadedFilepath, $content) === false)
             {
-                throw new ExceptionFilesystem("Failed to write the downloaded content to {$downloadedFilepath}.");
+                throw new FilesystemException("Failed to write the downloaded content to {$downloadedFilepath}.");
             }
         }
 
@@ -802,7 +807,6 @@ final class Filesystem
      * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt"
      * @param string $filename - the name of the file or the full file path
      * @return string - the file extension.
-     * @throws \Exception
      */
     public static function getFileExtension(string $filename): string
     {
@@ -822,9 +826,9 @@ final class Filesystem
      * (default), or set to false for the file to be "inline" so it just appears in the webview rather than being
      * downloaded. E.g. for a PDF, the PDF could just be shown in the browser and not automatically downloaded, with
      * the user choosing to download the file if they wish
-     * @throws ExceptionFileDoesNotExist - if there is no file at $filepath.
-     * @throws ExceptionBadFilePermissions - if the file exists but cannot be read.
-     * @throws ExceptionFilesystem - if the mimetype or size of the file could not be determined, or the file could not
+     * @throws FileDoesNotExistException - if there is no file at $filepath.
+     * @throws BadFilePermissionsException - if the file exists but cannot be read.
+     * @throws FilesystemException - if the mimetype or size of the file could not be determined, or the file could not
      * be read. These are checked before any headers are sent, apart from the file failing to be read.
      */
     public static function streamFileToBrowser(
@@ -838,12 +842,12 @@ final class Filesystem
         # a half-sent response.
         if (!is_file($filepath))
         {
-            throw new ExceptionFileDoesNotExist("There is no file at {$filepath}.");
+            throw new FileDoesNotExistException("There is no file at {$filepath}.");
         }
 
         if (!is_readable($filepath))
         {
-            throw new ExceptionBadFilePermissions("The file at {$filepath} exists but cannot be read.");
+            throw new BadFilePermissionsException("The file at {$filepath} exists but cannot be read.");
         }
 
         if ($mimetype === "auto")
@@ -852,7 +856,7 @@ final class Filesystem
 
             if ($mimetype === false)
             {
-                throw new ExceptionFilesystem("Failed to determine the mimetype of {$filepath}.");
+                throw new FilesystemException("Failed to determine the mimetype of {$filepath}.");
             }
         }
 
@@ -860,7 +864,7 @@ final class Filesystem
 
         if ($fileSize === false)
         {
-            throw new ExceptionFilesystem("Failed to determine the size of {$filepath}.");
+            throw new FilesystemException("Failed to determine the size of {$filepath}.");
         }
 
         if ($mimetype !== null)
@@ -875,7 +879,7 @@ final class Filesystem
 
         if (readfile($filepath) === false)
         {
-            throw new ExceptionFilesystem("Failed to read {$filepath} in order to send it to the browser.");
+            throw new FilesystemException("Failed to read {$filepath} in order to send it to the browser.");
         }
     }
 
@@ -914,34 +918,34 @@ final class Filesystem
      * @param int $chunkSize - the size of each chunk to check at a time. This is a balance between
      * memory and performance.
      * @return bool - true if valid, false if it contains non-UTF-8 characters.
-     * @throws ExceptionBadFilePermissions - if file exists but cannot be read.
-     * @throws ExceptionFileDoesNotExist - if file does not exist.
-     * @throws ExceptionFilesystem - if something goes wrong with getting a file handle even though file exists and
+     * @throws BadFilePermissionsException - if file exists but cannot be read.
+     * @throws FileDoesNotExistException - if file does not exist.
+     * @throws FilesystemException - if something goes wrong with getting a file handle even though file exists and
      * can be read, or reading the file fails part way through.
-     * @throws \InvalidArgumentException - if $chunkSize is less than 1.
+     * @throws InvalidArgumentException - if $chunkSize is less than 1.
      */
     public static function isValidUtf8File(string $filepath, int $chunkSize = 8192): bool
     {
         if ($chunkSize < 1)
         {
-            throw new \InvalidArgumentException("isValidUtf8File: \$chunkSize must be at least 1.");
+            throw new InvalidArgumentException("isValidUtf8File: \$chunkSize must be at least 1.");
         }
 
         if (!file_exists($filepath))
         {
-            throw new ExceptionFileDoesNotExist($filepath . " does not exist.");
+            throw new FileDoesNotExistException($filepath . " does not exist.");
         }
 
         if (!is_readable($filepath))
         {
-            throw new ExceptionBadFilePermissions("The file exists but cannot be read: $filepath");
+            throw new BadFilePermissionsException("The file exists but cannot be read: $filepath");
         }
 
         $handle = fopen($filepath, 'rb');
 
         if ($handle === false)
         {
-            throw new ExceptionFilesystem("Failed to get file handle for: $filepath");
+            throw new FilesystemException("Failed to get file handle for: $filepath");
         }
 
         $isValid = true;
@@ -958,7 +962,7 @@ final class Filesystem
             if ($chunk === false)
             {
                 fclose($handle);
-                throw new ExceptionFilesystem("Failed to read from {$filepath} part way through checking it.");
+                throw new FilesystemException("Failed to read from {$filepath} part way through checking it.");
             }
 
             if ($chunk === '')
@@ -1060,18 +1064,18 @@ final class Filesystem
      * text), "Windows-1251" (Cyrillic), "ISO-8859-2" (Central European), "ISO-8859-15" (Western European with the
      * euro sign) or "SJIS" (Japanese). Note that mbstring does NOT support "Windows-1250".
      * @return void
-     * @throws \InvalidArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
-     * @throws ExceptionBadFilePermissions - if input file cannot be read (but does exist).
-     * @throws ExceptionFileDoesNotExist - if input file does not exist.
-     * @throws ExceptionMissingExtension - if missing the mbstring extension which is required for this function.
-     * @throws ExceptionFilesystem - if the file is not valid in the encoding it is being converted from, or anything
+     * @throws InvalidArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
+     * @throws BadFilePermissionsException - if input file cannot be read (but does exist).
+     * @throws FileDoesNotExistException - if input file does not exist.
+     * @throws MissingExtensionException - if missing the mbstring extension which is required for this function.
+     * @throws FilesystemException - if the file is not valid in the encoding it is being converted from, or anything
      * else goes wrong that is not covered by the other specific exceptions.
      */
     public static function convertFileToUtf8(string $inputFilepath, string $sourceEncoding = 'Windows-1252'): void
     {
         if (extension_loaded('mbstring') === FALSE)
         {
-            throw new ExceptionMissingExtension("The mbstring extension is not available.");
+            throw new MissingExtensionException("The mbstring extension is not available.");
         }
 
         # Check the encoding is supported before doing anything, as mbstring throws a ValueError otherwise.
@@ -1081,7 +1085,7 @@ final class Filesystem
         }
         catch (\ValueError $e)
         {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "convertFileToUtf8: \"{$sourceEncoding}\" is not an encoding that the mbstring extension supports.",
                 0,
                 $e
@@ -1090,19 +1094,19 @@ final class Filesystem
 
         if (!is_file($inputFilepath))
         {
-            throw new ExceptionFileDoesNotExist("$inputFilepath file does not exist.");
+            throw new FileDoesNotExistException("$inputFilepath file does not exist.");
         }
 
         if (!is_readable($inputFilepath))
         {
-            throw new ExceptionBadFilePermissions("$inputFilepath file exists but cannot be read.");
+            throw new BadFilePermissionsException("$inputFilepath file exists but cannot be read.");
         }
 
         $content = file_get_contents($inputFilepath);
 
         if ($content === false)
         {
-            throw new ExceptionFilesystem("Failed to read file: $inputFilepath");
+            throw new FilesystemException("Failed to read file: $inputFilepath");
         }
 
         if (self::isValidUtf8($content) === false)
@@ -1131,7 +1135,7 @@ final class Filesystem
             # single-byte encodings such as Windows-1252, every byte is valid, so this can't catch the wrong encoding.
             if (mb_check_encoding($content, $encoding) === false)
             {
-                throw new ExceptionFilesystem("$inputFilepath is not valid $encoding, so it cannot be converted from it.");
+                throw new FilesystemException("$inputFilepath is not valid $encoding, so it cannot be converted from it.");
             }
 
             $converted = mb_convert_encoding($content, 'UTF-8', $encoding);
@@ -1147,7 +1151,7 @@ final class Filesystem
      * @param string $filepath - the path to the file to replace the contents of.
      * @param string $contents - the new contents for the file.
      * @return void
-     * @throws ExceptionFilesystem - if the new contents could not be written, or the file could not be replaced.
+     * @throws FilesystemException - if the new contents could not be written, or the file could not be replaced.
      */
     private static function replaceFileContents(string $filepath, string $contents): void
     {
@@ -1156,7 +1160,7 @@ final class Filesystem
 
         if ($tempFilepath === false)
         {
-            throw new ExceptionFilesystem("Failed to create a temporary file to write the new contents of $filepath to.");
+            throw new FilesystemException("Failed to create a temporary file to write the new contents of $filepath to.");
         }
 
         $bytesWritten = file_put_contents($tempFilepath, $contents);
@@ -1167,13 +1171,13 @@ final class Filesystem
         if ($bytesWritten !== strlen($contents) || $permissions === false || !chmod($tempFilepath, $permissions & 0777))
         {
             unlink($tempFilepath);
-            throw new ExceptionFilesystem("Failed to write the new contents of $filepath to a temporary file.");
+            throw new FilesystemException("Failed to write the new contents of $filepath to a temporary file.");
         }
 
         if (!rename($tempFilepath, $filepath))
         {
             unlink($tempFilepath);
-            throw new ExceptionFilesystem("Failed to replace $filepath with its new contents.");
+            throw new FilesystemException("Failed to replace $filepath with its new contents.");
         }
     }
 }

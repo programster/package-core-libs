@@ -7,7 +7,7 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class ExceptionPhpVersionTooLow extends \Exception
+class PhpVersionTooLowException extends CoreLibsException
 {
     private readonly string $m_requiredVersion;
     private readonly string $m_currentVersion;

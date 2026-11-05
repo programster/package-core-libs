@@ -9,10 +9,13 @@
 
 namespace Programster\CoreLibs;
 
-use Programster\CoreLibs\Exceptions\ExceptionCliTitleNotSet;
-use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
-use Programster\CoreLibs\Exceptions\ExceptionPhpVersionTooLow;
-use Programster\CoreLibs\Exceptions\ExceptionFilesystem;
+use Programster\CoreLibs\Exceptions\CliTitleNotSetException;
+use Programster\CoreLibs\Exceptions\CommandFailedException;
+use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
+use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
+use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
+use Programster\CoreLibs\Exceptions\InvalidArgumentException;
 
 final class Core
 {
@@ -76,15 +79,15 @@ final class Core
      * already existing processes with the same title.
      * @param string $namingPrefix - the name to give the process.
      * @return void
-     * @throws ExceptionCliTitleNotSet - if the title could not be set, such as when not running from the CLI, where
+     * @throws CliTitleNotSetException - if the title could not be set, such as when not running from the CLI, where
      *                                   cli_set_process_title() doesn't exist.
-     * @throws ExceptionCommandFailed - if we failed to get the list of processes.
+     * @throws CommandFailedException - if we failed to get the list of processes.
      */
     public static function setCliTitle(string $namingPrefix): void
     {
         if (!function_exists('cli_set_process_title'))
         {
-            throw new ExceptionCliTitleNotSet(
+            throw new CliTitleNotSetException(
                 "Cannot set the process title, as cli_set_process_title() is only available when running from the CLI."
             );
         }
@@ -95,7 +98,7 @@ final class Core
         if (@cli_set_process_title($namingPrefix . $numRunning) === false)
         {
             $error = error_get_last()['message'] ?? 'unknown error';
-            throw new ExceptionCliTitleNotSet("Failed to set the process title: {$error}");
+            throw new CliTitleNotSetException("Failed to set the process title: {$error}");
         }
     }
 
@@ -106,7 +109,7 @@ final class Core
      * @param string $title - the string to search for a process by
      *                        (e.g. its name/title)
      * @return int - the number of processes running with that title.
-     * @throws ExceptionCommandFailed - if we failed to get the list of processes.
+     * @throws CommandFailedException - if we failed to get the list of processes.
      */
     public static function getNumProcRunning(string $title): int
     {
@@ -139,7 +142,7 @@ final class Core
      *                             args.
      *
      * @return array - the name/value pairs of the arguments.
-     * @throws \Exception - if any of the arguments could not be found.
+     * @throws InvalidArgumentException - if any of the arguments could not be found.
      */
     public static function fetchReqArgsFromArray(array $args, array $inputArray): array
     {
@@ -154,7 +157,7 @@ final class Core
             else
             {
                 $errMsg = "Required parameter: " . $arg . " not specified";
-                throw new \Exception($errMsg);
+                throw new InvalidArgumentException($errMsg);
             }
         }
 
@@ -284,7 +287,7 @@ final class Core
      * @param string $errMsg - optionally specify the message for the exception. If left empty, a message stating the
      *                         required and current versions is used.
      * @return void
-     * @throws ExceptionPhpVersionTooLow - if we do not meet the required PHP version. The exception holds both the
+     * @throws PhpVersionTooLowException - if we do not meet the required PHP version. The exception holds both the
      *                                     required and current versions.
      */
     public static function versionGuard(string $reqVersion, string $errMsg = ''): void
@@ -297,7 +300,7 @@ final class Core
                                 ', current version: ' . PHP_VERSION;
             }
 
-            throw new ExceptionPhpVersionTooLow($errMsg, $reqVersion, PHP_VERSION);
+            throw new PhpVersionTooLowException($errMsg, $reqVersion, PHP_VERSION);
         }
     }
 
@@ -307,8 +310,8 @@ final class Core
      * CPU as this includes all hyperthreads/cores. (e.g. an i7 will show up as
      * 8 even though there is only 1 physical processor)
      * @return int - the number of threads this machine can concurrently run.
-     * @throws ExceptionCommandFailed - if the nproc command failed.
-     * @throws \Exception - if nproc did not return a number.
+     * @throws CommandFailedException - if the nproc command failed.
+     * @throws UnexpectedOutputException - if nproc did not return a number.
      */
     public static function getNumProcessors(): int
     {
@@ -316,7 +319,7 @@ final class Core
 
         if (!ctype_digit($output))
         {
-            throw new \Exception("Expected nproc to return a number of processors, but got: {$output}");
+            throw new UnexpectedOutputException("Expected nproc to return a number of processors, but got: {$output}");
         }
 
         $numProcessors = (int) $output;
@@ -340,7 +343,7 @@ final class Core
      *                             the command inherits this script's stdin.
      * @return string - everything the command wrote to stdout, exactly as it was written (including any trailing
      *                  newline).
-     * @throws ExceptionCommandFailed - if the command could not be run, or exited with a non-zero exit code. The
+     * @throws CommandFailedException - if the command could not be run, or exited with a non-zero exit code. The
      *                                  exception holds the exit code and anything the command wrote to stderr.
      */
     public static function runCommand(string $command, ?string $input = null): string
@@ -351,7 +354,7 @@ final class Core
 
         if ($errorFile === false)
         {
-            throw new ExceptionCommandFailed($command, -1, "Failed to create a temporary file to capture stderr.");
+            throw new CommandFailedException($command, -1, "Failed to create a temporary file to capture stderr.");
         }
 
         $descriptors = [
@@ -368,7 +371,7 @@ final class Core
             if ($inputFile === false || fwrite($inputFile, $input) !== strlen($input))
             {
                 fclose($errorFile);
-                throw new ExceptionCommandFailed($command, -1, "Failed to create a temporary file for stdin.");
+                throw new CommandFailedException($command, -1, "Failed to create a temporary file for stdin.");
             }
 
             rewind($inputFile);
@@ -386,7 +389,7 @@ final class Core
                 fclose($inputFile);
             }
 
-            throw new ExceptionCommandFailed($command, -1, "");
+            throw new CommandFailedException($command, -1, "");
         }
 
         $output = stream_get_contents($pipes[1]);
@@ -404,12 +407,12 @@ final class Core
 
         if ($output === false)
         {
-            throw new ExceptionCommandFailed($command, -1, "Failed to read the command's output.");
+            throw new CommandFailedException($command, -1, "Failed to read the command's output.");
         }
 
         if ($exitCode !== 0)
         {
-            throw new ExceptionCommandFailed($command, $exitCode, ($errorOutput === false) ? "" : $errorOutput);
+            throw new CommandFailedException($command, $exitCode, ($errorOutput === false) ? "" : $errorOutput);
         }
 
         return $output;
@@ -425,9 +428,9 @@ final class Core
      *                               MemoryTypeEnum for what each one means.
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the amount of memory in. Defaults to MiB.
      * @return float - the amount of memory in the specified unit. E.g. 1.5 for 1536 KiB in MiB.
-     * @throws ExceptionFilesystem - if /proc/meminfo could not be read.
-     * @throws \Exception - if /proc/meminfo does not contain a field needed for the requested measurement. Not every
-     *                      field exists on every system.
+     * @throws FilesystemException - if /proc/meminfo could not be read.
+     * @throws UnexpectedOutputException - if /proc/meminfo does not contain a field needed for the requested
+     *                                     measurement. Not every field exists on every system.
      */
     public static function getMemory(
         MemoryTypeEnum $type = MemoryTypeEnum::TOTAL,
@@ -438,7 +441,7 @@ final class Core
 
         if ($meminfoContents === false)
         {
-            throw new ExceptionFilesystem("Failed to read /proc/meminfo.");
+            throw new FilesystemException("Failed to read /proc/meminfo.");
         }
 
         $data = explode("\n", $meminfoContents);
@@ -460,7 +463,7 @@ final class Core
         $getKib = function (string $field) use ($meminfo): int {
             if (!array_key_exists($field, $meminfo))
             {
-                throw new \Exception("/proc/meminfo does not contain the {$field} field.");
+                throw new UnexpectedOutputException("/proc/meminfo does not contain the {$field} field.");
             }
 
             return (int) $meminfo[$field];
@@ -544,8 +547,8 @@ final class Core
      * macOS this uses pbcopy, and on Windows this uses PowerShell.
      * @param string $content - the content you wish to set in the clipboard.
      * @return void
-     * @throws ExceptionCommandFailed - if the clipboard could not be set, such as if the required tool isn't installed.
-     * @throws \Exception - if running on an unsupported OS, or on Linux without a graphical session.
+     * @throws CommandFailedException - if the clipboard could not be set, such as if the required tool isn't installed.
+     * @throws UnsupportedPlatformException - if running on an unsupported OS, or on Linux without a graphical session.
      */
     public static function setClipboard(string $content): void
     {
@@ -566,7 +569,7 @@ final class Core
                 ? "wl-copy > /dev/null"
                 : "xclip -selection clipboard -in > /dev/null",
 
-            default => throw new \Exception(
+            default => throw new UnsupportedPlatformException(
                 "Running on unsupported OS: " . PHP_OS_FAMILY . " - only Windows, Linux, and macOS are supported."
             ),
         };
@@ -581,9 +584,9 @@ final class Core
      * macOS this uses pbpaste, and on Windows this uses PowerShell.
      * @return string - the content of the clipboard, exactly as it was copied. This will be an empty string if the
      *                  clipboard is empty, or holds something other than text (e.g. an image).
-     * @throws ExceptionCommandFailed - if the clipboard could not be read, such as if the required tool isn't
+     * @throws CommandFailedException - if the clipboard could not be read, such as if the required tool isn't
      *                                  installed.
-     * @throws \Exception - if running on an unsupported OS, or on Linux without a graphical session.
+     * @throws UnsupportedPlatformException - if running on an unsupported OS, or on Linux without a graphical session.
      */
     public static function getClipboard(): string
     {
@@ -630,7 +633,7 @@ final class Core
             {
                 $content = self::runCommand($command);
             }
-            catch (ExceptionCommandFailed $e)
+            catch (CommandFailedException $e)
             {
                 $hasNoText = (preg_match($noTextErrorPattern, $e->getErrorOutput()) === 1);
 
@@ -645,7 +648,7 @@ final class Core
         }
         else
         {
-            throw new \Exception(
+            throw new UnsupportedPlatformException(
                 "Running on unsupported OS: " . PHP_OS_FAMILY . " - only Windows, Linux, and macOS are supported."
             );
         }
@@ -661,7 +664,7 @@ final class Core
      * @param string $waylandTool - the Wayland tool we want to use (e.g. "wl-copy" or "wl-paste"), so we can check if
      *                              it is installed.
      * @return bool - true to use the Wayland tools, false to use xclip.
-     * @throws \Exception - if there is no graphical session, and thus no clipboard.
+     * @throws UnsupportedPlatformException - if there is no graphical session, and thus no clipboard.
      */
     private static function useWaylandClipboard(string $waylandTool): bool
     {
@@ -670,7 +673,7 @@ final class Core
 
         if (!$hasWayland && !$hasX11)
         {
-            throw new \Exception(
+            throw new UnsupportedPlatformException(
                 "Cannot access the clipboard, as there is no graphical session (neither WAYLAND_DISPLAY nor DISPLAY " .
                 "is set)."
             );
@@ -696,7 +699,7 @@ final class Core
         {
             self::runCommand("command -v " . escapeshellarg($command) . " > /dev/null");
         }
-        catch (ExceptionCommandFailed $e)
+        catch (CommandFailedException $e)
         {
             $isAvailable = false;
         }

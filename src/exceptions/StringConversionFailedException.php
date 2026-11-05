@@ -7,7 +7,7 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class ExceptionStringConversionFailed extends \Exception
+class StringConversionFailedException extends CoreLibsException
 {
     private readonly string $m_failedString;
 

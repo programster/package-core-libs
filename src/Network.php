@@ -7,10 +7,12 @@
 namespace Programster\CoreLibs;
 
 
-use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
-use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
-use Programster\CoreLibs\Exceptions\ExceptionNetworkInterfaceDoesNotExist;
-use Programster\CoreLibs\Exceptions\ExceptionFilesystem;
+use Programster\CoreLibs\Exceptions\CommandFailedException;
+use Programster\CoreLibs\Exceptions\MissingExtensionException;
+use Programster\CoreLibs\Exceptions\NetworkInterfaceDoesNotExistException;
+use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\NetworkException;
+use Programster\CoreLibs\Exceptions\InvalidArgumentException;
 
 final class Network
 {
@@ -37,10 +39,11 @@ final class Network
      *                             server's response. Set to false to get the response exactly as it was received.
      * @return string - the raw response from the server, read up until the first newline. If you are expecting a
      *                  format such as JSON, it is up to you to decode it.
-     * @throws ExceptionMissingExtension - if the sockets extension isn't installed.
-     * @throws \InvalidArgumentException - if the request contains a newline, or $timeout or $attemptsLimit is below 1.
-     * @throws \Exception - if we failed to connect, send the request, or read a complete response (e.g. if the server
-     *                      closed the connection without responding, or the response was larger than $bufferSize).
+     * @throws MissingExtensionException - if the sockets extension isn't installed.
+     * @throws InvalidArgumentException - if the request contains a newline, or $timeout or $attemptsLimit is below 1.
+     * @throws NetworkException - if we failed to connect, send the request, or read a complete response (e.g. if the
+     *                            server closed the connection without responding, or the response was larger than
+     *                            $bufferSize).
      */
     public static function sendTcpRequest(
         string $host,
@@ -54,12 +57,12 @@ final class Network
     {
         if (!extension_loaded("sockets"))
         {
-            throw new ExceptionMissingExtension("Your PHP environment does not have the sockets extension.");
+            throw new MissingExtensionException("Your PHP environment does not have the sockets extension.");
         }
 
         if ($timeout < 1 || $attemptsLimit < 1)
         {
-            throw new \InvalidArgumentException("sendTcpRequest: \$timeout and \$attemptsLimit must both be at least 1.");
+            throw new InvalidArgumentException("sendTcpRequest: \$timeout and \$attemptsLimit must both be at least 1.");
         }
 
         $requestString = (string) $request;
@@ -68,7 +71,7 @@ final class Network
         # which stops at either \n or \r), so the message itself must not contain one, or it would be cut short.
         if (str_contains($requestString, "\n") || str_contains($requestString, "\r"))
         {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "sendTcpRequest: the request cannot contain a newline (\\n or \\r), as a newline is used to mark the " .
                 "end of the message."
             );
@@ -109,7 +112,7 @@ final class Network
      * @param int $timeout - the number of seconds to wait for each connection attempt, and for later reads/writes.
      * @param int $attemptsLimit - the number of times to try to connect before giving up.
      * @return \Socket - the connected socket.
-     * @throws \Exception - if we could not connect after $attemptsLimit attempts. The message lists every error.
+     * @throws NetworkException - if we could not connect after $attemptsLimit attempts. The message lists every error.
      */
     private static function connectTcpSocket(string $host, int $port, int $timeout, int $attemptsLimit): \Socket
     {
@@ -187,7 +190,7 @@ final class Network
         {
             $secondsTaken = round(microtime(true) - $timeStart, 1);
 
-            throw new \Exception(
+            throw new NetworkException(
                 "sendTcpRequest: Failed to connect to [{$host}] on port {$port} after {$attempt} attempt(s) " .
                 "({$secondsTaken} seconds). Errors:" . PHP_EOL . implode(PHP_EOL, $errors)
             );
@@ -206,8 +209,8 @@ final class Network
      * @param int $maxBytes - the maximum size of the line (including its newline).
      * @param int $timeout - the maximum number of seconds to wait for the whole line.
      * @return string - the line, including the newline at the end.
-     * @throws \Exception - if reading fails, times out, the server closes the connection before sending a newline,
-     *                      or the line is larger than $maxBytes.
+     * @throws NetworkException - if reading fails, times out, the server closes the connection before sending a
+     *                            newline, or the line is larger than $maxBytes.
      */
     private static function readLineFromSocket(\Socket $socket, int $maxBytes, int $timeout): string
     {
@@ -221,7 +224,7 @@ final class Network
 
             if ($secondsLeft <= 0)
             {
-                throw new \Exception(
+                throw new NetworkException(
                     "sendTcpRequest: Did not receive a complete response within {$timeout} second(s) (received " .
                     strlen($line) . " bytes, with no newline)."
                 );
@@ -236,7 +239,7 @@ final class Network
 
             if ($numReady === false)
             {
-                throw new \Exception(
+                throw new NetworkException(
                     "sendTcpRequest: Failed while waiting for the response: " . socket_strerror(socket_last_error($socket))
                 );
             }
@@ -247,7 +250,7 @@ final class Network
 
                 if ($chunk === false)
                 {
-                    throw new \Exception(
+                    throw new NetworkException(
                         "sendTcpRequest: Failed to read the response: " . socket_strerror(socket_last_error($socket))
                     );
                 }
@@ -255,7 +258,7 @@ final class Network
                 if ($chunk === "")
                 {
                     # An empty read with data supposedly ready means the server closed the connection.
-                    throw new \Exception(
+                    throw new NetworkException(
                         "sendTcpRequest: The server closed the connection before sending a complete response " .
                         "(received " . strlen($line) . " bytes, with no newline)."
                     );
@@ -274,7 +277,7 @@ final class Network
 
                 if (strlen($line) > $maxBytes || (!$isComplete && strlen($line) >= $maxBytes))
                 {
-                    throw new \Exception(
+                    throw new NetworkException(
                         "sendTcpRequest: The response is larger than the buffer size of {$maxBytes} bytes."
                     );
                 }
@@ -291,7 +294,7 @@ final class Network
      * @param \Socket $socket - the connected socket to write to.
      * @param string $data - the data to send.
      * @return void
-     * @throws \Exception - if writing to the socket fails.
+     * @throws NetworkException - if writing to the socket fails.
      */
     private static function writeToSocket(\Socket $socket, string $data): void
     {
@@ -303,7 +306,7 @@ final class Network
 
             if ($bytesWritten === false)
             {
-                throw new \Exception(
+                throw new NetworkException(
                     "sendTcpRequest: Failed to send the request: " . socket_strerror(socket_last_error($socket))
                 );
             }
@@ -342,9 +345,9 @@ final class Network
      * @param string $interface - the network interface that we want the IPs of.
      * @return array<string> - list of the IPv4 addresses of this machine on that interface, in the order the ip
      *                         command lists them. Will be empty if the interface exists but has no IPv4 addresses.
-     * @throws ExceptionNetworkInterfaceDoesNotExist - if there is no network interface with that name.
-     * @throws ExceptionFilesystem - if the list of network interfaces could not be read from /sys/class/net.
-     * @throws ExceptionCommandFailed - if the ip command failed.
+     * @throws NetworkInterfaceDoesNotExistException - if there is no network interface with that name.
+     * @throws FilesystemException - if the list of network interfaces could not be read from /sys/class/net.
+     * @throws CommandFailedException - if the ip command failed.
      */
     public static function getIps(string $interface): array
     {
@@ -355,12 +358,12 @@ final class Network
 
         if ($interfaces === false)
         {
-            throw new ExceptionFilesystem("Failed to read the list of network interfaces from /sys/class/net.");
+            throw new FilesystemException("Failed to read the list of network interfaces from /sys/class/net.");
         }
 
         if (!in_array($interface, array_diff($interfaces, [".", ".."]), true))
         {
-            throw new ExceptionNetworkInterfaceDoesNotExist($interface);
+            throw new NetworkInterfaceDoesNotExistException($interface);
         }
 
         # We deliberately don't use a pipeline (e.g. into awk) here, as a pipeline's exit code is only that of its
@@ -381,7 +384,7 @@ final class Network
      * This is a very quick and dirty method that relies on icanhazip.com
      * remaining the same so use with caution.
      * @return string $ip - the public ip address of this computer.
-     * @throws \Exception - if we failed to get a response from icanhazip.com
+     * @throws NetworkException - if we failed to get a response from icanhazip.com
      */
     public static function getPublicIp(): string
     {
@@ -389,7 +392,7 @@ final class Network
 
         if ($response === false)
         {
-            throw new \Exception("Failed to fetch public IP from icanhazip.com");
+            throw new NetworkException("Failed to fetch public IP from icanhazip.com");
         }
 
         return trim($response);
@@ -406,7 +409,7 @@ final class Network
      *                         isn't open. Hosts behind firewalls often silently drop packets rather than refuse the
      *                         connection, in which case this is how long the check will take.
      * @return bool - true if the port is open, false if not.
-     * @throws \Exception - if $host is empty and we failed to fetch this machine's public IP.
+     * @throws NetworkException - if $host is empty and we failed to fetch this machine's public IP.
      */
     public static function isPortOpen(string $host, int $port, float $timeout = 5.0): bool
     {

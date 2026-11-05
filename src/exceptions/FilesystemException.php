@@ -8,6 +8,6 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class ExceptionFilesystem extends \Exception
+class FilesystemException extends CoreLibsException
 {
 }

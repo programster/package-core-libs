@@ -7,6 +7,6 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class ExceptionCliTitleNotSet extends \Exception
+class CliTitleNotSetException extends CoreLibsException
 {
 }

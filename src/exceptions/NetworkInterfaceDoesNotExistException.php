@@ -7,7 +7,7 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class ExceptionNetworkInterfaceDoesNotExist extends \Exception
+class NetworkInterfaceDoesNotExistException extends CoreLibsException
 {
     private readonly string $m_interface;
 

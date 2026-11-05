@@ -7,7 +7,8 @@
 namespace Programster\CoreLibs;
 
 
-use Programster\CoreLibs\Exceptions\ExceptionStringConversionFailed;
+use Programster\CoreLibs\Exceptions\StringConversionFailedException;
+use Programster\CoreLibs\Exceptions\InvalidArgumentException;
 use Random\Randomizer;
 
 final class StringLib
@@ -22,6 +23,7 @@ final class StringLib
      * @param bool $useUppercase - whether to use uppercase. Defaults to true.
      * @param bool $useLowercase - whether to contain lowercase letters. Defaults to true.
      * @return string - the generated random string.
+     * @throws InvalidArgumentException - if $numChars is too short to fit one of each required type of character.
      */
     public static function generateRandomString(
         int $numChars,
@@ -65,7 +67,10 @@ final class StringLib
 
         if ($numChars < count($requirements))
         {
-            throw new \Exception("It is impossible to create a string with " . count($requirements) . " different types of characters when the string can only be {$numChars} long.");
+            throw new InvalidArgumentException(
+                "It is impossible to create a string with " . count($requirements) . " different types of characters " .
+                "when the string can only be {$numChars} long."
+            );
         }
 
         $randomizer = new Randomizer();
@@ -252,11 +257,6 @@ final class StringLib
      */
     public static function replace(string $search, string $replace, string $subject): string
     {
-        if (is_array($search) || is_array($replace))
-        {
-            throw new \Exception("The search or replace parameters cannot be arrays.");
-        }
-
         $pairs = array(
             $search => $replace
         );
@@ -323,7 +323,7 @@ final class StringLib
      * @param string $input - the input string to be decoded. This is marked as sensitive, so that it doesn't appear
      *                        in stack traces, as it is commonly a token.
      * @return string - the decoded string
-     * @throws ExceptionStringConversionFailed - if the string is not one that base64UrlEncode() could have produced.
+     * @throws StringConversionFailedException - if the string is not one that base64UrlEncode() could have produced.
      *                                           The string that failed can be retrieved from the exception with
      *                                           getFailedString().
      */
@@ -351,7 +351,7 @@ final class StringLib
         if ($result === false)
         {
             # Deliberately leave the input out of the message, as it could be a token, and messages end up in logs.
-            throw new ExceptionStringConversionFailed(
+            throw new StringConversionFailedException(
                 "Failed to base64url decode a string of length " . strlen($input) . ".",
                 $input
             );

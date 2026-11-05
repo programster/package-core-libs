@@ -8,7 +8,8 @@
 
 namespace Programster\CoreLibs;
 
-use Programster\CoreLibs\Exceptions\ExceptionEmptyArray;
+use Programster\CoreLibs\Exceptions\EmptyArrayException;
+use Programster\CoreLibs\Exceptions\InvalidArgumentException;
 
 
 final class ArrayLib
@@ -21,13 +22,13 @@ final class ArrayLib
      * An empty array is neither, so an exception is thrown for one.
      * @param array $arr - the array to check
      * @return bool - true if the array is associative, false otherwise.
-     * @throws ExceptionEmptyArray - if the array has no elements.
+     * @throws EmptyArrayException - if the array has no elements.
      */
     public static function isAssoc(array $arr): bool
     {
         if (count($arr) === 0)
         {
-            throw new ExceptionEmptyArray('Cannot determine whether an array that has no elements is associative.');
+            throw new EmptyArrayException('Cannot determine whether an array that has no elements is associative.');
         }
 
         return array_keys($arr) !== range(0, count($arr) - 1);
@@ -41,13 +42,13 @@ final class ArrayLib
      *                              array_shift(), so the remaining numeric keys are re-indexed to start from 0 (e.g.
      *                              [5 => 'a', 9 => 'b'] becomes [0 => 'b']), whilst string keys are left as they are.
      * @return mixed - the first element of the array.
-     * @throws ExceptionEmptyArray - if the array has no elements.
+     * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getFirstElement(array &$inputArray, bool $removeElement=false): mixed
     {
         if (count($inputArray) === 0)
         {
-            throw new ExceptionEmptyArray('Trying to get the first element of an array that has no elements.');
+            throw new EmptyArrayException('Trying to get the first element of an array that has no elements.');
         }
 
         if (!$removeElement)
@@ -71,7 +72,7 @@ final class ArrayLib
      * @param array &$inputArray - the array we want the last element of.
      * @param bool $removeElement - override to true if you also want to remove that element
      * @return mixed - the last element of the array.
-     * @throws ExceptionEmptyArray - if the array has no elements.
+     * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getLastElement(array &$inputArray, bool $removeElement=false): mixed
     {
@@ -91,7 +92,7 @@ final class ArrayLib
         }
         else
         {
-            throw new ExceptionEmptyArray('Trying to get the last element of an array that has no elements.');
+            throw new EmptyArrayException('Trying to get the last element of an array that has no elements.');
         }
 
         return $element;
@@ -105,7 +106,7 @@ final class ArrayLib
      *                              the array.
      * @return int|string - the last key in the array. This is deliberately a union type, as PHP array keys can only
      *                      be integers or strings.
-     * @throws ExceptionEmptyArray - if the array has no elements.
+     * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getLastKey(array &$inputArray, bool $removeElement=false): int|string
     {
@@ -113,7 +114,7 @@ final class ArrayLib
 
         if ($lastKey === null)
         {
-            throw new ExceptionEmptyArray('Trying to get the last key of an array that has no elements.');
+            throw new EmptyArrayException('Trying to get the last key of an array that has no elements.');
         }
 
         if ($removeElement)
@@ -130,13 +131,13 @@ final class ArrayLib
      * @param array $inputArray - the array to get a random element from.
      * @param bool $removeElement - optionally set to true to have the element removed from the array as well.
      * @return mixed - a random element from the array.
-     * @throws ExceptionEmptyArray - if the array has no elements.
+     * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getRandomElement(array &$inputArray, bool $removeElement = false): mixed
     {
         if (count($inputArray) === 0)
         {
-            throw new ExceptionEmptyArray('Trying to get a random element from an array that has no elements.');
+            throw new EmptyArrayException('Trying to get a random element from an array that has no elements.');
         }
 
         $randomKey = ArrayLib::getRandomKey($inputArray);
@@ -157,13 +158,13 @@ final class ArrayLib
      * @param bool $removeElement - optionally specify true to have the key (and element) removed from the array.
      * @return int|string - a random key in the array. This is deliberately a union type, as PHP array keys can only be
      *                      integers or strings.
-     * @throws ExceptionEmptyArray - if the array has no elements.
+     * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getRandomKey(array &$inputArray, bool $removeElement = false): int|string
     {
         if (count($inputArray) === 0)
         {
-            throw new ExceptionEmptyArray('Trying to get a random key from an array that has no elements.');
+            throw new EmptyArrayException('Trying to get a random key from an array that has no elements.');
         }
 
         $keys = array_keys($inputArray);
@@ -294,6 +295,8 @@ final class ArrayLib
      * This does NOT keep index association (e.g. returns a list of values)
      * @param array $haystack - the array we are pulling values from
      * @param array $indexes - array list of keys we want the values of.
+     * @return array - the values, in the order of $indexes.
+     * @throws InvalidArgumentException - if one of the indexes does not exist in $haystack.
      */
     public static function getValues(array $haystack, array $indexes): array
     {
@@ -304,7 +307,7 @@ final class ArrayLib
             if (!isset($haystack[$index]))
             {
                 $msg = "index [$index] does not exist in the provided array.";
-                throw new \Exception($msg);
+                throw new InvalidArgumentException($msg);
             }
 
             $values[] = $haystack[$index];
@@ -444,6 +447,7 @@ final class ArrayLib
      *                      in this list should have the same length as keys.
      *                      If any of the rows have indexes, these will be lost.
      * @return array - the generated array list of rows.
+     * @throws InvalidArgumentException - if any of the rows doesn't have the same number of values as there are keys.
      */
     public static function arrayCombineList(array $keys, array $rows): array
     {
@@ -456,7 +460,7 @@ final class ArrayLib
                 $msg = "arrayCombineList: Number of values in one of the rows is " .
                        "not equal to the number of keys.";
 
-                throw new \Exception($msg);
+                throw new InvalidArgumentException($msg);
             }
 
             $output[] = array_combine($keys, $row);
@@ -483,8 +487,8 @@ final class ArrayLib
      *
      * @param bool $preserveKeys - if true key/value association is maintained in the split arrays
      * @return array - an array of the resulting arrays.
-     * @throws ExceptionEmptyArray - if $inputArray has no elements.
-     * @throws \InvalidArgumentException - if $numberOfArrays is less than 1.
+     * @throws EmptyArrayException - if $inputArray has no elements.
+     * @throws InvalidArgumentException - if $numberOfArrays is less than 1.
      */
     public static function split(
         array $inputArray,
@@ -495,12 +499,12 @@ final class ArrayLib
     {
         if (count($inputArray) === 0)
         {
-            throw new ExceptionEmptyArray('Trying to split an array that has no elements.');
+            throw new EmptyArrayException('Trying to split an array that has no elements.');
         }
 
         if ($numberOfArrays < 1)
         {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "split: \$numberOfArrays must be at least 1, but {$numberOfArrays} was given."
             );
         }

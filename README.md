@@ -10,7 +10,34 @@ This package recommends various extensions such as mbstring in order to be able 
 the provided methods. However, we did not wish to prevent this from allowing you to install the 
 package in case you did not need to use these limited methods. Thus, if you try to execute one of
 these methods without having the recommended extension installed, it will raise an
-`ExceptionMissingExtension` with details of which extension is missing.
+`MissingExtensionException` with details of which extension is missing.
+
+### Exceptions
+Every exception this library throws extends the abstract
+`Programster\CoreLibs\Exceptions\CoreLibsException`, so you can catch all of them at once:
+
+```php
+use Programster\CoreLibs\Exceptions\CoreLibsException;
+use Programster\CoreLibs\Exceptions\FilesystemException;
+
+try
+{
+    CsvLib::removeColumns($filepath, [2]);
+}
+catch (FilesystemException $e)
+{
+    // handle a specific failure, such as the file not being openable
+}
+catch (CoreLibsException $e)
+{
+    // handle anything else that went wrong in this library
+}
+```
+
+`CoreLibsException` extends `\Exception`, so existing `catch (\Exception $e)` blocks keep working.
+
+Errors raised by PHP itself, such as a `TypeError` from passing the wrong type of argument, are not
+library exceptions, so they don't extend `CoreLibsException`.
 
 ### Testing
 To run the tests on your current version of PHP, run `composer install`, and then:

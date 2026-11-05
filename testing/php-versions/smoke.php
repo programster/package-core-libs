@@ -15,10 +15,10 @@ use Programster\CoreLibs\Core;
 use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\DataSizeUnitEnum;
 use Programster\CoreLibs\EncryptionLib;
-use Programster\CoreLibs\Exceptions\ExceptionDecryptionFailed;
-use Programster\CoreLibs\Exceptions\ExceptionEmptyArray;
-use Programster\CoreLibs\Exceptions\ExceptionPhpVersionTooLow;
-use Programster\CoreLibs\Exceptions\ExceptionStringConversionFailed;
+use Programster\CoreLibs\Exceptions\DecryptionFailedException;
+use Programster\CoreLibs\Exceptions\EmptyArrayException;
+use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
+use Programster\CoreLibs\Exceptions\StringConversionFailedException;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\MemoryTypeEnum;
 use Programster\CoreLibs\Network;
@@ -152,12 +152,12 @@ $smoke->run("getRandomKey / getRandomElement", function () {
     assert(in_array(ArrayLib::getRandomElement($array, true), [1, 2, 3], true) && count($array) === 2);
 });
 
-$smoke->run("empty arrays throw ExceptionEmptyArray", function () {
+$smoke->run("empty arrays throw EmptyArrayException", function () {
     $empty = [];
-    SmokeTest::expectException(ExceptionEmptyArray::class, fn() => ArrayLib::getFirstElement($empty));
-    SmokeTest::expectException(ExceptionEmptyArray::class, fn() => ArrayLib::getLastElement($empty));
-    SmokeTest::expectException(ExceptionEmptyArray::class, fn() => ArrayLib::isAssoc([]));
-    SmokeTest::expectException(ExceptionEmptyArray::class, fn() => ArrayLib::split([], 2));
+    SmokeTest::expectException(EmptyArrayException::class, fn() => ArrayLib::getFirstElement($empty));
+    SmokeTest::expectException(EmptyArrayException::class, fn() => ArrayLib::getLastElement($empty));
+    SmokeTest::expectException(EmptyArrayException::class, fn() => ArrayLib::isAssoc([]));
+    SmokeTest::expectException(EmptyArrayException::class, fn() => ArrayLib::split([], 2));
 });
 
 $smoke->run("other ArrayLib methods", function () {
@@ -213,7 +213,7 @@ $smoke->run("signatures", function () {
 
 $smoke->run("versionGuard", function () {
     Core::versionGuard("8.0");
-    SmokeTest::expectException(ExceptionPhpVersionTooLow::class, fn() => Core::versionGuard("99.0"));
+    SmokeTest::expectException(PhpVersionTooLowException::class, fn() => Core::versionGuard("99.0"));
 });
 
 $smoke->run("runCommand / processes", function () {
@@ -255,7 +255,7 @@ $smoke->run("formatBytes / convertFromBytes", function () {
 $smoke->run("encryption and passwords", function () {
     $key = EncryptionLib::generateKey();
     assert(EncryptionLib::decrypt(EncryptionLib::encrypt("hello", $key), $key) === "hello");
-    SmokeTest::expectException(ExceptionDecryptionFailed::class, fn() => EncryptionLib::decrypt(EncryptionLib::encrypt("hello", $key), EncryptionLib::generateKey()));
+    SmokeTest::expectException(DecryptionFailedException::class, fn() => EncryptionLib::decrypt(EncryptionLib::encrypt("hello", $key), EncryptionLib::generateKey()));
     $iv = random_bytes(16);
     $legacy = openssl_encrypt("old", "AES-256-OFB", "old key", OPENSSL_ZERO_PADDING, $iv);
     assert(EncryptionLib::decryptLegacy($legacy, "old key", $iv) === "old");
@@ -270,7 +270,7 @@ $smoke->run("directories and files", function () use ($dir) {
     Filesystem::mkdir("{$dir}/sub/deep"); # already existing is fine
     $isFile = "{$dir}/sub/deep/f.txt";
     file_put_contents($isFile, "");
-    SmokeTest::expectException(\Programster\CoreLibs\Exceptions\ExceptionFilesystem::class, fn() => Filesystem::mkdir("{$isFile}/child"));
+    SmokeTest::expectException(\Programster\CoreLibs\Exceptions\FilesystemException::class, fn() => Filesystem::mkdir("{$isFile}/child"));
     file_put_contents("{$dir}/sub/deep/f.txt", "abc\nxyz\n");
     Filesystem::getDirectories($dir, true);
     Filesystem::getDirContents($dir);
@@ -336,7 +336,7 @@ $smoke->run("sendTcpRequest", function () {
 $smoke->run("StringLib", function () {
     assert(strlen(StringLib::generateRandomString(20)) === 20);
     assert(StringLib::base64UrlDecode(StringLib::base64UrlEncode("hi?>")) === "hi?>");
-    SmokeTest::expectException(ExceptionStringConversionFailed::class, fn() => StringLib::base64UrlDecode("a"));
+    SmokeTest::expectException(StringConversionFailedException::class, fn() => StringLib::base64UrlDecode("a"));
     assert(StringLib::startsWith("abc", "a") && StringLib::endsWith("abc", "c"));
     assert(StringLib::br2nl("a<br />b") === "a" . PHP_EOL . "b" && StringLib::nl2br("a\nb") === "a<br />b");
     StringLib::convertLineEndings("a\r\nb");

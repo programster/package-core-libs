@@ -7,8 +7,10 @@
 namespace Programster\CoreLibs;
 
 
-use Programster\CoreLibs\Exceptions\ExceptionEmptyArray;
-use Programster\CoreLibs\Exceptions\ExceptionFilesystem;
+use Programster\CoreLibs\Exceptions\EmptyArrayException;
+use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\InvalidCsvException;
+use Programster\CoreLibs\Exceptions\InvalidArgumentException;
 
 final class CsvLib
 {
@@ -24,7 +26,7 @@ final class CsvLib
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      * @return void
-     * @throws ExceptionFilesystem - if the CSV file could not be read, or the JSON file could not be written.
+     * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not be written.
      * @throws \JsonException
      */
     public static function convertCsvToJson(
@@ -40,14 +42,14 @@ final class CsvLib
 
         if ($lines === false)
         {
-            throw new ExceptionFilesystem("Failed to read CSV file: {$csvFilepath}");
+            throw new FilesystemException("Failed to read CSV file: {$csvFilepath}");
         }
 
         $jsonFile = fopen($jsonFilepath, "w");
 
         if ($jsonFile === false)
         {
-            throw new ExceptionFilesystem("Failed to open {$jsonFilepath} for writing.");
+            throw new FilesystemException("Failed to open {$jsonFilepath} for writing.");
         }
 
         $headers = array();
@@ -148,7 +150,8 @@ final class CsvLib
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      *
      * @return array - an array list of indexed rows that the CSV has been converted into.
-     * @throws ExceptionFilesystem - if the file could not be opened for reading.
+     * @throws FilesystemException - if the file could not be opened for reading.
+     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are keys.
      */
     public static function convertCsvToArray(
         string $filepath,
@@ -163,7 +166,7 @@ final class CsvLib
 
         if ($file === false)
         {
-            throw new ExceptionFilesystem("Failed to open {$filepath} for reading.");
+            throw new FilesystemException("Failed to open {$filepath} for reading.");
         }
 
         $output = array();
@@ -199,7 +202,7 @@ final class CsvLib
                 {
                     $msg = "Cannot convert CSV to array. Number of keys: " . count($keys) .
                            " is not the same as the number of values: " . count($row);
-                    throw new \Exception($msg);
+                    throw new InvalidCsvException($msg);
                 }
                 $output[] = array_combine($keys, $row);
             }
@@ -231,7 +234,8 @@ final class CsvLib
      * @param string $delimiter - delimiter to pass through to fgetcsv
      * @param string $enclosure - enclosure to pass through to fgetcsv
      * @param string $escape - escape value to pass through to fgetcsv
-     * @throws ExceptionFilesystem - if the file at $filepath does not exist or cannot be opened.
+     * @throws FilesystemException - if the file at $filepath does not exist or cannot be opened.
+     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are headers.
      * @return void
      */
     public static function csvWalk(
@@ -248,7 +252,7 @@ final class CsvLib
 
         if ($fileHandle === false)
         {
-            throw new ExceptionFilesystem("Failed to open {$filepath} for reading.");
+            throw new FilesystemException("Failed to open {$filepath} for reading.");
         }
 
         $firstRow = true;
@@ -286,7 +290,7 @@ final class CsvLib
                 {
                     $msg = "csvWalk: Cannot convert CSV row to array. Number of keys: " . count($headers) .
                            " is not the same as the number of values: " . count($row);
-                    throw new \Exception($msg);
+                    throw new InvalidCsvException($msg);
                 }
 
                 $arrayToRunCallbackOn = array_combine($headers, $row);
@@ -317,7 +321,9 @@ final class CsvLib
      * UTF-8 characters.
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void - all data written to the passed in filepath.
-     * @throws \Exception
+     * @throws EmptyArrayException - if there are no rows, or the first row has no columns.
+     * @throws InvalidArgumentException - if the rows are not associative arrays, or don't all have the same keys.
+     * @throws FilesystemException - if the file could not be opened for writing.
      */
     public static function convertArrayToCsv(
         string $filepath,
@@ -332,26 +338,26 @@ final class CsvLib
         # Check the data before opening the file, as opening it for writing empties any file already there.
         if (count($rows) === 0)
         {
-            throw new ExceptionEmptyArray("Cannot create CSV file with no data.");
+            throw new EmptyArrayException("Cannot create CSV file with no data.");
         }
 
         $firstRow = ArrayLib::getFirstElement($rows);
 
         if (count($firstRow) === 0)
         {
-            throw new ExceptionEmptyArray("Cannot create CSV file, as the first row has no columns.");
+            throw new EmptyArrayException("Cannot create CSV file, as the first row has no columns.");
         }
 
         if (ArrayLib::isAssoc($firstRow) === FALSE)
         {
-            throw new \Exception("convertArrayToCsv expects a list of associative arrays.");
+            throw new InvalidArgumentException("convertArrayToCsv expects a list of associative arrays.");
         }
 
         $fileHandle = fopen($filepath, 'w');
 
         if ($fileHandle === FALSE)
         {
-            throw new \Exception("Failed to open {$filepath} for writing.");
+            throw new FilesystemException("Failed to open {$filepath} for writing.");
         }
 
         if ($addByteOrderMark)
@@ -380,7 +386,7 @@ final class CsvLib
                 $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) . 
                        " is not the same as the number of values: " . count($row);
 
-                throw new \Exception($msg);
+                throw new InvalidArgumentException($msg);
             }
 
             $rowOfValues = array();
@@ -394,7 +400,7 @@ final class CsvLib
 
                     if (in_array($key, $keys) === FALSE)
                     {
-                        throw new \Exception("Row {$index} is missing the expected key {$key}.");
+                        throw new InvalidArgumentException("Row {$index} is missing the expected key {$key}.");
                     }
                     else
                     {
@@ -430,7 +436,7 @@ final class CsvLib
      * @param string $filepath - the path to the CSV file we are trimming
      * @param string $delimiter - the delimiter/separator used in the CSV. E.g. ',' or ';'
      * @param string $escape - the escape sequence to use when passing to fputcsv.
-     * @throws \Exception
+     * @throws FilesystemException - if the CSV file could not be opened.
      * @return void
      */
     public static function trim(
@@ -473,7 +479,7 @@ final class CsvLib
         }
         else
         {
-            throw new \Exception("trim: Failed to open the CSV file for trimming.");
+            throw new FilesystemException("trim: Failed to open the CSV file for trimming.");
         }
     }
 
@@ -486,9 +492,10 @@ final class CsvLib
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void
-     * @throws \Exception - if the file contains a blank line before the end of the data (blank lines at the very end
-     * of the file are allowed and are kept), or a row doesn't have one of the columns being removed. The original
-     * file is left untouched if this happens.
+     * @throws InvalidCsvException - if the file contains a blank line before the end of the data (blank lines at the
+     * very end of the file are allowed and are kept), or a row doesn't have one of the columns being removed. The
+     * original file is left untouched if this happens.
+     * @throws FilesystemException - if the CSV file could not be opened.
      */
     public static function removeColumns(
         string $filepath,
@@ -532,7 +539,7 @@ final class CsvLib
                         fclose($fileHandle);
                         fclose($tmpFile);
 
-                        throw new \Exception(
+                        throw new InvalidCsvException(
                             "removeColumns: source CSV file has a blank line on line: " . $firstPendingBlankLineNumber
                         );
                     }
@@ -549,7 +556,7 @@ final class CsvLib
 
                             fclose($fileHandle);
                             fclose($tmpFile);
-                            throw new \Exception($msg);
+                            throw new InvalidCsvException($msg);
                         }
 
                         unset($lineArray[$columnIndex]);
@@ -578,7 +585,7 @@ final class CsvLib
         }
         else
         {
-            throw new \Exception("removeColumns: Failed to open the CSV file for removing columns.");
+            throw new FilesystemException("removeColumns: Failed to open the CSV file for removing columns.");
         }
     }
 
@@ -590,6 +597,7 @@ final class CsvLib
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @return void
+     * @throws FilesystemException - if the CSV file could not be opened.
      */
     public static function removeRows(
         string $filepath, 
@@ -633,7 +641,7 @@ final class CsvLib
         }
         else
         {
-            throw new \Exception("removeRows: Failed to open the CSV file for removing rows.");
+            throw new FilesystemException("removeRows: Failed to open the CSV file for removing rows.");
         }
     }
 
@@ -649,7 +657,8 @@ final class CsvLib
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - the escape sequence to use when passing to fputcsv.
      * @return string - the path to the created diff CSV file.
-     * @throws \Exception
+     * @throws InvalidCsvException - if the rows of the two files don't have the same number of columns.
+     * @throws FilesystemException - if either CSV file could not be opened, or the diff file could not be created.
      */
     public static function decimalDiff(
         string $filepath1,
@@ -663,14 +672,14 @@ final class CsvLib
 
         if ($newFileName === false)
         {
-            throw new ExceptionFilesystem("Failed to create a temporary file to store the diff in.");
+            throw new FilesystemException("Failed to create a temporary file to store the diff in.");
         }
 
         $newFileHandle = fopen($newFileName, "w");
 
         if (!$newFileHandle)
         {
-            throw new \Exception("Cannot create file to store diff in.");
+            throw new FilesystemException("Cannot create file to store diff in.");
         }
 
         $fileHandle1 = fopen($filepath1, "r");
@@ -691,7 +700,7 @@ final class CsvLib
                         // Can't use isset() here, as fgetcsv returns [null] for blank lines.
                         if (!is_array($lineArray2) || !array_key_exists($index, $lineArray2))
                         {
-                            throw new \Exception("decimalDiff: rows do not have the same column count.");
+                            throw new InvalidCsvException("decimalDiff: rows do not have the same column count.");
                         }
 
                         $value2 = $lineArray2[$index];
@@ -729,7 +738,7 @@ final class CsvLib
         }
         else
         {
-            throw new \Exception("decimalDiff: Failed to open CSV file for processing.");
+            throw new FilesystemException("decimalDiff: Failed to open CSV file for processing.");
         }
 
         return $newFileName;
@@ -754,7 +763,9 @@ final class CsvLib
      * @param string $enclosure - optionally specify the enclosure to pass to fgetcsv (default: ")
      * @param string $escape - optionally specify the escape character to pass to fgetcsv.
      * @return bool - true if the files are the same, false if different.
-     * @throws \Exception
+     * @throws InvalidCsvException - if the rows of the two files don't have the same number of columns, or a column
+     *                               with a tolerance contains a non-numeric value.
+     * @throws FilesystemException - if either CSV file could not be opened.
      */
     public static function diffTolerance(
         string $filepath1,
@@ -773,7 +784,7 @@ final class CsvLib
 
         if (!$fileHandle1 || !$fileHandle2)
         {
-            throw new \Exception("diffTolerance: Failed to open CSV files for comparison.");
+            throw new FilesystemException("diffTolerance: Failed to open CSV files for comparison.");
         }
 
         while (!feof($fileHandle1) && $hasFailed === FALSE)
@@ -790,7 +801,7 @@ final class CsvLib
                     // Can't use isset() here, as fgetcsv returns [null] for blank lines.
                     if (!is_array($lineArray2) || !array_key_exists($index, $lineArray2))
                     {
-                        throw new \Exception("diffTolerance: rows do not have the same column count.");
+                        throw new InvalidCsvException("diffTolerance: rows do not have the same column count.");
                     }
 
                     $value2 = $lineArray2[$index];
@@ -825,7 +836,7 @@ final class CsvLib
                                        "diff on non-numeric column. Column: $humanColumnNumber " .
                                        "Row: $humanRowNumber";
 
-                                throw new \Exception($msg);
+                                throw new InvalidCsvException($msg);
                             }
                         }
                     }
@@ -861,7 +872,7 @@ final class CsvLib
      * @param string $delimiter - optionally specify the delimiter being used in the files
      * @param string $enclosure - optionally specify the enclosure being used in the files
      * @param string $escape - optionally specify the escape sequence to use when passing to fputcsv.
-     * @throws ExceptionFilesystem - if the merged file can't be opened for writing, or one of the files can't be read.
+     * @throws FilesystemException - if the merged file can't be opened for writing, or one of the files can't be read.
      * @return void
      */
     public static function mergeFiles(
@@ -878,7 +889,7 @@ final class CsvLib
 
         if ($outputFileHandle === false)
         {
-            throw new ExceptionFilesystem("Unable to open the merged file for writing: {$mergedFilepath}");
+            throw new FilesystemException("Unable to open the merged file for writing: {$mergedFilepath}");
         }
 
         foreach ($filepaths as $filepath)
@@ -889,7 +900,7 @@ final class CsvLib
             if ($readHandle === false)
             {
                 fclose($outputFileHandle);
-                throw new ExceptionFilesystem("Unable to read file for merging: {$filepath}");
+                throw new FilesystemException("Unable to read file for merging: {$filepath}");
             }
 
             while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure, $escape)) !== FALSE)

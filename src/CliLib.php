@@ -6,8 +6,9 @@
 
 namespace Programster\CoreLibs;
 
-use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
-use Programster\CoreLibs\Exceptions\ExceptionUserCancelled;
+use Programster\CoreLibs\Exceptions\CommandFailedException;
+use Programster\CoreLibs\Exceptions\UserCancelledException;
+use Programster\CoreLibs\Exceptions\InputEndedException;
 
 final class CliLib
 {
@@ -44,7 +45,7 @@ final class CliLib
                 $terminalWidth = (int) $tputOutput;
             }
         }
-        catch (ExceptionCommandFailed $e)
+        catch (CommandFailedException $e)
         {
             // Keep the fallback width.
         }
@@ -73,10 +74,10 @@ final class CliLib
      *                      the password length but does make it more difficult.
      *
      * @return string - the password that was typed in.
-     * @throws ExceptionUserCancelled - if the user pressed Ctrl+C or Ctrl+D.
-     * @throws ExceptionCommandFailed - if stty failed, such as on Windows where it doesn't exist. This is thrown before
+     * @throws UserCancelledException - if the user pressed Ctrl+C or Ctrl+D.
+     * @throws CommandFailedException - if stty failed, such as on Windows where it doesn't exist. This is thrown before
      *                                  anything is read, so the password can never be shown on screen by mistake.
-     * @throws \RuntimeException - if the input ended before the password was entered.
+     * @throws InputEndedException - if the input ended before the password was entered.
      */
     public static function getPasswordFromUserInput(bool $stars = true): string
     {
@@ -90,7 +91,7 @@ final class CliLib
 
             if ($line === false)
             {
-                throw new \RuntimeException("The input ended before a password was provided.");
+                throw new InputEndedException("The input ended before a password was provided.");
             }
 
             $password = rtrim($line, "\r\n");
@@ -104,9 +105,9 @@ final class CliLib
      * Read a password from the terminal one key at a time, without showing what is typed.
      * @param bool $stars - whether to output a star for each character typed.
      * @return string - the password that was typed in.
-     * @throws ExceptionUserCancelled - if the user pressed Ctrl+C or Ctrl+D.
-     * @throws ExceptionCommandFailed - if stty failed.
-     * @throws \RuntimeException - if the input ended before the password was entered.
+     * @throws UserCancelledException - if the user pressed Ctrl+C or Ctrl+D.
+     * @throws CommandFailedException - if stty failed.
+     * @throws InputEndedException - if the input ended before the password was entered.
      */
     private static function readPasswordFromTerminal(bool $stars): string
     {
@@ -129,7 +130,7 @@ final class CliLib
 
                 if ($char === false)
                 {
-                    throw new \RuntimeException("The input ended before the password was entered.");
+                    throw new InputEndedException("The input ended before the password was entered.");
                 }
                 elseif ($char === "\n" || $char === "\r")
                 {
@@ -138,7 +139,7 @@ final class CliLib
                 elseif ($char === "\x03" || $char === "\x04")
                 {
                     # Ctrl+C or Ctrl+D
-                    throw new ExceptionUserCancelled("The user cancelled entering their password.");
+                    throw new UserCancelledException("The user cancelled entering their password.");
                 }
                 elseif ($char === "\x7F" || $char === "\x08")
                 {

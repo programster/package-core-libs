@@ -8,6 +8,6 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class ExceptionDecryptionFailed extends \Exception
+class DecryptionFailedException extends CoreLibsException
 {
 }

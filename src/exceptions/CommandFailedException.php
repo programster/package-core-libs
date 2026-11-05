@@ -7,7 +7,7 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class ExceptionCommandFailed extends \Exception
+class CommandFailedException extends CoreLibsException
 {
     private readonly string $m_command;
     private readonly int $m_exitCode;

@@ -7,6 +7,6 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class ExceptionUserCancelled extends \Exception
+class UserCancelledException extends CoreLibsException
 {
 }
