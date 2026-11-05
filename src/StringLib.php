@@ -196,13 +196,15 @@ final class StringLib
 
     /**
      * Replaces the given string's <br> tags with newlines for text fields.
+     * This handles every way of writing the tag, in any case: <br>, <br/>, <br />, <BR>, and ones with attributes
+     * such as <br class="x">.
      * @param string $input - the input string
      * @return string - the output string that has been converted.
      */
     public static function br2nl(string $input): string
     {
-        //$output = preg_replace("/(\r\n|\n|\r)/", "", $input);
-        $output = str_replace('<br />', PHP_EOL, $input);
+        # \b stops this matching other tags that start with "br", such as <bridge>.
+        $output = preg_replace('/<br\b[^>]*>/i', PHP_EOL, $input);
         return $output;
     }
 

@@ -481,6 +481,8 @@ $smoke->run("StringLib", function () {
     assert(StringLib::startsWith("abc", "a") && StringLib::endsWith("abc", "c"));
     assert(StringLib::br2nl("a<br />b") === "a" . PHP_EOL . "b" && StringLib::nl2br("a\nb") === "a<br />b");
     assert(StringLib::nl2br("a\r\nb") === "a<br />b" && StringLib::nl2br("a\rb") === "a<br />b");
+    $expected = implode(PHP_EOL, ["1", "2", "3", "4", "5<bridge>"]);
+    assert(StringLib::br2nl("1<br>2<br/>3<BR />4<br class=\"x\">5<bridge>") === $expected);
     StringLib::convertLineEndings("a\r\nb");
     assert(StringLib::isRegExp("/a/") && !StringLib::isRegExp("not a regex"));
     assert(StringLib::replace("a", "b", "aa") === "bb" && StringLib::replacePairs(["a" => "b"], "aa") === "bb");
