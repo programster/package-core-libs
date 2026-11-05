@@ -108,18 +108,14 @@ final class StringLib
     }
 
 
-   /**
-    * Checks to see if the string in $haystack ends with $needle.
-    *
-    * @param string haystack       - the string to search in.
-    * @param string needle         - the string to look for
-    * @param bool caseSensitive    - whether to enforce case sensitivity or not
-    *                                (default true)
-    * @param bool ignoreWhiteSpace - whether to ignore white space at the ends
-    *                                of the inputs
-    *
-    * @return true if haystack ends with the provided string. False otherwise.
-    */
+    /**
+     * Checks to see if the string in $haystack ends with $needle.
+     * @param string $haystack - the string to search in.
+     * @param string $needle - the string to look for
+     * @param bool $caseSensitive - whether to enforce case sensitivity or not (default true)
+     * @param bool $ignoreWhiteSpace - whether to ignore white space at the ends of the inputs
+     * @return bool - true if the haystack ends with the provided string. False otherwise.
+     */
     public static function endsWith(
         string $haystack,
         string $needle,
@@ -179,7 +175,7 @@ final class StringLib
 
     /**
      * Replaces the given string's <br> tags with newlines for text fields.
-     * @param $input - the input string
+     * @param string $input - the input string
      * @return string - the output string that has been converted.
      */
     public static function br2nl(string $input): string
@@ -207,7 +203,7 @@ final class StringLib
     /**
      * Converts any newlines to the system's format.
      * The use of " instead of ' is very important!
-     * @param $input - any string input
+     * @param string $input - any string input
      * @return $output - the newly reformatted string
      */
     public static function convertLineEndings(string $input): string

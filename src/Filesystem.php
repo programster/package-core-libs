@@ -29,7 +29,7 @@ final class Filesystem
      *                          directories to find more.
      * @param bool $includePath - set to true to include the full path to the
      *                            dir, not just the dir name.
-     * @return Array<String> - list of directories within the specified path.
+     * @return array<string> - list of directories within the specified path.
      */
     public static function getDirectories(
         string $path,
@@ -253,11 +253,11 @@ final class Filesystem
      * the lock can be obtained.
      * Note that this only allows other processes to see that you have locked it and does not
      * actually guarantee that it cannot be edited at the same time on Linux.
-     * @param String $filePath - the full path to the file that we wish to lock
-     * @param boolean $isWriteLock - if false this will get a shared read lock, if true this
+     * @param string $filePath - the full path to the file that we wish to lock
+     * @param bool $isWriteLock - if false this will get a shared read lock, if true this
      *                               will get an exclusive write lock.
-     * @param boolean $isBlocking - if true will wait to get lock.
-     * @return boolean - true if we managed to lock the file, false otherwise.
+     * @param bool $isBlocking - if true will wait to get lock.
+     * @return bool - true if we managed to lock the file, false otherwise.
      */
     public static function lockFile(string $filePath, bool $isWriteLock, bool $isBlocking): bool
     {
@@ -294,8 +294,8 @@ final class Filesystem
 
     /**
      * Unlock a file so that others may use it.
-     * @param String $filePath - the full path to the file that we wish to unlock
-     * @return void.
+     * @param string $filePath - the full path to the file that we wish to unlock
+     * @return void
      */
     public static function unlockFile(string $filePath): void
     {
@@ -633,7 +633,7 @@ final class Filesystem
     /**
      * Create a temporary directory. This will be a randomly named directory in the system's
      * temporary directory folder (usually /tmp).
-     * @param $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
+     * @param string $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
      * http://php.net/manual/en/function.mkdir.php
      * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
      * @throws \Exception
@@ -761,8 +761,8 @@ final class Filesystem
 
     /**
      * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt"
-     * @param String $filename - the name of the file or the full file path
-     * @return String - the file extension.
+     * @param string $filename - the name of the file or the full file path
+     * @return string - the file extension.
      * @throws \Exception
      */
     public static function getFileExtension(string $filename): string

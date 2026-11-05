@@ -317,7 +317,7 @@ final class Network
      * Calculates the hostname including the starting http:// or https:// at
      * the beginning. This is useful for linking items by relative source and
      * getting around htaccess URL rewrites.
-     * @return String  - The URL e.g. 'http://www.technostu.com'
+     * @return string  - The URL e.g. 'http://www.technostu.com'
      */
     public static function getHostname(): string
     {
@@ -380,7 +380,6 @@ final class Network
      * port forwarding.
      * This is a very quick and dirty method that relies on icanhazip.com
      * remaining the same so use with caution.
-     * @param void
      * @return string $ip - the public ip address of this computer.
      * @throws \Exception - if we failed to get a response from icanhazip.com
      */

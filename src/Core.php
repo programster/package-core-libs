@@ -22,8 +22,7 @@ final class Core
 
     /**
      * Determines whether PHP is running as a CLI script or a website.
-     * @param void
-     * @return result (boolean) - true if CLI false if website.
+     * @return bool - true if CLI false if website.
      */
     public static function isCli(): bool
     {
@@ -41,7 +40,7 @@ final class Core
     /**
      * Make PHP slightly more like Java and allow printing a line. If this is
      * in a web app then it will use <br /> as well.
-     * @param String $message - the string to print out.
+     * @param string $message - the string to print out.
      * @return void - prints out immediately.
      */
     public static function println(string $message): void
@@ -76,7 +75,7 @@ final class Core
      * already existing processes with the same title.
      * WARNING - this will fail and return FALSE if you are on Windows
      * @param string $namingPrefix - the name to give the process.
-     * @return boolean - true if successfully set the title, false if not.
+     * @return bool - true if successfully set the title, false if not.
      */
     public static function setCliTitle(string $namingPrefix): bool
     {
@@ -96,7 +95,7 @@ final class Core
     /**
      * Fetches the number of processes running with the given search name
      * (have it in their name)
-     * @param String $title - the string to search for a process by
+     * @param string $title - the string to search for a process by
      *                        (e.g. its name/title)
      * @return int - the number of processes running with that title.
      * @throws ExceptionCommandFailed - if we failed to get the list of processes.
@@ -183,7 +182,6 @@ final class Core
 
     /**
      * Builds the URL of the current page, excluding any ?=&stuff,
-     * @param void
      * @return pageURL - full page URL of the current page
      *                   e.g. https://www.google.com/some-page
      */

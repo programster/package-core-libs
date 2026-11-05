@@ -221,8 +221,8 @@ final class ArrayLib
     /**
      * Wrap all of the elements in an array with the string (before and after)
      * e.g. wrapElements on array(foo,bar), "`" would create array(`foo`,`bar`)
-     * @param $inputArray - array we are going to create our wrapped array from
-     * @param $wrapString - string of characters we wish to wrap with.
+     * @param array $inputArray - array we are going to create our wrapped array from
+     * @param string $wrapString - string of characters we wish to wrap with.
      * @return array
      */
     public static function wrapElements(array $inputArray, string $wrapString): array
@@ -395,8 +395,8 @@ final class ArrayLib
 
     /**
      * Merge two associative arrays. The indexes will be in the order of the first array, then the second
-     * @param Array $array1 - an associative array to merge
-     * @param Array $array2 - an associative array to merge.
+     * @param array $array1 - an associative array to merge
+     * @param array $array2 - an associative array to merge.
      * @param \Closure $clashHandler - callback function to return the value we should keep, should we encounter
      *                                 the same index in the two arrays. This will take as params:
      *                                 [index], [array1 value], [array2 value]
