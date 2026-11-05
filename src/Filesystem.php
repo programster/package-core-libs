@@ -400,7 +400,8 @@ final class Filesystem
      * Zip a directory and all of its contents into a zip file.
      * @param string $sourceFolder - path to the folder we wish to zip up.
      * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
-     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they have been zipped.
+     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they
+     *                                have been zipped.
      * @return void
      * @throws FileAlreadyExistsException
      * @throws FileDoesNotExistException
@@ -610,11 +611,6 @@ final class Filesystem
 
         while (($line = fgets($inputHandle)) !== false)
         {
-            if ($line === false)
-            {
-                throw new FilesystemException("Failed to read from input file handle.");
-            }
-
             if ($filterCallback($line) === true)
             {
                 // keeping the line
@@ -935,7 +931,8 @@ final class Filesystem
 
         # The fallback must be plain ASCII, so replace anything else with an underscore. Do this per character if the
         # filename is valid UTF-8 (so "é" becomes one underscore), otherwise per byte.
-        $asciiFallback = preg_replace('/[^\x20-\x7E]/u', '_', $cleanFilename) ?? preg_replace('/[^\x20-\x7E]/', '_', $cleanFilename);
+        $asciiFallback = preg_replace('/[^\x20-\x7E]/u', '_', $cleanFilename)
+            ?? preg_replace('/[^\x20-\x7E]/', '_', $cleanFilename);
 
         # Inside the quotes, backslashes and double quotes must be escaped.
         $quotedFallback = '"' . addcslashes($asciiFallback, '"\\') . '"';
@@ -1169,7 +1166,9 @@ final class Filesystem
             # single-byte encodings such as Windows-1252, every byte is valid, so this can't catch the wrong encoding.
             if (mb_check_encoding($content, $encoding) === false)
             {
-                throw new FilesystemException("$inputFilepath is not valid $encoding, so it cannot be converted from it.");
+                throw new FilesystemException(
+                    "$inputFilepath is not valid $encoding, so it cannot be converted from it."
+                );
             }
 
             $converted = mb_convert_encoding($content, 'UTF-8', $encoding);
@@ -1194,7 +1193,9 @@ final class Filesystem
 
         if ($tempFilepath === false)
         {
-            throw new FilesystemException("Failed to create a temporary file to write the new contents of $filepath to.");
+            throw new FilesystemException(
+                "Failed to create a temporary file to write the new contents of $filepath to."
+            );
         }
 
         $bytesWritten = file_put_contents($tempFilepath, $contents);

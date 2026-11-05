@@ -147,7 +147,10 @@ final class Network
                 {
                     $details = socket_addrinfo_explain($addressInfo);
                     $family = $details['ai_family'];
-                    $address = ($family === AF_INET6) ? $details['ai_addr']['sin6_addr'] : $details['ai_addr']['sin_addr'];
+
+                    $address = ($family === AF_INET6)
+                        ? $details['ai_addr']['sin6_addr']
+                        : $details['ai_addr']['sin_addr'];
 
                     # Use a new socket for every attempt, as reusing a socket after a failed connection only works on
                     # some operating systems (e.g. Linux, but not macOS).
@@ -240,7 +243,8 @@ final class Network
             if ($numReady === false)
             {
                 throw new NetworkException(
-                    "sendTcpRequest: Failed while waiting for the response: " . socket_strerror(socket_last_error($socket))
+                    "sendTcpRequest: Failed while waiting for the response: " .
+                    socket_strerror(socket_last_error($socket))
                 );
             }
 

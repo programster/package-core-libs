@@ -90,7 +90,8 @@ final class EncryptionLib
         if ($plaintext === false)
         {
             throw new DecryptionFailedException(
-                "Failed to decrypt the text. Either the key is wrong, or the encrypted text has been tampered with or damaged."
+                "Failed to decrypt the text. Either the key is wrong, or the encrypted text has been tampered with " .
+                "or damaged."
             );
         }
 
@@ -125,7 +126,9 @@ final class EncryptionLib
         # The old encrypt() returned base64. OpenSSL quietly treats invalid base64 as empty, so check it ourselves.
         if (base64_decode($encryptedText, true) === false)
         {
-            throw new DecryptionFailedException("The encrypted text is not valid base64, so cannot be legacy encrypted text.");
+            throw new DecryptionFailedException(
+                "The encrypted text is not valid base64, so cannot be legacy encrypted text."
+            );
         }
 
         # These must stay exactly as the old encrypt() method used them, or old data won't decrypt correctly.

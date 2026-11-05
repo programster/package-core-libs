@@ -171,6 +171,14 @@ $smoke->run("other ArrayLib methods", function () {
     assert(ArrayLib::stripEmptyElements([0, 1, "", 2]) === [1, 2]);
     assert(ArrayLib::assocArrayMerge(["a" => 1], ["a" => 2, "b" => 3], fn($k, $x, $y) => $x + $y) === ["a" => 3, "b" => 3]);
 
+    # setDiff() compares sets strictly, so order and types matter.
+    assert(ArrayLib::setDiff([[1, 2], [3, 4], [5]], [[3, 4]]) === [[1, 2], [5]]);
+    assert(ArrayLib::setDiff([[1, 2], [1]], [[2, 1], ["1"]]) === [[1, 2], [1]]);
+    assert(ArrayLib::setDiff([[-0.0]], [[0.0]]) === []);
+    # A closure can't be serialized, so this checks the fallback that compares every pair.
+    $closure = fn() => 1;
+    assert(ArrayLib::setDiff([[$closure], [1]], [[$closure]]) === [[1]]);
+
     # Keys that exist with a null value must be treated as existing.
     assert(ArrayLib::getValues(["a" => null], ["a"]) === [null]);
     assert(ArrayLib::removeIndexes(["a" => null, "b" => 1], ["a"]) === ["b" => 1]);

@@ -320,34 +320,84 @@ final class ArrayLib
     /**
      * Returns an array of "sets" that are in arr1 but not arr2 where a "set" is
      * an array of values, e.g. array(1,2,3)
+     * Sets are compared strictly (with ===), so they only match if they have the same keys and values, of the same
+     * types, in the same order. E.g. [1, 2] does not match [2, 1], and [1] does not match ["1"].
+     * This builds a lookup of $arr2 first, so it takes roughly as long as going through both arrays once, rather than
+     * comparing every set in $arr1 with every set in $arr2. If any set contains something that can't be serialized
+     * (such as a closure), it falls back to comparing every pair, which gives the same result, just more slowly.
      * @param array $arr1 - array to compare
      * @param array $arr2 - array to compare
      * @return array - array of sets that are in array1 but not array2
      */
-    private static function setDiff(array $arr1, array $arr2): array
+    public static function setDiff(array $arr1, array $arr2): array
     {
-        $missingSets = array();
-
-        foreach ($arr1 as $searchSet)
+        try
         {
-            $found = false;
+            # Group the sets in $arr2 by a key that is the same for any two sets that are ===. A set's key can also
+            # match a set that isn't === (e.g. two different objects with the same properties), so the matches are
+            # still checked with === below.
+            $arr2SetsByKey = [];
 
-            foreach ($arr2 as $subArray2)
+            foreach ($arr2 as $set)
             {
-                if ($subArray2 === $searchSet)
-                {
-                    $found = true;
-                    break;
-                }
+                $arr2SetsByKey[self::getSetKey($set)][] = $set;
             }
 
-            if (!$found)
+            $missingSets = [];
+
+            foreach ($arr1 as $searchSet)
             {
-                $missingSets[] = $searchSet;
+                $found = in_array($searchSet, $arr2SetsByKey[self::getSetKey($searchSet)] ?? [], true);
+
+                if (!$found)
+                {
+                    $missingSets[] = $searchSet;
+                }
+            }
+        }
+        catch (\Exception $e)
+        {
+            # Something couldn't be serialized (serialize() throws for things like closures), so compare every pair.
+            $missingSets = [];
+
+            foreach ($arr1 as $searchSet)
+            {
+                if (!in_array($searchSet, $arr2, true))
+                {
+                    $missingSets[] = $searchSet;
+                }
             }
         }
 
         return $missingSets;
+    }
+
+
+    /**
+     * Get a key for a set, for setDiff(), that is the same for any two sets that are === to each other.
+     * @param mixed $set - the set to get the key of. This is normally an array, but can be any serializable value.
+     * @return string - the key.
+     * @throws \Exception - if the set contains something that can't be serialized, such as a closure.
+     */
+    private static function getSetKey(mixed $set): string
+    {
+        # serialize() writes -0.0 and 0.0 differently, but they are === to each other, so make them the same first.
+        if (is_array($set))
+        {
+            array_walk_recursive($set, function (mixed &$value): void {
+                if ($value === 0.0)
+                {
+                    $value = 0.0;
+                }
+            });
+        }
+        elseif ($set === 0.0)
+        {
+            $set = 0.0;
+        }
+
+        $key = serialize($set);
+        return $key;
     }
 
 
@@ -556,7 +606,6 @@ final class ArrayLib
 
         return $result;
     }
-
 
 
     /**
