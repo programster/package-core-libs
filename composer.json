@@ -1,7 +1,7 @@
 {
     "name": "programster/core-libs",
     "type": "library",
-    "description": "Core libraries for PHP 8.5+",
+    "description": "Core libraries for PHP 8.3+",
     "keywords": ["core","library"],
     "homepage": "https://github.com/programster/package-core-libs",
     "license": "MIT",
@@ -14,7 +14,7 @@
         }
     ],
     "require": {
-        "php": ">=8.5.0",
+        "php": ">=8.3.0",
         "ext-fileinfo": "*"
     },
     "require-dev" : {

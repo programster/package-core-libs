@@ -8,19 +8,28 @@
 
 namespace Programster\CoreLibs;
 
+use Programster\CoreLibs\Exceptions\ExceptionEmptyArray;
 
-class ArrayLib
+
+final class ArrayLib
 {
     /**
      * Returns true or false based on whether the provided array is an
      * associative array or not.
      * Note that this will return true if it is integer based but the index
      * does not start at 0.
-     * @param array arr - the array to check
+     * An empty array is neither, so an exception is thrown for one.
+     * @param array $arr - the array to check
      * @return bool - true if the array is associative, false otherwise.
+     * @throws ExceptionEmptyArray - if the array has no elements.
      */
-    public static function isAssoc(array $arr)
+    public static function isAssoc(array $arr): bool
     {
+        if (count($arr) === 0)
+        {
+            throw new ExceptionEmptyArray('Cannot determine whether an array that has no elements is associative.');
+        }
+
         return array_keys($arr) !== range(0, count($arr) - 1);
     }
 
@@ -28,14 +37,25 @@ class ArrayLib
     /**
      * Returns the first element of the array (useful for maps/hashtables or if you don't know)
      * @param array $inputArray - the array we want the first element of.
-     * @param bool $removeElement - optionally override to true to remove the element from the array
-     * @return mixed $element - the first element of the array.
+     * @param bool $removeElement - optionally override to true to remove the element from the array. This uses
+     *                              array_shift(), so the remaining numeric keys are re-indexed to start from 0 (e.g.
+     *                              [5 => 'a', 9 => 'b'] becomes [0 => 'b']), whilst string keys are left as they are.
+     * @return mixed - the first element of the array.
+     * @throws ExceptionEmptyArray - if the array has no elements.
      */
-    public static function getFirstElement(array &$inputArray, $removeElement=false)
+    public static function getFirstElement(array &$inputArray, bool $removeElement=false): mixed
     {
+        if (count($inputArray) === 0)
+        {
+            throw new ExceptionEmptyArray('Trying to get the first element of an array that has no elements.');
+        }
+
         if (!$removeElement)
         {
-            $element = array_first($inputArray);
+            # array_first() was only added in PHP 8.5, so fall back to array_key_first() on older versions.
+            $element = function_exists('array_first')
+                ? array_first($inputArray)
+                : $inputArray[array_key_first($inputArray)];
         }
         else
         {
@@ -49,16 +69,20 @@ class ArrayLib
     /**
      * Fetches the last element of an array
      * @param array &$inputArray - the array we want the last element of.
-     * @param bool removeElement - override to true if you also want to remove that element
-     * @return $element - the last element of the array.
+     * @param bool $removeElement - override to true if you also want to remove that element
+     * @return mixed - the last element of the array.
+     * @throws ExceptionEmptyArray - if the array has no elements.
      */
-    public static function getLastElement(array &$inputArray, $removeElement=false)
+    public static function getLastElement(array &$inputArray, bool $removeElement=false): mixed
     {
         if (count($inputArray) > 0)
         {
             if (!$removeElement)
             {
-                $element = array_last($inputArray);
+                # array_last() was only added in PHP 8.5, so fall back to array_key_last() on older versions.
+                $element = function_exists('array_last')
+                    ? array_last($inputArray)
+                    : $inputArray[array_key_last($inputArray)];
             }
             else
             {
@@ -67,7 +91,7 @@ class ArrayLib
         }
         else
         {
-            throw new \Exception('Trying to get the last element of an array that has no elements.');
+            throw new ExceptionEmptyArray('Trying to get the last element of an array that has no elements.');
         }
 
         return $element;
@@ -75,15 +99,29 @@ class ArrayLib
 
 
     /**
-     * Returns the last index in the provided array
-     * @param array $inputArray - the array we want the last index of
-     * @param bool $removeElement - override to true if you want to also remove the element
-     * @return mixed
+     * Returns the last key in the provided array
+     * @param array $inputArray - the array we want the last key of
+     * @param bool $removeElement - override to true if you want to also remove the last element (and its key) from
+     *                              the array.
+     * @return int|string - the last key in the array. This is deliberately a union type, as PHP array keys can only
+     *                      be integers or strings.
+     * @throws ExceptionEmptyArray - if the array has no elements.
      */
-    public static function getLastIndex(array &$inputArray, $removeElement=false)
+    public static function getLastKey(array &$inputArray, bool $removeElement=false): int|string
     {
-        $arrayIndexes = array_keys($inputArray);
-        return self::getLastElement($arrayIndexes, $removeElement);
+        $lastKey = array_key_last($inputArray);
+
+        if ($lastKey === null)
+        {
+            throw new ExceptionEmptyArray('Trying to get the last key of an array that has no elements.');
+        }
+
+        if ($removeElement)
+        {
+            unset($inputArray[$lastKey]);
+        }
+
+        return $lastKey;
     }
 
 
@@ -92,9 +130,15 @@ class ArrayLib
      * @param array $inputArray - the array to get a random element from.
      * @param bool $removeElement - optionally set to true to have the element removed from the array as well.
      * @return mixed - a random element from the array.
+     * @throws ExceptionEmptyArray - if the array has no elements.
      */
-    public static function getRandomElement(array &$inputArray, bool $removeElement = false)
+    public static function getRandomElement(array &$inputArray, bool $removeElement = false): mixed
     {
+        if (count($inputArray) === 0)
+        {
+            throw new ExceptionEmptyArray('Trying to get a random element from an array that has no elements.');
+        }
+
         $randomKey = ArrayLib::getRandomKey($inputArray);
         $element = $inputArray[$randomKey];
 
@@ -111,10 +155,17 @@ class ArrayLib
      * Get a random key from the provided array.
      * @param array $inputArray - the array to get a random key from.
      * @param bool $removeElement - optionally specify true to have the key (and element) removed from the array.
-     * @return mixed  - a random key in the array. This could be a string or integer
+     * @return int|string - a random key in the array. This is deliberately a union type, as PHP array keys can only be
+     *                      integers or strings.
+     * @throws ExceptionEmptyArray - if the array has no elements.
      */
-    public static function getRandomKey(array &$inputArray, bool $removeElement = false)
+    public static function getRandomKey(array &$inputArray, bool $removeElement = false): int|string
     {
+        if (count($inputArray) === 0)
+        {
+            throw new ExceptionEmptyArray('Trying to get a random key from an array that has no elements.');
+        }
+
         $keys = array_keys($inputArray);
         $key = $keys[random_int(0, (count($keys) - 1))];
 
@@ -134,7 +185,7 @@ class ArrayLib
      * @param bool $reIndex - override to true if your array needs re-indexing (e.g. 0,1,2,3)
      * @return array $outputArray - the newly generated output array.
      */
-    public static function removeIndexes(array $inputArray, array $indexes, $reIndex=false)
+    public static function removeIndexes(array $inputArray, array $indexes, bool $reIndex=false): array
     {
         if ($reIndex)
         {
@@ -170,13 +221,11 @@ class ArrayLib
     /**
      * Wrap all of the elements in an array with the string (before and after)
      * e.g. wrapElements on array(foo,bar), "`" would create array(`foo`,`bar`)
-     * If you are wrapping values for insertion into a MySQL database, please use MySqliLib::mysqliWrapValues()
-     * as that will gracefully convert null values to string "NULL".
      * @param $inputArray - array we are going to create our wrapped array from
      * @param $wrapString - string of characters we wish to wrap with.
      * @return array
      */
-    public static function wrapElements(array $inputArray, string $wrapString)
+    public static function wrapElements(array $inputArray, string $wrapString): array
     {
         foreach ($inputArray as &$value)
         {
@@ -195,7 +244,7 @@ class ArrayLib
      * @param array $array2 - array to compare
      * @return array - values in array1 but not array2
      */
-    public static function fastDiff(array $array1, array $array2)
+    public static function fastDiff(array $array1, array $array2): array
     {
         $missingValues = array();
         $flippedArray2 = array_flip($array2); # swaps indexes and values
@@ -222,7 +271,7 @@ class ArrayLib
      * @param array $array2 - array of integers or strings to compare
      * @return array - values that are in both arrays
      */
-    public static function fastIntersect(array $array1, array $array2)
+    public static function fastIntersect(array $array1, array $array2): array
     {
         $sharedValues = array();
         $flippedArray2 = array_flip($array2); # swaps indexes and values
@@ -246,7 +295,7 @@ class ArrayLib
      * @param array $haystack - the array we are pulling values from
      * @param array $indexes - array list of keys we want the values of.
      */
-    public static function getValues(array $haystack, array $indexes)
+    public static function getValues(array $haystack, array $indexes): array
     {
         $values = array();
 
@@ -272,7 +321,7 @@ class ArrayLib
      * @param array $arr2 - array to compare
      * @return array - array of sets that are in array1 but not array2
      */
-    private static function setDiff(array $arr1, array $arr2)
+    private static function setDiff(array $arr1, array $arr2): array
     {
         $missingSets = array();
 
@@ -308,7 +357,7 @@ class ArrayLib
      * @return array - array of indexes in array1 where the values are not in
      *                 array2
      */
-    public static function indexDiff(array $array1, array $array2)
+    public static function indexDiff(array $array1, array $array2): array
     {
         $indexes = array();
         $flippedArray2 = array_flip($array2); # swaps indexes and values
@@ -330,11 +379,12 @@ class ArrayLib
      * If the input array is not associative, then it will be re-indexed. 0,1,2,3 etc
      * @param array $inputArray - the array to perform actions upon.
      */
-    public static function stripEmptyElements(array $inputArray)
+    public static function stripEmptyElements(array $inputArray): array
     {
         $outputArray = array_filter($inputArray);
 
-        if (!self::isAssoc($inputArray))
+        # An empty array has nothing to re-index (and isAssoc() would throw for it).
+        if (count($inputArray) > 0 && !self::isAssoc($inputArray))
         {
             $outputArray = array_values($outputArray);
         }
@@ -353,7 +403,7 @@ class ArrayLib
      *
      * @return array - combined associative array.
      */
-    public static function assocArrayMerge(array $array1, array $array2, \Closure $clashHandler)
+    public static function assocArrayMerge(array $array1, array $array2, \Closure $clashHandler): array
     {
         $result_array = array();
 
@@ -395,7 +445,7 @@ class ArrayLib
      *                      If any of the rows have indexes, these will be lost.
      * @return array - the generated array list of rows.
      */
-    public static function arrayCombineList(array $keys, array $rows)
+    public static function arrayCombineList(array $keys, array $rows): array
     {
         $output = array();
 
@@ -403,7 +453,7 @@ class ArrayLib
         {
             if (count($row) !== count($keys))
             {
-                $msg = "array_combine_list: Number of values in one of the rows is " .
+                $msg = "arrayCombineList: Number of values in one of the rows is " .
                        "not equal to the number of keys.";
 
                 throw new \Exception($msg);
@@ -417,59 +467,84 @@ class ArrayLib
 
 
     /**
-     * Break an array up into a number of other arrays specified by $numberOfArrays
+     * Divide an array into $numberOfArrays arrays, filled as equally as possible. Exactly $numberOfArrays arrays are
+     * always returned, and their sizes are never more than one element apart. If there are fewer elements than
+     * arrays, then some of the arrays will be empty.
      * @param array $inputArray - the array to split into multiple arrays
      * @param int $numberOfArrays - the number of arrays to break up into and return
-     * @param bool $useBucketFill - default true to put the first elements in the first array and
-     *                              then start filling the next array. If set to false, then
-     *                              elements will be spread across the arrays in turn.
-     *                              E.G. true  - [1,2,3,4,5] / 2 -> [ [1,2,3], [4,5] ]
+     * @param bool $useBucketFill - default true to fill the arrays in order, so the first elements go in the first
+     *                              array, the next elements in the next array, and so on. The larger arrays (if
+     *                              they can't all be the same size) come first. If set to false, then elements will
+     *                              be spread across the arrays in turn.
+     *                              E.g. true  - [1,2,3,4,5] / 2 -> [ [1,2,3], [4,5] ]
+     *                              E.g. true  - [1,2,3,4,5] / 4 -> [ [1,2], [3], [4], [5] ]
      *                              E.g. false - [1,2,3,4,5] / 2 -> [ [1,3,5], [2,4] ]
+     *                              E.g. true  - [1,2] / 3       -> [ [1], [2], [] ]
      *
      * @param bool $preserveKeys - if true key/value association is maintained in the split arrays
      * @return array - an array of the resulting arrays.
+     * @throws ExceptionEmptyArray - if $inputArray has no elements.
+     * @throws \InvalidArgumentException - if $numberOfArrays is less than 1.
      */
     public static function split(
         array $inputArray,
         int $numberOfArrays,
         bool $useBucketFill=true,
         bool $preserveKeys=false
-    ) : array
+    ): array
     {
-        if ($useBucketFill)
+        if (count($inputArray) === 0)
         {
-            // fill one array at a time.
-            $chunkSize = (int) ceil(count($inputArray) / $numberOfArrays);
-            $result = array_chunk($inputArray, $chunkSize, $preserveKeys);
+            throw new ExceptionEmptyArray('Trying to split an array that has no elements.');
         }
-        else
+
+        if ($numberOfArrays < 1)
         {
-            // spread the elements over the arrays
-            $result = array();
+            throw new \InvalidArgumentException(
+                "split: \$numberOfArrays must be at least 1, but {$numberOfArrays} was given."
+            );
+        }
 
-            for ($i=0; $i < $numberOfArrays; $i++)
+        $result = array_fill(0, $numberOfArrays, []);
+
+        # For bucket fill: every array gets $baseSize elements, and the first $numExtra arrays get one more, so that
+        # the sizes are never more than one apart.
+        $baseSize = intdiv(count($inputArray), $numberOfArrays);
+        $numExtra = count($inputArray) % $numberOfArrays;
+
+        $arrayIndex = 0;
+        $numInCurrentArray = 0;
+        $counter = 0;
+
+        foreach ($inputArray as $key => $value)
+        {
+            if ($useBucketFill)
             {
-                $result[] = array();
-            }
+                # Move on to the next array once this one has all of its share.
+                $currentArraySize = $baseSize + (($arrayIndex < $numExtra) ? 1 : 0);
 
-            $counter = 0;
-
-            if ($preserveKeys)
-            {
-                foreach ($inputArray as $key => $value)
+                if ($numInCurrentArray >= $currentArraySize)
                 {
-                    $result[$counter % $numberOfArrays][$key] = $value;
-                    $counter++;
+                    $arrayIndex++;
+                    $numInCurrentArray = 0;
                 }
+
+                $numInCurrentArray++;
             }
             else
             {
-                while (count($inputArray) > 0)
-                {
-                    $element = array_shift($inputArray);
-                    $result[$counter % $numberOfArrays][] = $element;
-                    $counter++;
-                }
+                # Deal the elements out across the arrays in turn.
+                $arrayIndex = $counter % $numberOfArrays;
+                $counter++;
+            }
+
+            if ($preserveKeys)
+            {
+                $result[$arrayIndex][$key] = $value;
+            }
+            else
+            {
+                $result[$arrayIndex][] = $value;
             }
         }
 
@@ -490,11 +565,12 @@ class ArrayLib
      *
      * @return mixed - the resulting value. (default value if not set)
      */
-    public static function getValueOrDefault(array $inputArray, string $key, $defaultValue)
+    public static function getValueOrDefault(array $inputArray, string $key, mixed $defaultValue): mixed
     {
         $returnVar = $defaultValue;
 
-        if (isset($inputArray[$key]))
+        # Use array_key_exists() rather than isset(), so that a key that exists with a null value returns null.
+        if (array_key_exists($key, $inputArray))
         {
             $returnVar = $inputArray[$key];
         }

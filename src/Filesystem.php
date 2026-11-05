@@ -12,10 +12,10 @@ use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
 use Programster\CoreLibs\Exceptions\ExceptionFileAlreadyExists;
 use Programster\CoreLibs\Exceptions\ExceptionFileDoesNotExist;
 use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
-use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\ExceptionFilesystem;
 use ZipArchive;
 
-class Filesystem
+final class Filesystem
 {
     private static array $s_fileLocks = [];
 
@@ -35,7 +35,7 @@ class Filesystem
         string $path,
         bool $recursive = false,
         bool $includePath = true
-    ) : array
+    ): array
     {
         $directories = array();
         $fpath     = realpath($path);
@@ -101,7 +101,7 @@ class Filesystem
         bool $includePath = true,
         bool $onlyFiles   = true,
         bool $includeHiddenFilesAndFolders = true
-    ) : array
+    ): array
     {
         $fileNames = array();
         $fpath     = realpath($dir);
@@ -179,24 +179,25 @@ class Filesystem
      * @param bool $recursive - override to false if you want to fail if parent
      *                          dirs don't exist.
      *
-     * @return bool - true if the directory now exists, false otherwise
+     * @return void
+     * @throws ExceptionFilesystem - if the directory doesn't exist and could not be created.
      */
     public static function mkdir(
         string $dirPath,
-        string|null $perms = null,
+        ?string $perms = null,
         bool $recursive = true
-    ) : bool
+    ): void
     {
-        $result = true;
         $perms = $perms ?? "0755";
         $perms = octdec($perms);
 
-        if (!is_dir($dirPath))
+        # Suppress the warning, as we throw an exception with the details instead. The second is_dir() check is in
+        # case another process created the directory at the same time.
+        if (!is_dir($dirPath) && !@mkdir($dirPath, $perms, $recursive) && !is_dir($dirPath))
         {
-            $result = mkdir($dirPath, $perms, $recursive);
+            $error = error_get_last()['message'] ?? 'unknown error';
+            throw new ExceptionFilesystem("Failed to create the directory {$dirPath}: {$error}");
         }
-
-        return $result;
     }
 
 
@@ -207,7 +208,7 @@ class Filesystem
      * @return void
      * @throws ExceptionFileDoesNotExist - if a directory does not exist at the path specified.
      */
-    public static function deleteDir(string $dir) : void
+    public static function deleteDir(string $dir): void
     {
         Filesystem::emptyDir($dir);
         rmdir($dir);
@@ -220,7 +221,7 @@ class Filesystem
      * @return void
      * @throws ExceptionFileDoesNotExist - if a directory does not exist at the path specified.
      */
-    public static function emptyDir(string $dir) : void
+    public static function emptyDir(string $dir): void
     {
         if (!is_dir($dir))
         {
@@ -248,17 +249,17 @@ class Filesystem
 
     /**
      * Lock a file so that only we can use it.
-     * This will NOT block until the file can be locked, but would return false immediately if it
-     * cannot grab the lock.
+     * If $isBlocking is false, this returns false immediately if the lock can't be obtained. If true, it waits until
+     * the lock can be obtained.
      * Note that this only allows other processes to see that you have locked it and does not
      * actually guarantee that it cannot be edited at the same time on Linux.
      * @param String $filePath - the full path to the file that we wish to lock
-     * @param boolean $is_write_lock - if false this will get a shared read lock, if true this
+     * @param boolean $isWriteLock - if false this will get a shared read lock, if true this
      *                               will get an exclusive write lock.
-     * @param boolean $is_blocking - if true will wait to get lock.
+     * @param boolean $isBlocking - if true will wait to get lock.
      * @return boolean - true if we managed to lock the file, false otherwise.
      */
-    public static function lockFile(string $filePath, bool $is_write_lock, bool $is_blocking) : bool
+    public static function lockFile(string $filePath, bool $isWriteLock, bool $isBlocking): bool
     {
         # This creates the file if it doesn't exist.
         # This MUST be a+ instead of w or w+ as using w will result in the file being wiped.
@@ -266,13 +267,13 @@ class Filesystem
 
         if ($fileHandle === false)
         {
-            throw new FilesystemException("Failed to open {$filePath} in order to lock it.");
+            throw new ExceptionFilesystem("Failed to open {$filePath} in order to lock it.");
         }
 
         self::$s_fileLocks[$filePath] = $fileHandle;
         $lock_params = 0;
 
-        if ($is_write_lock)
+        if ($isWriteLock)
         {
             $lock_params =  $lock_params | LOCK_EX;
         }
@@ -282,7 +283,7 @@ class Filesystem
             $lock_params = $lock_params | LOCK_SH;
         }
 
-        if (!$is_blocking)
+        if (!$isBlocking)
         {
             $lock_params = $lock_params | LOCK_NB;
         }
@@ -296,11 +297,10 @@ class Filesystem
      * @param String $filePath - the full path to the file that we wish to unlock
      * @return void.
      */
-    public static function unlockFile(string $filePath) : void
+    public static function unlockFile(string $filePath): void
     {
         if (isset(self::$s_fileLocks[$filePath]))
         {
-            # This creates the file if it doesn't exist.
             fclose(self::$s_fileLocks[$filePath]);
             unset(self::$s_fileLocks[$filePath]);
         }
@@ -308,18 +308,20 @@ class Filesystem
 
 
     /**
-     * Fetch the total size (in bytes) of a directory or file, including all
-     * its subdirectories. This is "apparent size" and not the size on disk
-     * which is to the block.
+     * Fetch the total size of a directory or file, including all
+     * its subdirectories. This is the "apparent size" (the total of the file sizes),
+     * rather than the space taken up on disk, which is rounded up to the filesystem's block size.
      * This only works on Linux, not Windows.
      * src: http://stackoverflow.com/questions/478121/php-get-directory-size
      * @param string $dirPath - the path to the directory we wish to get the
      *                          size of
-     * @return int - the size (in bytes) of the directory and all its contents.
+     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults to bytes.
+     * @return float - the size of the directory and all its contents, in the specified unit. E.g. 1.5 for 1536 bytes
+     *                 in KiB.
      * @throws ExceptionCommandFailed - if the du command failed, such as if there is nothing at $dirPath.
      * @throws \Exception - if the output of du was not in the expected format.
      */
-    public static function getDirSize(string $dirPath) : int
+    public static function getDirSize(string $dirPath, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
     {
         # Output looks like: "4096\t/path/to/dir"
         $output = Core::runCommand('/usr/bin/du --bytes --summarize ' . escapeshellarg($dirPath));
@@ -330,7 +332,45 @@ class Filesystem
             throw new \Exception("getDirSize: unexpected output from du: {$output}");
         }
 
-        return (int) $size;
+        return $unit->convertFromBytes((int) $size);
+    }
+
+
+    /**
+     * Fetch the size of a file. Unlike PHP's filesize(), this throws an exception rather than returning false if it
+     * fails, and it always gets the file's current size, rather than one PHP may have cached earlier in the script.
+     * @param string $filepath - the path to the file to get the size of.
+     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults to bytes.
+     * @return float - the size of the file in the specified unit. E.g. 1.5 for a 1536 byte file in KiB.
+     * @throws ExceptionFileDoesNotExist - if there is no file at $filepath, or it is a directory (use getDirSize()).
+     * @throws ExceptionFilesystem - if the size of the file could not be determined.
+     */
+    public static function getFileSize(string $filepath, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
+    {
+        # PHP caches file information such as sizes, so clear it for this file, otherwise checking a file's size
+        # before and after writing to it in the same script would give the old size.
+        clearstatcache(true, $filepath);
+
+        if (is_dir($filepath))
+        {
+            throw new ExceptionFileDoesNotExist(
+                "{$filepath} is a directory, not a file. Please use getDirSize() to get the size of a directory."
+            );
+        }
+
+        if (!is_file($filepath))
+        {
+            throw new ExceptionFileDoesNotExist("There is no file at {$filepath}.");
+        }
+
+        $numBytes = filesize($filepath);
+
+        if ($numBytes === false)
+        {
+            throw new ExceptionFilesystem("Failed to get the size of {$filepath}.");
+        }
+
+        return $unit->convertFromBytes($numBytes);
     }
 
 
@@ -344,7 +384,7 @@ class Filesystem
      * @throws ExceptionFileDoesNotExist
      * @throws ExceptionMissingExtension
      */
-    public static function zipDir(string $sourceFolder, string $dest, bool $deleteOnComplete=true) : void
+    public static function zipDir(string $sourceFolder, string $dest, bool $deleteOnComplete=true): void
     {
         if (!extension_loaded('zip') )
         {
@@ -399,7 +439,7 @@ class Filesystem
      * @throws ExceptionFileDoesNotExist
      * @throws ExceptionMissingExtension
      */
-    public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete=true) : void
+    public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete=true): void
     {
         if (!extension_loaded('zip') )
         {
@@ -442,7 +482,7 @@ class Filesystem
      * @param \callable $callback - callback to execute on every line in the file.
      * @throws \Exception
      */
-    public static function fileWalk(string $filepath, callable $callback) : void
+    public static function fileWalk(string $filepath, callable $callback): void
     {
         $handle = fopen($filepath, "r");
 
@@ -475,14 +515,14 @@ class Filesystem
      * @param int|null $streamChunkSize - optionally specify the chunk size when streaming content from the temporary
      * file back into the original. This is only applicable when modifying the file in-place.
      * @return void
-     * @throws FilesystemException
+     * @throws ExceptionFilesystem
      */
     public static function fileFilter(
         string   $inputFile,
         callable $filterCallback,
         ?string  $outputFilepath = null,
         ?int     $streamChunkSize = null,
-    ) : void
+    ): void
     {
         // If the output file already exists, it may be the input file under a different path (e.g. relative path or
         // symlink), so compare the resolved paths. If it doesn't exist yet, it can't be the input file.
@@ -499,14 +539,14 @@ class Filesystem
 
             if ($inputHandle === false)
             {
-                throw new FilesystemException("Failed to open {$inputFile} for reading and writing.");
+                throw new ExceptionFilesystem("Failed to open {$inputFile} for reading and writing.");
             }
 
             $tempFilename = tempnam(sys_get_temp_dir(), "filter-");
 
             if ($tempFilename === false)
             {
-                throw new FilesystemException("Failed to create a temporary file to filter {$inputFile} into.");
+                throw new ExceptionFilesystem("Failed to create a temporary file to filter {$inputFile} into.");
             }
         }
         else
@@ -515,7 +555,7 @@ class Filesystem
 
             if ($inputHandle === false)
             {
-                throw new FilesystemException("Failed to open {$inputFile} for reading.");
+                throw new ExceptionFilesystem("Failed to open {$inputFile} for reading.");
             }
 
             $tempFilename = $outputFilepath;
@@ -525,14 +565,14 @@ class Filesystem
 
         if ($outputHandle === false)
         {
-            throw new FilesystemException("Failed to open $tempFilename for writing.");
+            throw new ExceptionFilesystem("Failed to open $tempFilename for writing.");
         }
 
         while (($line = fgets($inputHandle)) !== false)
         {
             if ($line === false)
             {
-                throw new FilesystemException("Failed to read from input file handle.");
+                throw new ExceptionFilesystem("Failed to read from input file handle.");
             }
 
             if ($filterCallback($line) === true)
@@ -542,7 +582,7 @@ class Filesystem
 
                 if ($wroteLine === false)
                 {
-                    throw new FilesystemException("Failed to write to {$tempFilename}.");
+                    throw new ExceptionFilesystem("Failed to write to {$tempFilename}.");
                 }
             }
         }
@@ -557,14 +597,14 @@ class Filesystem
 
             if ($fromHandle === false)
             {
-                throw new FilesystemException("Failed to open $tempFilename for reading.");
+                throw new ExceptionFilesystem("Failed to open $tempFilename for reading.");
             }
 
             $toHandle = fopen($inputFile, "w");
 
             if ($toHandle === false)
             {
-                throw new FilesystemException("Failed to open $inputFile for writing.");
+                throw new ExceptionFilesystem("Failed to open $inputFile for writing.");
             }
 
             if ($streamChunkSize !== null)
@@ -580,7 +620,7 @@ class Filesystem
 
             if ($unlinked === false)
             {
-                throw new FilesystemException("Failed to remove temporary file: {$tempFilename}");
+                throw new ExceptionFilesystem("Failed to remove temporary file: {$tempFilename}");
             }
         }
         else
@@ -598,7 +638,7 @@ class Filesystem
      * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
      * @throws \Exception
      */
-    public static function tmpDir(string $mode = "0777") : string
+    public static function tmpDir(string $mode = "0777"): string
     {
         $tempName = tempnam(sys_get_temp_dir(), '');
         unlink($tempName);
@@ -606,7 +646,7 @@ class Filesystem
 
         if (is_dir($tempName) === FALSE)
         {
-            throw new \Exception("Failed to create tmpdir.");
+            throw new \Exception("Failed to create a temporary directory.");
         }
 
         return $tempName;
@@ -619,15 +659,15 @@ class Filesystem
      * fall back to using file_get_contents.
      * @param string $url
      * @return string - the full filepath to the downloaded file on the server.
-     * @throws FilesystemException - if the temporary file could not be created/written to, or the download failed.
+     * @throws ExceptionFilesystem - if the temporary file could not be created/written to, or the download failed.
      */
-    public static function downloadFile(string $url) : string
+    public static function downloadFile(string $url): string
     {
         $downloadedFilepath = tempnam(sys_get_temp_dir(), "");
 
         if ($downloadedFilepath === false)
         {
-            throw new FilesystemException("Failed to create a temporary file to download {$url} into.");
+            throw new ExceptionFilesystem("Failed to create a temporary file to download {$url} into.");
         }
 
         // use curl if installed. Faster and probably more memory efficient.
@@ -637,7 +677,7 @@ class Filesystem
 
             if ($fp === false)
             {
-                throw new FilesystemException("Failed to open {$downloadedFilepath} for writing.");
+                throw new ExceptionFilesystem("Failed to open {$downloadedFilepath} for writing.");
             }
 
             $ch = curl_init(str_replace(" ", "%20", $url));
@@ -650,7 +690,7 @@ class Filesystem
 
             if ($downloaded === false)
             {
-                throw new FilesystemException("Failed to download {$url}: {$curlError}");
+                throw new ExceptionFilesystem("Failed to download {$url}: {$curlError}");
             }
         }
         else
@@ -659,12 +699,12 @@ class Filesystem
 
             if ($content === false)
             {
-                throw new FilesystemException("Failed to download {$url}.");
+                throw new ExceptionFilesystem("Failed to download {$url}.");
             }
 
             if (file_put_contents($downloadedFilepath, $content) === false)
             {
-                throw new FilesystemException("Failed to write the downloaded content to {$downloadedFilepath}.");
+                throw new ExceptionFilesystem("Failed to write the downloaded content to {$downloadedFilepath}.");
             }
         }
 
@@ -679,7 +719,7 @@ class Filesystem
      * @param string $filepath - the path to the file/folder we wish to get the permissions of.
      * @return string - the file permissions string.
      */
-    public static function fileperms(string $filepath) : string
+    public static function fileperms(string $filepath): string
     {
         $perms = fileperms($filepath);
 
@@ -725,7 +765,7 @@ class Filesystem
      * @return String - the file extension.
      * @throws \Exception
      */
-    public static function getFileExtension(string $filename) : string
+    public static function getFileExtension(string $filename): string
     {
         $parts = explode('.', $filename);
         return ArrayLib::getLastElement($parts);
@@ -735,45 +775,97 @@ class Filesystem
     /**
      * Serve up a file to the user. This is particularly useful for CSV/PDF report downloads etc.
      * @param string $filepath - the path to the file you wish to serve up as a download
-     * @param string $downloadFilename
+     * @param string $downloadFilename - the filename the browser should use for the file, e.g. if the user saves it.
+     * This can contain any characters, including spaces, punctuation and non-ASCII characters such as "résumé.pdf".
      * @param string $mimetype - optionally manually specify the mimetype. Can be null to force not setting mimetype on
      * download. Defaults to "auto" which will have PHP try to dynamically figure out the mimetype of the file.
      * @param bool $asAttachment - specify whether the file should be downloaded as an attachment in the browser
      * (default), or set to false for the file to be "inline" so it just appears in the webview rather than being
      * downloaded. E.g. for a PDF, the PDF could just be shown in the browser and not automatically downloaded, with
      * the user choosing to download the file if they wish
-     * @throws \Exception - if mimetype set to auto and PHP could not open mimetype database for determining mimetype.
+     * @throws ExceptionFileDoesNotExist - if there is no file at $filepath.
+     * @throws ExceptionBadFilePermissions - if the file exists but cannot be read.
+     * @throws ExceptionFilesystem - if the mimetype or size of the file could not be determined, or the file could not
+     * be read. These are checked before any headers are sent, apart from the file failing to be read.
      */
     public static function streamFileToBrowser(
         string $filepath,
         string $downloadFilename,
         ?string $mimetype="auto",
         bool $asAttachment=true
-    ) : void
+    ): void
     {
+        # Check everything that could fail before sending any headers, so that a failure doesn't leave the browser with
+        # a half-sent response.
+        if (!is_file($filepath))
+        {
+            throw new ExceptionFileDoesNotExist("There is no file at {$filepath}.");
+        }
+
+        if (!is_readable($filepath))
+        {
+            throw new ExceptionBadFilePermissions("The file at {$filepath} exists but cannot be read.");
+        }
+
+        if ($mimetype === "auto")
+        {
+            $mimetype = (new \finfo(FILEINFO_MIME))->file($filepath);
+
+            if ($mimetype === false)
+            {
+                throw new ExceptionFilesystem("Failed to determine the mimetype of {$filepath}.");
+            }
+        }
+
+        $fileSize = filesize($filepath);
+
+        if ($fileSize === false)
+        {
+            throw new ExceptionFilesystem("Failed to determine the size of {$filepath}.");
+        }
+
         if ($mimetype !== null)
         {
-            if ($mimetype === "auto")
-            {
-                $finfo = new \finfo(FILEINFO_MIME);
-
-                if (!$finfo)
-                {
-                    throw new \Exception("Could not open fileinfo database in order to automatically determine the file's mimetype.");
-                }
-
-                $mimetype = $finfo->file($filepath);
-            }
-
             header("Content-type: {$mimetype}");
         }
 
-        header("Content-Length: " . filesize($filepath));
-        $disposition = ($asAttachment) ? "attachment; filename={$downloadFilename}" : "inline; filename={$downloadFilename}";
-        header("Content-Disposition: {$disposition}");
+        header("Content-Length: {$fileSize}");
+        header("Content-Disposition: " . self::buildContentDisposition($asAttachment, $downloadFilename));
         header("Pragma: no-cache");
         header("Expires: 0");
-        readfile($filepath);
+
+        if (readfile($filepath) === false)
+        {
+            throw new ExceptionFilesystem("Failed to read {$filepath} in order to send it to the browser.");
+        }
+    }
+
+
+    /**
+     * Build the value for a Content-Disposition header, in the standard way (RFC 6266), so that any filename works.
+     * This gives two versions of the filename: a quoted, ASCII-only fallback for very old clients, and the exact
+     * filename, percent-encoded as UTF-8, which all current browsers use.
+     * E.g. attachment; filename="r_sum_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf
+     * @param bool $asAttachment - true for "attachment" (download), false for "inline" (display in the browser).
+     * @param string $filename - the filename the browser should use.
+     * @return string - the value for the Content-Disposition header.
+     */
+    private static function buildContentDisposition(bool $asAttachment, string $filename): string
+    {
+        # Remove newlines and other control characters, as PHP refuses to send a header containing a newline, and
+        # would drop the whole header (and thus the filename).
+        $cleanFilename = preg_replace('/[\x00-\x1F\x7F]/', '', $filename);
+
+        # The fallback must be plain ASCII, so replace anything else with an underscore. Do this per character if the
+        # filename is valid UTF-8 (so "é" becomes one underscore), otherwise per byte.
+        $asciiFallback = preg_replace('/[^\x20-\x7E]/u', '_', $cleanFilename) ?? preg_replace('/[^\x20-\x7E]/', '_', $cleanFilename);
+
+        # Inside the quotes, backslashes and double quotes must be escaped.
+        $quotedFallback = '"' . addcslashes($asciiFallback, '"\\') . '"';
+
+        $type = ($asAttachment) ? "attachment" : "inline";
+        $contentDisposition = "{$type}; filename={$quotedFallback}; filename*=UTF-8''" . rawurlencode($cleanFilename);
+        return $contentDisposition;
     }
 
 
@@ -782,18 +874,24 @@ class Filesystem
      * @param string $filepath - the path to the file that we wish to check.
      * @param int $chunkSize - the size of each chunk to check at a time. This is a balance between
      * memory and performance.
-     * @return bool - true if valid, false if contains non-UTF8 characters.
+     * @return bool - true if valid, false if it contains non-UTF-8 characters.
      * @throws ExceptionBadFilePermissions - if file exists but cannot be read.
      * @throws ExceptionFileDoesNotExist - if file does not exist.
-     * @throws FilesystemException - if something goes wrong with getting a file handle even though file exists and
-     * can be read.
+     * @throws ExceptionFilesystem - if something goes wrong with getting a file handle even though file exists and
+     * can be read, or reading the file fails part way through.
      * @throws ExceptionMissingExtension if you do not have the required mbstring extension.
+     * @throws \InvalidArgumentException - if $chunkSize is less than 1.
      */
     public static function isValidUtf8File(string $filepath, int $chunkSize = 8192): bool
     {
         if (extension_loaded('mbstring') === FALSE)
         {
             throw new ExceptionMissingExtension("The mbstring extension is not available.");
+        }
+
+        if ($chunkSize < 1)
+        {
+            throw new \InvalidArgumentException("isValidUtf8File: \$chunkSize must be at least 1.");
         }
 
         if (!file_exists($filepath))
@@ -803,130 +901,231 @@ class Filesystem
 
         if (!is_readable($filepath))
         {
-            throw new ExceptionBadFilePermissions("File exists but cannot read it: $filepath");
+            throw new ExceptionBadFilePermissions("The file exists but cannot be read: $filepath");
         }
 
         $handle = fopen($filepath, 'rb');
 
         if ($handle === false)
         {
-            throw new FilesystemException("Failed to get file handle for: $filepath");
+            throw new ExceptionFilesystem("Failed to get file handle for: $filepath");
         }
 
-        while (!feof($handle))
+        $isValid = true;
+        $hasReachedEnd = false;
+
+        # A character such as "é" is made of several bytes, so a chunk can end part way through one. Those bytes are
+        # held back and checked along with the start of the next chunk, otherwise each half would look invalid.
+        $unfinishedCharacter = '';
+
+        while ($isValid && !$hasReachedEnd)
         {
             $chunk = fread($handle, $chunkSize);
 
             if ($chunk === false)
             {
                 fclose($handle);
-                return false;
+                throw new ExceptionFilesystem("Failed to read from {$filepath} part way through checking it.");
             }
 
             if ($chunk === '')
             {
-                break;
+                # We've reached the end of the file, so a character that was never finished really is invalid.
+                $hasReachedEnd = true;
+                $isValid = ($unfinishedCharacter === '');
             }
-
-            if (!mb_check_encoding($chunk, 'UTF-8'))
+            else
             {
-                fclose($handle);
-                return false;
+                $bytes = $unfinishedCharacter . $chunk;
+                $unfinishedCharacter = self::getUnfinishedUtf8Character($bytes);
+                $bytesToCheck = substr($bytes, 0, strlen($bytes) - strlen($unfinishedCharacter));
+                $isValid = mb_check_encoding($bytesToCheck, 'UTF-8');
             }
         }
 
         fclose($handle);
-        return true;
+        return $isValid;
     }
 
 
     /**
-     * Detects file encoding and converts it to UTF-8 if needed.
+     * Get the bytes of a UTF-8 character that the provided bytes end part way through, if any. E.g. if the bytes end
+     * with only the first of the two bytes that make up "é", that byte is returned.
+     * This only looks at the start of the last character, so it does not check whether the bytes are valid UTF-8.
+     * @param string $bytes - the bytes to check the end of.
+     * @return string - the bytes of the unfinished character at the end (at most 3), or an empty string if the bytes
+     *                  don't end part way through a character.
+     */
+    private static function getUnfinishedUtf8Character(string $bytes): string
+    {
+        $unfinished = '';
+        $numBytes = strlen($bytes);
+        $hasFoundStart = false;
+
+        # A UTF-8 character is at most 4 bytes long, so an unfinished one is at most 3 bytes. Walk backwards over
+        # those, looking for the byte that starts the last character (continuation bytes are 10xxxxxx).
+        for ($distanceFromEnd = 1; !$hasFoundStart && $distanceFromEnd <= min(3, $numBytes); $distanceFromEnd++)
+        {
+            $byte = ord($bytes[$numBytes - $distanceFromEnd]);
+
+            if (($byte & 0xC0) !== 0x80)
+            {
+                $hasFoundStart = true;
+
+                # The start byte tells us how long the character should be: 11110xxx = 4, 1110xxxx = 3, 110xxxxx = 2.
+                $expectedLength = match (true) {
+                    $byte >= 0xF0 => 4,
+                    $byte >= 0xE0 => 3,
+                    $byte >= 0xC0 => 2,
+                    default => 1,
+                };
+
+                if ($expectedLength > $distanceFromEnd)
+                {
+                    $unfinished = substr($bytes, -$distanceFromEnd);
+                }
+            }
+        }
+
+        return $unfinished;
+    }
+
+
+    /**
+     * Converts a file to UTF-8, if it isn't already.
      * WARNING - this will overwrite/replace the file!
+     *
+     * It is not possible to reliably detect which encoding a file is in, as in single-byte encodings such as
+     * Windows-1252, Windows-1251 and ISO-8859-2 every byte is valid, and the same byte means a different character in
+     * each (e.g. 0xE6 is "æ" in Windows-1252, but "ж" in Windows-1251). So this only detects what can be detected
+     * reliably, and otherwise relies on you telling it what encoding the file is in:
+     *  1. If the file is already valid UTF-8, it is left untouched.
+     *  2. If the file starts with a UTF-16 or UTF-32 byte order mark (BOM), it is converted from that encoding, and the
+     *     BOM is removed. This overrides $sourceEncoding.
+     *  3. Otherwise, the file is converted from $sourceEncoding.
+     * The file is written to a temporary file first, and then swapped into place, so that a failure part way through
+     * can never leave the original file half-written.
+     *
      * @param string $inputFilepath - the path to the file to convert.
-     * @param array|null $encodingsToTry - optionally override the encodings to first try, in case you want to
-     * specifically set your own (e.g. chinese/japanese etc.)
+     * @param string $sourceEncoding - the encoding the file is in, if it is not UTF-8 and has no BOM. This must be an
+     * encoding that the mbstring extension supports, e.g. "Windows-1252" (the default, common for Western European
+     * text), "Windows-1251" (Cyrillic), "ISO-8859-2" (Central European), "ISO-8859-15" (Western European with the
+     * euro sign) or "SJIS" (Japanese). Note that mbstring does NOT support "Windows-1250".
      * @return void
+     * @throws \InvalidArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
      * @throws ExceptionBadFilePermissions - if input file cannot be read (but does exist).
      * @throws ExceptionFileDoesNotExist - if input file does not exist.
      * @throws ExceptionMissingExtension - if missing the mbstring extension which is required for this function.
-     * @throws FilesystemException - if anything should go wrong that is not covered by the other specific exceptions.
+     * @throws ExceptionFilesystem - if the file is not valid in the encoding it is being converted from, or anything
+     * else goes wrong that is not covered by the other specific exceptions.
      */
-    public static function convertFileToUtf8(string $inputFilepath, ?array $encodingsToTry = null): void
+    public static function convertFileToUtf8(string $inputFilepath, string $sourceEncoding = 'Windows-1252'): void
     {
         if (extension_loaded('mbstring') === FALSE)
         {
             throw new ExceptionMissingExtension("The mbstring extension is not available.");
         }
 
-        if (!file_exists($inputFilepath) )
+        # Check the encoding is supported before doing anything, as mbstring throws a ValueError otherwise.
+        try
+        {
+            mb_check_encoding('', $sourceEncoding);
+        }
+        catch (\ValueError $e)
+        {
+            throw new \InvalidArgumentException(
+                "convertFileToUtf8: \"{$sourceEncoding}\" is not an encoding that the mbstring extension supports.",
+                0,
+                $e
+            );
+        }
+
+        if (!is_file($inputFilepath))
         {
             throw new ExceptionFileDoesNotExist("$inputFilepath file does not exist.");
         }
 
         if (!is_readable($inputFilepath))
         {
-            throw new ExceptionBadFilePermissions("$inputFilepath file exists but cannot read.");
+            throw new ExceptionBadFilePermissions("$inputFilepath file exists but cannot be read.");
         }
 
-        // Read the raw content
         $content = file_get_contents($inputFilepath);
 
         if ($content === false)
         {
-            throw new FilesystemException("Failed to read file: $inputFilepath");
+            throw new ExceptionFilesystem("Failed to read file: $inputFilepath");
         }
 
         if (mb_check_encoding($content, 'UTF-8') === false)
         {
-            // ------------------------------
-            // Step 2: Try common encodings in order of likelihood
-            // ------------------------------
-            $encodingsToTry = $encodingsToTry ?? [
-                'Windows-1252',     // very common in Western Europe & USA legacy files
-                'Windows-1251',     // Cyrillic
-                'Windows-1250',     // Central European
-                'ISO-8859-1',       // Latin-1
-                'ISO-8859-15',
-                'ISO-8859-2',
-                'UTF-16LE',
-                'UTF-16BE',
+            # A byte order mark reliably tells us the encoding. Check the UTF-32 ones first, as the UTF-32LE BOM starts
+            # with the same two bytes as the UTF-16LE one.
+            $byteOrderMarks = [
+                'UTF-32LE' => "\xFF\xFE\x00\x00",
+                'UTF-32BE' => "\x00\x00\xFE\xFF",
+                'UTF-16LE' => "\xFF\xFE",
+                'UTF-16BE' => "\xFE\xFF",
             ];
 
-            $detectedEncoding = null;
+            $encoding = $sourceEncoding;
 
-            foreach ($encodingsToTry as $enc)
+            foreach ($byteOrderMarks as $bomEncoding => $byteOrderMark)
             {
-                if (mb_check_encoding($content, $enc) !== false)
+                if ($encoding === $sourceEncoding && str_starts_with($content, $byteOrderMark))
                 {
-                    $detectedEncoding = $enc;
-                    break;
+                    $encoding = $bomEncoding;
+                    $content = substr($content, strlen($byteOrderMark));
                 }
             }
 
-            if ($detectedEncoding === null)
+            # For multi-byte encodings such as UTF-16, this catches a file that isn't really in that encoding. For
+            # single-byte encodings such as Windows-1252, every byte is valid, so this can't catch the wrong encoding.
+            if (mb_check_encoding($content, $encoding) === false)
             {
-                $detectedEncoding = mb_detect_encoding(
-                    $content,
-                    'auto',           // tries many encodings
-                    true              // strict mode
-                );
+                throw new ExceptionFilesystem("$inputFilepath is not valid $encoding, so it cannot be converted from it.");
             }
 
-            if ($detectedEncoding === false)
-            {
-                throw new FilesystemException("Could not detect encoding of the input file");
-            }
+            $converted = mb_convert_encoding($content, 'UTF-8', $encoding);
+            self::replaceFileContents($inputFilepath, $converted);
+        }
+    }
 
-            $converted = mb_convert_encoding($content, 'UTF-8', $detectedEncoding);
 
-            if ($converted === false)
-            {
-                throw new FilesystemException("Failed to convert file from $detectedEncoding to UTF-8");
-            }
+    /**
+     * Replace the contents of a file safely, by writing to a temporary file in the same directory and then swapping
+     * it into place, so that a failure part way through (e.g. the disk filling up) can never leave the file
+     * half-written. The file keeps its permissions.
+     * @param string $filepath - the path to the file to replace the contents of.
+     * @param string $contents - the new contents for the file.
+     * @return void
+     * @throws ExceptionFilesystem - if the new contents could not be written, or the file could not be replaced.
+     */
+    private static function replaceFileContents(string $filepath, string $contents): void
+    {
+        # Create the temporary file in the same directory, so that the rename() below is a simple swap.
+        $tempFilepath = tempnam(dirname($filepath), '.' . basename($filepath) . '.');
 
-            $content = $converted;
-            file_put_contents($inputFilepath, $content);
+        if ($tempFilepath === false)
+        {
+            throw new ExceptionFilesystem("Failed to create a temporary file to write the new contents of $filepath to.");
+        }
+
+        $bytesWritten = file_put_contents($tempFilepath, $contents);
+
+        # tempnam() creates the file with 0600 permissions, so copy across the original file's permissions.
+        $permissions = fileperms($filepath);
+
+        if ($bytesWritten !== strlen($contents) || $permissions === false || !chmod($tempFilepath, $permissions & 0777))
+        {
+            unlink($tempFilepath);
+            throw new ExceptionFilesystem("Failed to write the new contents of $filepath to a temporary file.");
+        }
+
+        if (!rename($tempFilepath, $filepath))
+        {
+            unlink($tempFilepath);
+            throw new ExceptionFilesystem("Failed to replace $filepath with its new contents.");
         }
     }
 }

@@ -31,10 +31,66 @@ enum DataSizeUnitEnum : string
 
 
     /**
+     * Format a number of bytes as a human readable string, automatically picking the most suitable unit, e.g.
+     * 1992294 becomes "1.9 MiB". The largest unit that gives a value of at least 1 is used.
+     * @param float $numBytes - the number of bytes to format, e.g. from Filesystem::getFileSize(). Negative values
+     *                          (e.g. a difference in sizes) are supported.
+     * @param int $decimalPlaces - optionally specify the number of decimal places to show. Plain bytes are always
+     *                             shown without decimal places, e.g. "512 B".
+     * @param bool $useBinaryUnits - optionally set to false to use decimal (base 10) units such as MB, rather than
+     *                               binary (base 2) units such as MiB.
+     * @return string - the formatted size, e.g. "1.9 MiB".
+     */
+    public static function formatBytes(float $numBytes, int $decimalPlaces = 1, bool $useBinaryUnits = true): string
+    {
+        $units = ($useBinaryUnits)
+            ? [self::BYTES, self::KIB, self::MIB, self::GIB, self::TIB, self::PIB, self::EIB]
+            : [self::BYTES, self::KB, self::MB, self::GB, self::TB, self::PB, self::EB];
+
+        # Find the largest unit that gives a value of at least 1.
+        $unitIndex = 0;
+
+        while ($unitIndex < count($units) - 1 && abs($numBytes) >= $units[$unitIndex + 1]->getNumBytes())
+        {
+            $unitIndex++;
+        }
+
+        $places = ($unitIndex === 0) ? 0 : $decimalPlaces;
+        $value = round($numBytes / $units[$unitIndex]->getNumBytes(), $places);
+
+        # Rounding can take the value up to the next unit (e.g. 1023.96 KiB rounds to 1024.0 KiB), in which case use the
+        # next unit instead, so that this shows as 1.0 MiB.
+        $base = ($useBinaryUnits) ? 1024 : 1000;
+
+        if (abs($value) >= $base && $unitIndex < count($units) - 1)
+        {
+            $unitIndex++;
+            $places = $decimalPlaces;
+            $value = round($numBytes / $units[$unitIndex]->getNumBytes(), $places);
+        }
+
+        $formatted = number_format($value, $places, '.', '') . ' ' . $units[$unitIndex]->value;
+        return $formatted;
+    }
+
+
+    /**
+     * Convert a number of bytes into this unit.
+     * @param int $numBytes - the number of bytes to convert.
+     * @return float - the equivalent amount in this unit, e.g. 1.5 for 1536 bytes in KiB.
+     */
+    public function convertFromBytes(int $numBytes): float
+    {
+        $converted = ((float) $numBytes) / $this->getNumBytes();
+        return $converted;
+    }
+
+
+    /**
      * Get the number of bytes in one of this unit.
      * @return int - the number of bytes in one of this unit. E.g. 1024 for KiB, or 1000 for kB.
      */
-    public function getNumBytes() : int
+    public function getNumBytes(): int
     {
         return match ($this) {
             DataSizeUnitEnum::BYTES => 1,

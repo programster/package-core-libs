@@ -11,7 +11,7 @@ use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
 use Programster\CoreLibs\Exceptions\ExceptionStringConversionFailed;
 use Random\Randomizer;
 
-class StringLib
+final class StringLib
 {
     /**
      * Generates a random string that has at least one of each of the required types of characters specified.
@@ -30,7 +30,7 @@ class StringLib
         bool $useNumbers = true,
         bool $useUppercase = true,
         bool $useLowercase = true
-    ) : string
+    ): string
     {
         $lowerCase      = 'abcdefghijklmnopqrstuvwxyz';
         $numbers        = '0123456789';
@@ -125,7 +125,7 @@ class StringLib
         string $needle,
         bool $caseSensitive = true,
         bool $ignoreWhiteSpace = false
-    ) : bool
+    ): bool
     {
         $revHaystack = strrev($haystack);
         $revNeedle   = strrev($needle);
@@ -152,7 +152,7 @@ class StringLib
         string $needle,
         bool $caseSensitive = true,
         bool $ignoreWhiteSpace = false
-    ) : bool
+    ): bool
     {
         $result = false;
 
@@ -182,7 +182,7 @@ class StringLib
      * @param $input - the input string
      * @return string - the output string that has been converted.
      */
-    public static function br2nl(string $input) : string
+    public static function br2nl(string $input): string
     {
         //$output = preg_replace("/(\r\n|\n|\r)/", "", $input);
         $output = str_replace('<br />', PHP_EOL, $input);
@@ -196,7 +196,7 @@ class StringLib
      * @param string $input - the input string to convert
      * @return string $output - the converted string
      */
-    public static function nl2br(string $input) : string
+    public static function nl2br(string $input): string
     {
         $output = str_replace(PHP_EOL, '<br />', $input);
         $output = str_replace("\r\n", '<br />', $output);
@@ -210,7 +210,7 @@ class StringLib
      * @param $input - any string input
      * @return $output - the newly reformatted string
      */
-    public static function convertLineEndings(string $input) : string
+    public static function convertLineEndings(string $input): string
     {
         # This must be first as it is the most specific of the endlines.
         $output = str_replace("\r\n", "\n",  $input);
@@ -226,41 +226,11 @@ class StringLib
 
 
     /**
-     * Encrypt a String
-     * @param String $textToEncrypt - the text to encrypt
-     * @param String $key - the key to encrypt and then decrypt the message.
-     * @param string $initializationVector - a 16 character string to initialize the cipher.
-     *                                       this way two plaintext messages can result in different
-     *                                       encrypted strings. (like a salt in hashing).
-     * @return string - the encrypted form of the string
-     */
-    public static function encrypt(string $textToEncrypt, string $key, string $initializationVector) : string
-    {
-        trigger_error('Method ' . __METHOD__ . ' is deprecated. Please use the EncryptionLib instead.', E_USER_DEPRECATED);
-        return EncryptionLib::encrypt($textToEncrypt, $key, $initializationVector);
-    }
-
-
-    /**
-     * Decrypt a string that was encrypted with our encrypt method.
-     * @param string $encryptedData - the encrypted text.
-     * @param string $key - the decryption key/password
-     * @param string $initializationVector - a 16 character string to initialize the cipher.
-     * @return string - the decrypted string
-     */
-    public static function decrypt(string $encryptedText, string $key, string $initializationVector) : string
-    {
-        trigger_error('Method ' . __METHOD__ . ' is deprecated. Please use the EncryptionLib instead.', E_USER_DEPRECATED);
-        return EncryptionLib::decrypt($encryptedText, $key, $initializationVector);
-    }
-
-
-    /**
      * Check whether the provided string is a regexp.
      * Reference:
      * http://stackoverflow.com/questions/8825025/test-if-a-regular-expression-is-a-valid-one-in-php
      */
-    public static function isRegExp(string $regexp) : bool
+    public static function isRegExp(string $regexp): bool
     {
         $isRegExp = true;
 
@@ -270,22 +240,6 @@ class StringLib
         }
 
         return $isRegExp;
-    }
-
-
-    /**
-     * Function to remove the e modifier from regular expressions.
-     * http://stackoverflow.com/questions/7243073/how-can-i-disable-the-e-preg-replace-eval-modifier-in-php
-     * @param string $regExp 
-     * @return string - the sanitized regexp without the modifier.
-     */
-    public static function sanitizeRegExp($regExp)
-    {
-        $pattern_parts = explode($regExp[0], trim($regExp));
-        $pattern_last = sizeof($pattern_parts) - 1;
-        $pattern_parts[$pattern_last] = str_replace('e', '', $pattern_parts[$pattern_last]);
-        
-        return implode($regExp[0], $pattern_parts);
     }
 
 
@@ -301,7 +255,7 @@ class StringLib
      * @param string $subject - the string to perform substitutions in.
      * @return string - the result of converting the subject string.
      */
-    public static function replace(string $search, string $replace, string $subject) : string
+    public static function replace(string $search, string $replace, string $subject): string
     {
         if (is_array($search) || is_array($replace))
         {
@@ -326,7 +280,7 @@ class StringLib
      * @param string $subject - the string to perform substitutions in.
      * @return string - the result of converting the subject string.
      */
-    public static function replacePairs(array $pairs, string $subject) : string
+    public static function replacePairs(array $pairs, string $subject): string
     {
         return strtr($subject, $pairs);
     }
@@ -339,7 +293,7 @@ class StringLib
      * https://stackoverflow.com/questions/5820586/which-method-is-preferred-strstr-or-strpos
      * @return bool - true if does contain, false if not
      */
-    public static function contains(string $haystack, string $needle, $caseSensitive = true) : bool
+    public static function contains(string $haystack, string $needle, bool $caseSensitive = true): bool
     {
         if ($caseSensitive)
         {
@@ -357,7 +311,7 @@ class StringLib
 
 
     /**
-     * Create a base64 url-encoded string for JSON web tokens etc.
+     * Create a base64 URL-encoded string for JSON web tokens etc.
      * @param string $input - the input string to encode.
      * @return string - the resulting encoded form.
      */
@@ -368,26 +322,44 @@ class StringLib
 
 
     /**
-     * Decode a base64UrlEncoded string.
-     * @param string $input - the input string to be decoded.
+     * Decode a string that was encoded with base64UrlEncode().
+     * This is strict, and only accepts exactly what base64UrlEncode() produces: the URL-safe alphabet (A-Z, a-z, 0-9,
+     * "-" and "_") with no "=" padding, whitespace, or standard base64 "+" and "/" characters.
+     * @param string $input - the input string to be decoded. This is marked as sensitive, so that it doesn't appear
+     *                        in stack traces, as it is commonly a token.
      * @return string - the decoded string
-     * @throws ExceptionStringConversionFailed - if was unable to decode the string.
+     * @throws ExceptionStringConversionFailed - if the string is not one that base64UrlEncode() could have produced.
+     *                                           The string that failed can be retrieved from the exception with
+     *                                           getFailedString().
      */
-    public static function base64UrlDecode(string $input): string
+    public static function base64UrlDecode(#[\SensitiveParameter] string $input): string
     {
-        $padding = strlen($input) % 4;
+        $paddedInput = $input;
+        $padding = strlen($paddedInput) % 4;
 
         if ($padding > 0)
         {
-            $input .= str_repeat('=', 4 - $padding);
+            $paddedInput .= str_repeat('=', 4 - $padding);
         }
 
-        $step1 = strtr($input, '-_', '+/');
-        $result = base64_decode($step1);
+        # Use strict mode, otherwise base64_decode() silently skips any invalid characters rather than failing.
+        $result = base64_decode(strtr($paddedInput, '-_', '+/'), true);
+
+        # Even in strict mode, base64_decode() accepts things that base64UrlEncode() would never produce, such as
+        # whitespace, padding, and standard base64's "+" and "/". So check that encoding the result again gives us back
+        # exactly the input.
+        if ($result !== false && self::base64UrlEncode($result) !== $input)
+        {
+            $result = false;
+        }
 
         if ($result === false)
         {
-            throw new ExceptionStringConversionFailed("Failed to base64 decode string: $step1");
+            # Deliberately leave the input out of the message, as it could be a token, and messages end up in logs.
+            throw new ExceptionStringConversionFailed(
+                "Failed to base64url decode a string of length " . strlen($input) . ".",
+                $input
+            );
         }
 
         return $result;

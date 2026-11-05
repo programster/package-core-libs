@@ -39,7 +39,7 @@ class ExceptionCommandFailed extends \Exception
 
 
     # Accessors
-    public function getCommand() : string { return $this->m_command; }
-    public function getExitCode() : int { return $this->m_exitCode; }
-    public function getErrorOutput() : string { return $this->m_errorOutput; }
+    public function getCommand(): string { return $this->m_command; }
+    public function getExitCode(): int { return $this->m_exitCode; }
+    public function getErrorOutput(): string { return $this->m_errorOutput; }
 }

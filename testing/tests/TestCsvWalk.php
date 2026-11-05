@@ -20,7 +20,7 @@ class TestCsvWalk extends \Programster\CoreLibs\Testing\AbstractTest
     }
 
 
-    private function testNormalCase() : void
+    private function testNormalCase(): void
     {
         $filepath = __DIR__ . '/../assets/example-csv.csv';
 
@@ -91,7 +91,7 @@ class TestCsvWalk extends \Programster\CoreLibs\Testing\AbstractTest
     }
 
 
-    private function testOverridingKeys() : void
+    private function testOverridingKeys(): void
     {
         $filepath = __DIR__ . '/../assets/example-csv.csv';
 
@@ -162,7 +162,7 @@ class TestCsvWalk extends \Programster\CoreLibs\Testing\AbstractTest
     }
 
 
-    private function testNoHeadersAndOverrideKeys() : void
+    private function testNoHeadersAndOverrideKeys(): void
     {
         $filepath = __DIR__ . '/../assets/example-csv.csv';
 

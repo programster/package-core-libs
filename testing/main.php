@@ -13,6 +13,8 @@ $tests = \Programster\CoreLibs\Filesystem::getDirContents(
 );
 
 
+$numFailed = 0;
+
 foreach ($tests as $testFilename)
 {
     $testName = substr($testFilename, 0, -4);
@@ -29,5 +31,9 @@ foreach ($tests as $testFilename)
     else
     {
         print $testName . ": \e[31mFAILED\e[0m" . PHP_EOL;
+        $numFailed++;
     }
 }
+
+# Exit with a non-zero code if any test failed, so that scripts (e.g. run-all-php-versions.sh) can detect it.
+exit(($numFailed === 0) ? 0 : 1);

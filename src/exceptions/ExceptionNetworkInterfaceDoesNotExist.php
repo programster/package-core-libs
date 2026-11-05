@@ -24,5 +24,5 @@ class ExceptionNetworkInterfaceDoesNotExist extends \Exception
 
 
     # Accessors
-    public function getInterface() : string { return $this->m_interface; }
+    public function getInterface(): string { return $this->m_interface; }
 }

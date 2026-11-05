@@ -4,25 +4,20 @@
  * This is a general library that can be used to "extend" the standard library.
  * Only functions that are used frequently and are completely generic should
  * be placed here. Wherever possible, please use more specific libraries such
- * as the StringLib, Filesystem, and HtmlGenerator
+ * as the StringLib and Filesystem.
  */
 
 namespace Programster\CoreLibs;
 
 use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
-use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\ExceptionPhpVersionTooLow;
+use Programster\CoreLibs\Exceptions\ExceptionFilesystem;
 
-class Core
+final class Core
 {
-    /**
-     * Function that wraps around throwing an exception so that it
-     * can be used in "or" statements.
-     * @param string $msg - message to raise in exception
-     */
-    public static function throwException(string $msg)
-    {
-        throw new \Exception($msg);
-    }
+    # The values that generateYesNoString() and generateTrueFalseString() consider to be 'false'. These are compared
+    # strictly, so e.g. the string "0.0" or "false" are not in this list.
+    private const FALSE_VALUES = [false, null, "", "0", 0, 0.0, []];
 
 
     /**
@@ -30,7 +25,7 @@ class Core
      * @param void
      * @return result (boolean) - true if CLI false if website.
      */
-    public static function isCli() : bool
+    public static function isCli(): bool
     {
         $result = false;
 
@@ -49,7 +44,7 @@ class Core
      * @param String $message - the string to print out.
      * @return void - prints out immediately.
      */
-    public static function println(string $message)
+    public static function println(string $message): void
     {
         if (!self::isCli())
         {
@@ -69,7 +64,7 @@ class Core
      *
      * @return void - redirects the user and quits.
      */
-    public static function redirectUser(string $location)
+    public static function redirectUser(string $location): never
     {
         header("location: " . $location);
         exit();
@@ -80,17 +75,17 @@ class Core
      * Sets the title of the process and will append the appropriate number of
      * already existing processes with the same title.
      * WARNING - this will fail and return FALSE if you are on Windows
-     * @param string $nameingPrefix - the name to give the process.
+     * @param string $namingPrefix - the name to give the process.
      * @return boolean - true if successfully set the title, false if not.
      */
-    public static function setCliTitle(string $nameingPrefix) : bool
+    public static function setCliTitle(string $namingPrefix): bool
     {
         $succeeded = false;
-        $num_running = self::getNumProcRunning($nameingPrefix);
+        $num_running = self::getNumProcRunning($namingPrefix);
 
         if (function_exists('cli_set_process_title'))
         {
-            cli_set_process_title($nameingPrefix . $num_running);
+            cli_set_process_title($namingPrefix . $num_running);
             $succeeded = true;
         }
 
@@ -106,7 +101,7 @@ class Core
      * @return int - the number of processes running with that title.
      * @throws ExceptionCommandFailed - if we failed to get the list of processes.
      */
-    public static function getNumProcRunning(string $title) : int
+    public static function getNumProcRunning(string $title): int
     {
         # Get each process's full command line (which is what cli_set_process_title() changes). We deliberately don't
         # use a pipeline here, as a pipeline's exit code is only that of its last command, which would hide ps failing.
@@ -129,30 +124,30 @@ class Core
 
 
     /**
-     * Fetches the specified list of arguments from $_REQUEST. This will return
-     * false if any parameters could not be found.
+     * Fetches the specified list of arguments from the provided array (e.g. $_REQUEST). This will throw an
+     * exception if any of them could not be found.
      *
      * @param array $args - array of all the argument names.
-     * @param array $input_array - array from which we are pulling the required
+     * @param array $inputArray - array from which we are pulling the required
      *                             args.
      *
-     * @return result - false if any parameters could not be found.
+     * @return array - the name/value pairs of the arguments.
+     * @throws \Exception - if any of the arguments could not be found.
      */
-    public static function fetchReqArgsFromArray(array $args, array $input_array)
+    public static function fetchReqArgsFromArray(array $args, array $inputArray): array
     {
         $values = array();
 
         foreach ($args as $arg)
         {
-            if (isset($input_array[$arg]))
+            if (isset($inputArray[$arg]))
             {
-                $values[$arg] = $input_array[$arg];
+                $values[$arg] = $inputArray[$arg];
             }
             else
             {
                 $errMsg = "Required parameter: " . $arg . " not specified";
                 throw new \Exception($errMsg);
-                break;
             }
         }
 
@@ -166,19 +161,19 @@ class Core
      * This will NOT throw an exception or return false if it fails to find one.
      *
      * @param array $args - array of all the argument names.
-     * @param array $input_array - array from which we are pulling the optional args.
+     * @param array $inputArray - array from which we are pulling the optional args.
      *
      * @return values - array of retrieved values
      */
-    public static function fetchOptionalArgsFromArray($args, $input_array)
+    public static function fetchOptionalArgsFromArray(array $args, array $inputArray): array
     {
         $values = array();
 
         foreach ($args as $arg)
         {
-            if (isset($input_array[$arg]))
+            if (isset($inputArray[$arg]))
             {
-                $values[$arg] = $input_array[$arg];
+                $values[$arg] = $inputArray[$arg];
             }
         }
 
@@ -192,7 +187,7 @@ class Core
      * @return pageURL - full page URL of the current page
      *                   e.g. https://www.google.com/some-page
      */
-    public static function getCurrentUrl() : string
+    public static function getCurrentUrl(): string
     {
         $pageURL = 'http';
 
@@ -220,16 +215,21 @@ class Core
     /**
      * Ensures that a given value is within the given range and if not, moves
      * it to the boundary.
-     * Note that this can work for objects if you install the following
-     * extension: http://pecl.php.net/package/operator
+     * This works with numbers, and with dates (e.g. to clamp a DateTime between two others). The value and the
+     * boundaries should be the same kind: comparing a number with a date isn't meaningful.
      *
-     * @param mixed $value - the variable to make sure is within range.
-     * @param mixed $max   - the max allowed value.
-     * @param mixed $min   - the minimum allowed value
+     * @param int|float|\DateTimeInterface $value - the variable to make sure is within range.
+     * @param int|float|\DateTimeInterface $max   - the max allowed value.
+     * @param int|float|\DateTimeInterface $min   - the minimum allowed value
      *
-     * @return $value - the clamped input.
+     * @return int|float|\DateTimeInterface - the clamped input. This is $value if it is within range, otherwise the
+     *                                        boundary it was beyond ($max or $min).
      */
-    public static function clampValue($value, $max, $min)
+    public static function clampValue(
+        int|float|\DateTimeInterface $value,
+        int|float|\DateTimeInterface $max,
+        int|float|\DateTimeInterface $min
+    ): int|float|\DateTimeInterface
     {
         if ($value > $max)
         {
@@ -245,48 +245,53 @@ class Core
 
 
     /**
-     * Generates a string of yes or no based on the input variable.
-     * Note that this will consider string 0 or a 0 integer as 'false' values.
-     * @param input - the input variable to decide whether to output yes/no on.
-     * @return result - string of 'Yes' or 'No'
+     * Generates a string 'Yes' or 'No' based on the value passed in. This will consider false, null, an empty
+     * string, the string "0", the integer 0, the float 0.0 and an empty array as 'false' values, which give 'No'.
+     * Everything else gives 'Yes' (note that this includes the string "false").
+     * @param mixed $input - the input variable to decide whether to output yes/no on.
+     * @return string - "Yes" or "No"
      */
-    public static function generateYesNoString($input) : string
+    public static function generateYesNoString(mixed $input): string
     {
-        return ($input === "0" || $input === 0 || $input === false) ? "No" : "Yes";
+        return (in_array($input, self::FALSE_VALUES, true)) ? "No" : "Yes";
     }
 
 
     /**
-     * Generates a string 'True' or 'False' based on whether the value passed
-     * in. This will consider string 0 or a 0 integer as 'false' values.
-     * @param mixed input - the input variable to decide whether to output true
-     *                      or false on.
+     * Generates a string 'True' or 'False' based on the value passed in. This will consider false, null, an empty
+     * string, the string "0", the integer 0, the float 0.0 and an empty array as 'false' values. Everything else is
+     * 'true' (note that this includes the string "false").
+     * @param mixed $input - the input variable to decide whether to output true
+     *                       or false on.
      * @return string - "True" or "False"
      */
-    public static function generateTrueFalseString($input) : string
+    public static function generateTrueFalseString(mixed $input): string
     {
-        return ($input === "0" || $input === 0 || $input === false) ? "True" : "False";
+        return (in_array($input, self::FALSE_VALUES, true)) ? "False" : "True";
     }
 
 
     /**
      * Implement a version guard. This will throw an exception if we do not
      * have the required version of PHP that is specified.
-     * @param String $reqVersion - required version of PHP, e.g. '5.4.0'
-     * @throws an exception if we do not meet the required PHP
-     *                version.
+     * @param string $reqVersion - required version of PHP, e.g. '8.5.0'
+     * @param string $errMsg - optionally specify the message for the exception. If left empty, a message stating the
+     *                         required and current versions is used.
+     * @return void
+     * @throws ExceptionPhpVersionTooLow - if we do not meet the required PHP version. The exception holds both the
+     *                                     required and current versions.
      */
-    public static function versionGuard($reqVersion, $errMsg='')
+    public static function versionGuard(string $reqVersion, string $errMsg = ''): void
     {
-        if (version_compare(PHP_VERSION, $reqVersion) == -1)
+        if (version_compare(PHP_VERSION, $reqVersion, '<'))
         {
-            if ($errMsg == '')
+            if ($errMsg === '')
             {
                 $errMsg = 'Required PHP version: ' . $reqVersion .
-                                ', current Version: ' . PHP_VERSION;
+                                ', current version: ' . PHP_VERSION;
             }
 
-            die($errMsg);
+            throw new ExceptionPhpVersionTooLow($errMsg, $reqVersion, PHP_VERSION);
         }
     }
 
@@ -299,7 +304,7 @@ class Core
      * @throws ExceptionCommandFailed - if the nproc command failed.
      * @throws \Exception - if nproc did not return a number.
      */
-    public static function getNumProcessors() : int
+    public static function getNumProcessors(): int
     {
         $output = trim(self::runCommand("nproc --all"));
 
@@ -332,7 +337,7 @@ class Core
      * @throws ExceptionCommandFailed - if the command could not be run, or exited with a non-zero exit code. The
      *                                  exception holds the exit code and anything the command wrote to stderr.
      */
-    public static function runCommand(string $command, ?string $input = null) : string
+    public static function runCommand(string $command, ?string $input = null): string
     {
         # Send stderr to a temporary file rather than a pipe. If we used a pipe for both stdout and stderr, and the
         # command wrote a lot to stderr while we were waiting on stdout, both sides could block forever.
@@ -406,24 +411,6 @@ class Core
 
 
     /**
-     * Linux specific function that fetches information on how much RAM is in
-     * the system in MiB (base 2, not base 10)
-     * @param bool $availableOnly - optionally specify that you want to know
-     *                              only how much ram is free and not the total
-     *                              amount of RAM in the system.
-     * @return int - the amount of RAM in MiB, rounded down to the nearest whole MiB.
-     * @throws FilesystemException - if /proc/meminfo could not be read.
-     * @throws \Exception - if /proc/meminfo does not contain a field needed for the requested measurement.
-     */
-    #[\Deprecated("Please use Core::getMemory() instead. Note that getRam(true) returns MemoryTypeEnum::FREE, but you probably want MemoryTypeEnum::AVAILABLE.")]
-    public static function getRam(bool $availableOnly=false) : int
-    {
-        $type = ($availableOnly) ? MemoryTypeEnum::FREE : MemoryTypeEnum::TOTAL;
-        return self::getMemory($type);
-    }
-
-
-    /**
      * Linux specific function that fetches information about the system's memory (RAM and swap) from /proc/meminfo.
      * Based on:
      * http://stackoverflow.com/questions/1455379/get-server-ram-with-php
@@ -431,21 +418,21 @@ class Core
      *                               available, rather than the total amount of RAM in the system. Please refer to the
      *                               MemoryTypeEnum for what each one means.
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the amount of memory in. Defaults to MiB.
-     * @return int - the amount of memory in the specified unit, rounded down to the nearest whole unit.
-     * @throws FilesystemException - if /proc/meminfo could not be read.
+     * @return float - the amount of memory in the specified unit. E.g. 1.5 for 1536 KiB in MiB.
+     * @throws ExceptionFilesystem - if /proc/meminfo could not be read.
      * @throws \Exception - if /proc/meminfo does not contain a field needed for the requested measurement. Not every
      *                      field exists on every system.
      */
     public static function getMemory(
         MemoryTypeEnum $type = MemoryTypeEnum::TOTAL,
         DataSizeUnitEnum $unit = DataSizeUnitEnum::MIB,
-    ) : int
+    ): float
     {
         $meminfoContents = file_get_contents("/proc/meminfo");
 
         if ($meminfoContents === false)
         {
-            throw new FilesystemException("Failed to read /proc/meminfo.");
+            throw new ExceptionFilesystem("Failed to read /proc/meminfo.");
         }
 
         $data = explode("\n", $meminfoContents);
@@ -464,7 +451,7 @@ class Core
             }
         }
 
-        $getKib = function (string $field) use ($meminfo) : int {
+        $getKib = function (string $field) use ($meminfo): int {
             if (!array_key_exists($field, $meminfo))
             {
                 throw new \Exception("/proc/meminfo does not contain the {$field} field.");
@@ -489,9 +476,8 @@ class Core
             default => $getKib($type->value),
         };
 
-        # /proc/meminfo reports in KiB (despite labelling it "kB"). Convert to the requested unit, rounding down so we
-        # never over-report.
-        $memory = intdiv($memoryKib * 1024, $unit->getNumBytes());
+        # /proc/meminfo reports in KiB (despite labelling it "kB"), so convert to bytes and then to the requested unit.
+        $memory = $unit->convertFromBytes($memoryKib * 1024);
 
         return $memory;
     }
@@ -507,7 +493,7 @@ class Core
      * @return void - creates a config file, or throws an exception if failed.
      * @throws Exception if failed to write to the specified filePath, e.g don't have permissions.
      */
-    public static function generateConfig($settings, $variableName, string $filePath)
+    public static function generateConfig(mixed $settings, string $variableName, string $filePath): void
     {
         $varStr = var_export($settings, true);
 
@@ -533,7 +519,7 @@ class Core
      * @param array $data - the data we wish to sign.
      * @return string - the generated signature for the provided data.
      */
-    public static function generateSignature(array $data, string $secret) : string
+    public static function generateSignature(array $data, string $secret): string
     {
         ksort($data);
         $stringForm = json_encode($data, JSON_THROW_ON_ERROR);
@@ -551,10 +537,13 @@ class Core
      * @return bool - true if the signature is correct for the data, or false if not (in which case
      *                a user probably tried to manipulate the data).
      */
-    public static function isValidSignedRequest(array $data, string $signature, string $serverSecret) : bool
+    public static function isValidSignedRequest(array $data, string $signature, string $serverSecret): bool
     {
         $generatedSignature = Core::generateSignature($data, $serverSecret);
-        return ($generatedSignature == $signature);
+
+        # Use hash_equals() rather than ==, as it takes the same amount of time regardless of where the strings differ,
+        # which prevents timing attacks. The known string must be the first parameter.
+        return hash_equals($generatedSignature, $signature);
     }
 
 
@@ -564,7 +553,7 @@ class Core
      * @param mixed $variable - the variable you want to get the var_dump of
      * @return string - the result of the var_dump
      */
-    public static function var_dump($variable) : string
+    public static function var_dump(mixed $variable): string
     {
         ob_start();
         var_dump($variable);
@@ -581,7 +570,7 @@ class Core
      * @throws ExceptionCommandFailed - if the clipboard could not be set, such as if the required tool isn't installed.
      * @throws \Exception - if running on an unsupported OS, or on Linux without a graphical session.
      */
-    public static function setClipboard(string $content) : void
+    public static function setClipboard(string $content): void
     {
         $command = match (PHP_OS_FAMILY) {
             # Untested. This uses PowerShell rather than clip.exe, as clip.exe mangles UTF-8 text. Set-Clipboard
@@ -619,7 +608,7 @@ class Core
      *                                  installed.
      * @throws \Exception - if running on an unsupported OS, or on Linux without a graphical session.
      */
-    public static function getClipboard() : string
+    public static function getClipboard(): string
     {
         if (PHP_OS_FAMILY === "Windows")
         {
@@ -697,7 +686,7 @@ class Core
      * @return bool - true to use the Wayland tools, false to use xclip.
      * @throws \Exception - if there is no graphical session, and thus no clipboard.
      */
-    private static function useWaylandClipboard(string $waylandTool) : bool
+    private static function useWaylandClipboard(string $waylandTool): bool
     {
         $hasWayland = ((string) getenv("WAYLAND_DISPLAY")) !== "";
         $hasX11 = ((string) getenv("DISPLAY")) !== "";
@@ -722,7 +711,7 @@ class Core
      * @param string $command - the name of the command, e.g. "xclip".
      * @return bool - true if the command is available, false if not.
      */
-    private static function isCommandAvailable(string $command) : bool
+    private static function isCommandAvailable(string $command): bool
     {
         $isAvailable = true;
 
