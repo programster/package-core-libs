@@ -9,6 +9,7 @@
 
 namespace Programster\CoreLibs;
 
+use Programster\CoreLibs\Exceptions\ExceptionCliTitleNotSet;
 use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
 use Programster\CoreLibs\Exceptions\ExceptionPhpVersionTooLow;
 use Programster\CoreLibs\Exceptions\ExceptionFilesystem;
@@ -73,22 +74,29 @@ final class Core
     /**
      * Sets the title of the process and will append the appropriate number of
      * already existing processes with the same title.
-     * WARNING - this will fail and return FALSE if you are on Windows
      * @param string $namingPrefix - the name to give the process.
-     * @return bool - true if successfully set the title, false if not.
+     * @return void
+     * @throws ExceptionCliTitleNotSet - if the title could not be set, such as when not running from the CLI, where
+     *                                   cli_set_process_title() doesn't exist.
+     * @throws ExceptionCommandFailed - if we failed to get the list of processes.
      */
-    public static function setCliTitle(string $namingPrefix): bool
+    public static function setCliTitle(string $namingPrefix): void
     {
-        $succeeded = false;
-        $numRunning = self::getNumProcRunning($namingPrefix);
-
-        if (function_exists('cli_set_process_title'))
+        if (!function_exists('cli_set_process_title'))
         {
-            cli_set_process_title($namingPrefix . $numRunning);
-            $succeeded = true;
+            throw new ExceptionCliTitleNotSet(
+                "Cannot set the process title, as cli_set_process_title() is only available when running from the CLI."
+            );
         }
 
-        return $succeeded;
+        $numRunning = self::getNumProcRunning($namingPrefix);
+
+        # This raises a warning as well as returning false on failure, so suppress it and include it in the exception.
+        if (@cli_set_process_title($namingPrefix . $numRunning) === false)
+        {
+            $error = error_get_last()['message'] ?? 'unknown error';
+            throw new ExceptionCliTitleNotSet("Failed to set the process title: {$error}");
+        }
     }
 
 
