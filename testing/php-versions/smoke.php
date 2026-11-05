@@ -427,7 +427,15 @@ $smoke->run("StringLib", function () {
 $smoke->run("showProgressBar", function () {
     ob_start();
     CliLib::showProgressBar(50, 1);
-    ob_end_clean();
+
+    # Out of range percentages, and percentage text wider than the terminal, used to crash str_repeat().
+    CliLib::showProgressBar(150, 0);
+    CliLib::showProgressBar(-10, 0);
+    CliLib::showProgressBar(50, 100);
+    $output = ob_get_clean();
+
+    assert(str_contains($output, "(150%) [===") && !str_contains($output, "(150%) [ "));
+    assert(str_contains($output, "(-10%) [ ") && !str_contains($output, "(-10%) [="));
 });
 
 # Clean up, then report.

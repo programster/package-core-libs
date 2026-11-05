@@ -16,8 +16,10 @@ final class CliLib
      * Display a progress bar in the CLI. This will dynamically take up the full width of the
      * terminal and if you keep calling this function, it will appear animated as the progress bar
      * keeps writing over the top of itself.
-     * @param float $percentage - the percentage completed.
+     * @param float $percentage - the percentage completed. Values below 0 or above 100 are shown as they are in the
+     *                           percentage text, but the bar itself stops at empty or full.
      * @param int $numDecimalPlaces - the number of decimal places to show for percentage output string
+     * @return void
      */
     public static function showProgressBar(float $percentage, int $numDecimalPlaces): void
     {
@@ -50,8 +52,11 @@ final class CliLib
             // Keep the fallback width.
         }
 
-        $barWidth = $terminalWidth - ($percentageStringLength) - 2; // subtract 2 for [] around bar
-        $numBars = round(($percentage) / 100 * ($barWidth));
+        # Subtract 2 for the [] around the bar. A terminal narrower than the percentage text leaves no room for a bar,
+        # and a percentage outside 0 - 100 would give a negative number of bars, either of which would make
+        # str_repeat() throw a ValueError, so keep both within range.
+        $barWidth = max(0, $terminalWidth - $percentageStringLength - 2);
+        $numBars = (int) max(0, min($barWidth, round($percentage / 100 * $barWidth)));
         $numEmptyBars = $barWidth - $numBars;
 
         $barsString = '[' . str_repeat("=", ($numBars)) . str_repeat(" ", ($numEmptyBars)) . ']';
