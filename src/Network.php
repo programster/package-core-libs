@@ -440,19 +440,30 @@ final class Network
 
     /**
      * Return whether the IP address provided is within the private or reserved ranges.
-     * E.g. 192.168. 0.0 – 192.168.255.255, 172.16. 0.0 – 172.31.255.255, or 10.0. 0.0 – 10.255.255.255.
+     * E.g. 192.168.0.0 – 192.168.255.255, 172.16.0.0 – 172.31.255.255, or 10.0.0.0 – 10.255.255.255.
+     * Reserved ranges, such as 127.0.0.0/8 (loopback) and 169.254.0.0/16 (link-local), also count.
      * This also applies to IPv6 though.
-     * @param string $ip - the IP address to check
+     * @param string $ip - the IP address to check, e.g. "192.168.1.5" or "fd00::1". IPv6 addresses must not be in
+     *                     square brackets.
      * @return bool - true if a private/reserved IP, false if not.
+     * @throws BadArgumentException - if $ip is not a valid IPv4 or IPv6 address.
      */
     public static function isPrivateIp(string $ip): bool
     {
-        $result = filter_var(
+        # Check this first, as the check below returns false both for a private IP and for something that isn't an IP
+        # at all, so without this, anything that isn't an IP would be reported as private.
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false)
+        {
+            throw new BadArgumentException("isPrivateIp: \"{$ip}\" is not a valid IP address.");
+        }
+
+        $publicIp = filter_var(
             $ip,
             FILTER_VALIDATE_IP,
             FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
         );
 
-        return $result === false;
+        $isPrivate = ($publicIp === false);
+        return $isPrivate;
     }
 }

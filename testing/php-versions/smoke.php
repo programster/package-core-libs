@@ -384,6 +384,10 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
 # ---------------------------------------------------------------------------------------------------------------------
 $smoke->run("isPrivateIp / isPortOpen / getIps", function () {
     assert(Network::isPrivateIp("10.0.0.1") && !Network::isPrivateIp("8.8.8.8"));
+    assert(Network::isPrivateIp("127.0.0.1") && Network::isPrivateIp("fd00::1"));
+    assert(!Network::isPrivateIp("2001:4860::8888"));
+    SmokeTest::expectException(BadArgumentException::class, fn() => Network::isPrivateIp("not-an-ip"));
+    SmokeTest::expectException(BadArgumentException::class, fn() => Network::isPrivateIp("[::1]"));
     assert(!Network::isPortOpen("127.0.0.1", 1, timeout: 1));
     assert(in_array("127.0.0.1", Network::getIps("lo"), true));
 });
