@@ -9,6 +9,8 @@
 
 namespace Programster\CoreLibs;
 
+use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
+use Programster\CoreLibs\Exceptions\FilesystemException;
 
 class Core
 {
@@ -102,19 +104,21 @@ class Core
      * @param String $title - the string to search for a process by
      *                        (e.g. its name/title)
      * @return int - the number of processes running with that title.
+     * @throws ExceptionCommandFailed - if we failed to get the list of processes.
      */
     public static function getNumProcRunning(string $title) : int
     {
-        $cmd = "ps -ef | tr -s ' ' | cut -d ' ' -f 8";
-        $processes = explode(PHP_EOL, shell_exec($cmd));
+        # Get each process's full command line (which is what cli_set_process_title() changes). We deliberately don't
+        # use a pipeline here, as a pipeline's exit code is only that of its last command, which would hide ps failing.
+        $processes = explode("\n", self::runCommand("ps -eo args="));
         $numRunning = 0;
 
         # starts with our title and has one or more numbers afterwards.
-        $regExp = "/^" . $title . "[0-9]+/";
+        $regExp = "/^" . preg_quote($title, "/") . "[0-9]+/";
 
         foreach ($processes as $processName)
         {
-            if (preg_match($regExp, $processName))
+            if (preg_match($regExp, trim($processName)))
             {
                 $numRunning++;
             }
@@ -292,12 +296,112 @@ class Core
      * CPU as this includes all hyperthreads/cores. (e.g. an i7 will show up as
      * 8 even though there is only 1 physical processor)
      * @return int - the number of threads this machine can concurrently run.
+     * @throws ExceptionCommandFailed - if the nproc command failed.
+     * @throws \Exception - if nproc did not return a number.
      */
     public static function getNumProcessors() : int
     {
-        $cmd = "nproc --all";
-        $numProcessors = intval(shell_exec($cmd));
+        $output = trim(self::runCommand("nproc --all"));
+
+        if (!ctype_digit($output))
+        {
+            throw new \Exception("Expected nproc to return a number of processors, but got: {$output}");
+        }
+
+        $numProcessors = (int) $output;
         return $numProcessors;
+    }
+
+
+    /**
+     * Run a shell command and get its output. Unlike shell_exec(), this throws an exception if the command fails
+     * (exits with a non-zero exit code), rather than returning null, and returns an empty string rather than null if
+     * the command succeeded but didn't output anything.
+     * WARNING - the command is run through the shell, so make sure to escape any values you put into it with
+     * escapeshellarg().
+     * Note that if the command is a pipeline (e.g. "foo | bar"), then the exit code is only that of the last command
+     * in the pipeline, so a failure earlier in the pipeline may not be detected.
+     * WARNING - if the command starts a background process that keeps stdout open (e.g. xclip and wl-copy do this to
+     * keep serving the clipboard), this will wait until that background process exits, which may be never. Redirect
+     * the command's stdout to /dev/null to avoid this.
+     * @param string $command - the command to run.
+     * @param string|null $input - optionally provide content to send to the command's stdin. If null (the default),
+     *                             the command inherits this script's stdin.
+     * @return string - everything the command wrote to stdout, exactly as it was written (including any trailing
+     *                  newline).
+     * @throws ExceptionCommandFailed - if the command could not be run, or exited with a non-zero exit code. The
+     *                                  exception holds the exit code and anything the command wrote to stderr.
+     */
+    public static function runCommand(string $command, ?string $input = null) : string
+    {
+        # Send stderr to a temporary file rather than a pipe. If we used a pipe for both stdout and stderr, and the
+        # command wrote a lot to stderr while we were waiting on stdout, both sides could block forever.
+        $errorFile = tmpfile();
+
+        if ($errorFile === false)
+        {
+            throw new ExceptionCommandFailed($command, -1, "Failed to create a temporary file to capture stderr.");
+        }
+
+        $descriptors = [
+            1 => ['pipe', 'w'],
+            2 => $errorFile,
+        ];
+
+        if ($input !== null)
+        {
+            # Likewise, provide stdin from a temporary file rather than a pipe, so that we can't block forever writing
+            # to stdin while the command is blocked writing to stdout.
+            $inputFile = tmpfile();
+
+            if ($inputFile === false || fwrite($inputFile, $input) !== strlen($input))
+            {
+                fclose($errorFile);
+                throw new ExceptionCommandFailed($command, -1, "Failed to create a temporary file for stdin.");
+            }
+
+            rewind($inputFile);
+            $descriptors[0] = $inputFile;
+        }
+
+        $process = proc_open($command, $descriptors, $pipes);
+
+        if ($process === false)
+        {
+            fclose($errorFile);
+
+            if (isset($inputFile))
+            {
+                fclose($inputFile);
+            }
+
+            throw new ExceptionCommandFailed($command, -1, "");
+        }
+
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $exitCode = proc_close($process);
+
+        if (isset($inputFile))
+        {
+            fclose($inputFile);
+        }
+
+        rewind($errorFile);
+        $errorOutput = stream_get_contents($errorFile);
+        fclose($errorFile);
+
+        if ($output === false)
+        {
+            throw new ExceptionCommandFailed($command, -1, "Failed to read the command's output.");
+        }
+
+        if ($exitCode !== 0)
+        {
+            throw new ExceptionCommandFailed($command, $exitCode, ($errorOutput === false) ? "" : $errorOutput);
+        }
+
+        return $output;
     }
 
 
@@ -305,14 +409,46 @@ class Core
      * Linux specific function that fetches information on how much RAM is in
      * the system in MiB (base 2, not base 10)
      * @param bool $availableOnly - optionally specify that you want to know
-     *                              onlyhow much ram is free and not the total
+     *                              only how much ram is free and not the total
      *                              amount of RAM in the system.
+     * @return int - the amount of RAM in MiB, rounded down to the nearest whole MiB.
+     * @throws FilesystemException - if /proc/meminfo could not be read.
+     * @throws \Exception - if /proc/meminfo does not contain a field needed for the requested measurement.
+     */
+    #[\Deprecated("Please use Core::getMemory() instead. Note that getRam(true) returns MemoryTypeEnum::FREE, but you probably want MemoryTypeEnum::AVAILABLE.")]
+    public static function getRam(bool $availableOnly=false) : int
+    {
+        $type = ($availableOnly) ? MemoryTypeEnum::FREE : MemoryTypeEnum::TOTAL;
+        return self::getMemory($type);
+    }
+
+
+    /**
+     * Linux specific function that fetches information about the system's memory (RAM and swap) from /proc/meminfo.
      * Based on:
      * http://stackoverflow.com/questions/1455379/get-server-ram-with-php
+     * @param MemoryTypeEnum $type - optionally specify which measurement of memory you want, such as how much is
+     *                               available, rather than the total amount of RAM in the system. Please refer to the
+     *                               MemoryTypeEnum for what each one means.
+     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the amount of memory in. Defaults to MiB.
+     * @return int - the amount of memory in the specified unit, rounded down to the nearest whole unit.
+     * @throws FilesystemException - if /proc/meminfo could not be read.
+     * @throws \Exception - if /proc/meminfo does not contain a field needed for the requested measurement. Not every
+     *                      field exists on every system.
      */
-    public static function getRam(bool $availableOnly=false)
+    public static function getMemory(
+        MemoryTypeEnum $type = MemoryTypeEnum::TOTAL,
+        DataSizeUnitEnum $unit = DataSizeUnitEnum::MIB,
+    ) : int
     {
-        $data = explode("\n", \Safe\file_get_contents("/proc/meminfo"));
+        $meminfoContents = file_get_contents("/proc/meminfo");
+
+        if ($meminfoContents === false)
+        {
+            throw new FilesystemException("Failed to read /proc/meminfo.");
+        }
+
+        $data = explode("\n", $meminfoContents);
         $meminfo = array();
 
         foreach ($data as $line)
@@ -328,15 +464,34 @@ class Core
             }
         }
 
-        $memory = $meminfo['MemTotal'];
+        $getKib = function (string $field) use ($meminfo) : int {
+            if (!array_key_exists($field, $meminfo))
+            {
+                throw new \Exception("/proc/meminfo does not contain the {$field} field.");
+            }
 
-        if ($availableOnly)
-        {
-            $memory = $meminfo['MemFree'];
-        }
+            return (int) $meminfo[$field];
+        };
 
-        # Convert from KiB to MiB
-        $memory = $memory / 1024.0;
+        $memoryKib = match ($type) {
+            # Calculated from multiple fields, in the same way as the "free" command.
+            MemoryTypeEnum::USED => $getKib('MemTotal') - $getKib('MemAvailable'),
+            MemoryTypeEnum::BUFF_CACHE => $getKib('Buffers') + $getKib('Cached') + $getKib('SReclaimable'),
+            MemoryTypeEnum::SWAP_USED => $getKib('SwapTotal') - $getKib('SwapFree'),
+
+            # These are a number of pages rather than an amount of memory, so convert them.
+            MemoryTypeEnum::HUGE_PAGES_TOTAL,
+            MemoryTypeEnum::HUGE_PAGES_FREE,
+            MemoryTypeEnum::HUGE_PAGES_RESERVED,
+            MemoryTypeEnum::HUGE_PAGES_SURPLUS => $getKib($type->value) * $getKib('Hugepagesize'),
+
+            # Everything else is a single field in KiB, and the enum's value is that field's name.
+            default => $getKib($type->value),
+        };
+
+        # /proc/meminfo reports in KiB (despite labelling it "kB"). Convert to the requested unit, rounding down so we
+        # never over-report.
+        $memory = intdiv($memoryKib * 1024, $unit->getNumBytes());
 
         return $memory;
     }
@@ -381,7 +536,7 @@ class Core
     public static function generateSignature(array $data, string $secret) : string
     {
         ksort($data);
-        $stringForm = \Safe\json_encode($data);
+        $stringForm = json_encode($data, JSON_THROW_ON_ERROR);
         return hash_hmac("sha256", $stringForm, $secret);
     }
 
@@ -418,61 +573,168 @@ class Core
 
 
     /**
-     * Set the content of the users clipboard
-     * @param string $content - the content you wish to set int the clipboard.
+     * Set the content of the user's clipboard (the one used by Ctrl+C / Ctrl+V).
+     * On Linux, this supports both Wayland (using wl-copy from the wl-clipboard package) and X11 (using xclip). On
+     * macOS this uses pbcopy, and on Windows this uses PowerShell.
+     * @param string $content - the content you wish to set in the clipboard.
      * @return void
+     * @throws ExceptionCommandFailed - if the clipboard could not be set, such as if the required tool isn't installed.
+     * @throws \Exception - if running on an unsupported OS, or on Linux without a graphical session.
      */
-    public static function setClipboard(string $content)
+    public static function setClipboard(string $content) : void
     {
-        if (PHP_OS_FAMILY==="Windows")
-        {
-            // works on windows 7 +
-            $clip = popen("clip","wb");
-        }
-        elseif (PHP_OS_FAMILY==="Linux")
-        {
-            // tested, works on ArchLinux
-            $clip = popen('xclip -selection clipboard','wb');
-        }
-        elseif (PHP_OS_FAMILY==="Darwin")
-        {
-            // untested!
-            $clip = popen('pbcopy','wb');
-        }
-        else
-        {
-            throw new \Exception("running on unsupported OS: " . PHP_OS_FAMILY . " - only Windows, Linux, and MacOS supported.");
-        }
+        $command = match (PHP_OS_FAMILY) {
+            # Untested. This uses PowerShell rather than clip.exe, as clip.exe mangles UTF-8 text. Set-Clipboard
+            # won't accept an empty string, so clear the clipboard instead in that case.
+            "Windows" => 'powershell -NoProfile -NonInteractive -Command "'
+                . '[Console]::InputEncoding = [System.Text.Encoding]::UTF8; '
+                . '$text = [Console]::In.ReadToEnd(); '
+                . 'if ($text -eq \'\') { Set-Clipboard -Value $null } else { Set-Clipboard -Value $text }"',
 
-        $written=fwrite($clip, $content);
-        return (pclose($clip)===0 && strlen($content)===$written);
+            # Untested. pbcopy relies on the locale to know that the text is UTF-8.
+            "Darwin" => "LC_CTYPE=UTF-8 pbcopy",
+
+            # Both wl-copy and xclip leave a process running in the background to keep serving the clipboard, which
+            # keeps stdout open. Send stdout to /dev/null, otherwise runCommand() would wait for it forever.
+            "Linux" => (self::useWaylandClipboard("wl-copy"))
+                ? "wl-copy > /dev/null"
+                : "xclip -selection clipboard -in > /dev/null",
+
+            default => throw new \Exception(
+                "Running on unsupported OS: " . PHP_OS_FAMILY . " - only Windows, Linux, and macOS are supported."
+            ),
+        };
+
+        self::runCommand($command, $content);
     }
 
 
     /**
-     * Get the contents of the user's clipboard
-     * @return string - the content of the clipboard.
+     * Get the contents of the user's clipboard (the one used by Ctrl+C / Ctrl+V).
+     * On Linux, this supports both Wayland (using wl-paste from the wl-clipboard package) and X11 (using xclip). On
+     * macOS this uses pbpaste, and on Windows this uses PowerShell.
+     * @return string - the content of the clipboard, exactly as it was copied. This will be an empty string if the
+     *                  clipboard is empty, or holds something other than text (e.g. an image).
+     * @throws ExceptionCommandFailed - if the clipboard could not be read, such as if the required tool isn't
+     *                                  installed.
+     * @throws \Exception - if running on an unsupported OS, or on Linux without a graphical session.
      */
     public static function getClipboard() : string
     {
         if (PHP_OS_FAMILY === "Windows")
         {
-            // works on windows 7 + (PowerShell v2 + )
-            return substr(shell_exec('powershell -sta "add-type -as System.Windows.Forms; [windows.forms.clipboard]::GetText()"'),0,-2);
-        }
-        elseif (PHP_OS_FAMILY === "Linux")
-        {
-            // untested! but should work on X.org-based linux GUI's
-            return substr(shell_exec('xclip -out -selection primary'), 0, -1);
+            # Untested. Get-Clipboard outputs nothing if the clipboard has no text in it. PowerShell puts a \r\n
+            # after the output, which isn't part of the clipboard's content, so remove it.
+            $output = self::runCommand(
+                'powershell -NoProfile -NonInteractive -Command "'
+                . '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; '
+                . 'Get-Clipboard -Raw"'
+            );
+
+            $content = (str_ends_with($output, "\r\n")) ? substr($output, 0, -2) : $output;
         }
         elseif (PHP_OS_FAMILY === "Darwin")
         {
-            // untested!
-            return substr(shell_exec('pbpaste'), 0, -1);
+            # Untested. pbpaste outputs nothing (and succeeds) if the clipboard has no text in it.
+            $content = self::runCommand("LC_CTYPE=UTF-8 pbpaste");
+        }
+        elseif (PHP_OS_FAMILY === "Linux")
+        {
+            if (self::useWaylandClipboard("wl-paste"))
+            {
+                # --no-newline stops wl-paste adding a newline that wasn't in the clipboard.
+                $command = "wl-paste --no-newline --type text";
+
+                # wl-paste fails with one of these if the clipboard has no text in it. "No selection" is from older
+                # versions of wl-clipboard.
+                $noTextErrorPattern = '/Nothing is copied|No selection|No suitable type of content copied/';
+            }
+            else
+            {
+                # Ask for UTF8_STRING, rather than xclip's default of STRING, so that non-ASCII text isn't mangled.
+                $command = "xclip -selection clipboard -out -target UTF8_STRING";
+
+                # xclip fails with "Error: target ... not available" if the clipboard has no text in it. Note that
+                # xclip 0.13 says "target STRING not available" even though we asked for UTF8_STRING, so don't rely on
+                # the target's name.
+                $noTextErrorPattern = '/target \S+ not available/';
+            }
+
+            try
+            {
+                $content = self::runCommand($command);
+            }
+            catch (ExceptionCommandFailed $e)
+            {
+                $hasNoText = (preg_match($noTextErrorPattern, $e->getErrorOutput()) === 1);
+
+                if (!$hasNoText)
+                {
+                    # A real failure, such as the display not being reachable.
+                    throw $e;
+                }
+
+                $content = "";
+            }
         }
         else
         {
-            throw new \Exception("running on unsupported OS: ".PHP_OS_FAMILY." - only Windows, Linux, and MacOS supported.");
+            throw new \Exception(
+                "Running on unsupported OS: " . PHP_OS_FAMILY . " - only Windows, Linux, and macOS are supported."
+            );
         }
+
+        return $content;
+    }
+
+
+    /**
+     * Work out whether to use the Wayland clipboard tools (wl-clipboard) or the X11 one (xclip) on Linux.
+     * The native Wayland tools are preferred when running under Wayland, but if they aren't installed and XWayland
+     * is available, we fall back to xclip.
+     * @param string $waylandTool - the Wayland tool we want to use (e.g. "wl-copy" or "wl-paste"), so we can check if
+     *                              it is installed.
+     * @return bool - true to use the Wayland tools, false to use xclip.
+     * @throws \Exception - if there is no graphical session, and thus no clipboard.
+     */
+    private static function useWaylandClipboard(string $waylandTool) : bool
+    {
+        $hasWayland = ((string) getenv("WAYLAND_DISPLAY")) !== "";
+        $hasX11 = ((string) getenv("DISPLAY")) !== "";
+
+        if (!$hasWayland && !$hasX11)
+        {
+            throw new \Exception(
+                "Cannot access the clipboard, as there is no graphical session (neither WAYLAND_DISPLAY nor DISPLAY " .
+                "is set)."
+            );
+        }
+
+        # If we're only on Wayland, use the Wayland tool even if it isn't installed, so that the user gets an error
+        # telling them it's missing.
+        $useWayland = $hasWayland && (!$hasX11 || self::isCommandAvailable($waylandTool));
+        return $useWayland;
+    }
+
+
+    /**
+     * Check whether a command is installed (available on the PATH).
+     * @param string $command - the name of the command, e.g. "xclip".
+     * @return bool - true if the command is available, false if not.
+     */
+    private static function isCommandAvailable(string $command) : bool
+    {
+        $isAvailable = true;
+
+        try
+        {
+            self::runCommand("command -v " . escapeshellarg($command) . " > /dev/null");
+        }
+        catch (ExceptionCommandFailed $e)
+        {
+            $isAvailable = false;
+        }
+
+        return $isAvailable;
     }
 }

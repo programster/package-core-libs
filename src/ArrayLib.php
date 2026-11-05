@@ -434,13 +434,13 @@ class ArrayLib
         int $numberOfArrays,
         bool $useBucketFill=true,
         bool $preserveKeys=false
-    )
+    ) : array
     {
         if ($useBucketFill)
         {
             // fill one array at a time.
-            $chunkSize = ceil(count($inputArray) / $numberOfArrays);
-            $result = array_chunk($result, $chunkSize, $preserveKeys);
+            $chunkSize = (int) ceil(count($inputArray) / $numberOfArrays);
+            $result = array_chunk($inputArray, $chunkSize, $preserveKeys);
         }
         else
         {

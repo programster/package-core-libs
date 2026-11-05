@@ -7,6 +7,7 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
 use Programster\CoreLibs\Exceptions\ExceptionFileAlreadyExists;
 use Programster\CoreLibs\Exceptions\ExceptionFileDoesNotExist;
 use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
@@ -15,7 +16,7 @@ use ZipArchive;
 
 class Filesystem
 {
-    static array $s_fileLocks = [];
+    private static array $s_fileLocks = [];
 
 
     /**
@@ -260,8 +261,14 @@ class Filesystem
     {
         # This creates the file if it doesn't exist.
         # This MUST be a+ instead of w or w+ as using w will result in the file being wiped.
-        self::$s_fileLocks[$filePath] = fopen($filePath, 'a+');
+        $fileHandle = fopen($filePath, 'a+');
 
+        if ($fileHandle === false)
+        {
+            throw new FilesystemException("Failed to open {$filePath} in order to lock it.");
+        }
+
+        self::$s_fileLocks[$filePath] = $fileHandle;
         $lock_params = 0;
 
         if ($is_write_lock)
@@ -279,7 +286,7 @@ class Filesystem
             $lock_params = $lock_params | LOCK_NB;
         }
 
-        return flock(self::$s_fileLocks['file_locks'][$filePath], $lock_params);
+        return flock(self::$s_fileLocks[$filePath], $lock_params);
     }
 
 
@@ -308,14 +315,21 @@ class Filesystem
      * @param string $dirPath - the path to the directory we wish to get the
      *                          size of
      * @return int - the size (in bytes) of the directory and all its contents.
+     * @throws ExceptionCommandFailed - if the du command failed, such as if there is nothing at $dirPath.
+     * @throws \Exception - if the output of du was not in the expected format.
      */
     public static function getDirSize(string $dirPath) : int
     {
-        $io = popen('/usr/bin/du --bytes --summarize ' . $dirPath, 'r' );
-        $size = fgets($io, 4096);
-        $size = substr($size, 0, strpos( $size, "\t" ));
-        pclose($io);
-        return intval($size);
+        # Output looks like: "4096\t/path/to/dir"
+        $output = Core::runCommand('/usr/bin/du --bytes --summarize ' . escapeshellarg($dirPath));
+        $size = explode("\t", $output)[0];
+
+        if (!ctype_digit($size))
+        {
+            throw new \Exception("getDirSize: unexpected output from du: {$output}");
+        }
+
+        return (int) $size;
     }
 
 
@@ -451,14 +465,14 @@ class Filesystem
      * Filters a file using the provided callback, in a memory efficient way so that it can process very large files.
      * This is inspired by array_filter (http://php.net/manual/en/function.array-walk.php)
      * @param string $inputFile - the path to the file to operate upon.
-     * @param callable $filterCallback - the callback to execute on every line in the file to determine if ketp or not.
+     * @param callable $filterCallback - the callback to execute on every line in the file to determine if kept or not.
      * Don't forget that this will include its line ending, so you may wish to use trim() before analysis.
      * @param string|null $outputFilepath - optionally specify an output filepath to place the filtered content into.
-     * If this is not specified, then the existing file will be modified in-place. Please note that if not provided
-     * this function relies on the ability to create and remove a temporary file in a directory provided by a call to
-     * sys_get_temp_dir().
+     * If this is not specified (or is the same file as $inputFile), then the existing file will be modified in-place.
+     * Please note that when modifying in-place, this function relies on the ability to create and remove a temporary
+     * file in a directory provided by a call to sys_get_temp_dir().
      * @param int|null $streamChunkSize - optionally specify the chunk size when streaming content from the temporary
-     * file back into the original. This is not applicable when $outputFilepath was provided.
+     * file back into the original. This is only applicable when modifying the file in-place.
      * @return void
      * @throws FilesystemException
      */
@@ -469,14 +483,40 @@ class Filesystem
         ?int     $streamChunkSize = null,
     ) : void
     {
-        $inputHandle = \Safe\fopen($inputFile, "rw"); // use rw now to ensure we have permission to write later.
+        // If the output file already exists, it may be the input file under a different path (e.g. relative path or
+        // symlink), so compare the resolved paths. If it doesn't exist yet, it can't be the input file.
+        $isInPlace = (
+            $outputFilepath === null
+            || (file_exists($outputFilepath) && realpath($outputFilepath) === realpath($inputFile))
+        );
 
-        if ($outputFilepath === null)
+        if ($isInPlace)
         {
+            // Open with r+ (read/write without truncating) so that we fail immediately, before doing any work, if we
+            // don't have permission to write the filtered content back into the file later.
+            $inputHandle = fopen($inputFile, "r+");
+
+            if ($inputHandle === false)
+            {
+                throw new FilesystemException("Failed to open {$inputFile} for reading and writing.");
+            }
+
             $tempFilename = tempnam(sys_get_temp_dir(), "filter-");
+
+            if ($tempFilename === false)
+            {
+                throw new FilesystemException("Failed to create a temporary file to filter {$inputFile} into.");
+            }
         }
         else
         {
+            $inputHandle = fopen($inputFile, "r");
+
+            if ($inputHandle === false)
+            {
+                throw new FilesystemException("Failed to open {$inputFile} for reading.");
+            }
+
             $tempFilename = $outputFilepath;
         }
 
@@ -509,9 +549,9 @@ class Filesystem
         fclose($inputHandle);
         fclose($outputHandle);
 
-        if ($outputFilepath === null)
+        if ($isInPlace)
         {
-            // user wished to replace the exisitng input file, copy the contents across and remove the temporary file
+            // user wished to replace the existing input file, copy the contents across and remove the temporary file
             $fromHandle = fopen($tempFilename, "r");
 
             if ($fromHandle === false)
@@ -578,28 +618,53 @@ class Filesystem
      * fallback to using file_get_contents.
      * @param string $url
      * @return string - the full filepath to the downloaded file on the server.
-     * @throws \Safe\Exceptions\FilesystemException
+     * @throws FilesystemException - if the temporary file could not be created/written to, or the download failed.
      */
     public static function downloadFile(string $url) : string
     {
         $downloadedFilepath = tempnam(sys_get_temp_dir(), "");
 
+        if ($downloadedFilepath === false)
+        {
+            throw new FilesystemException("Failed to create a temporary file to download {$url} into.");
+        }
+
         // use curl if installed. Faster and probably more memory efficient.
         if (function_exists('curl_version'))
         {
             $fp = fopen($downloadedFilepath, 'w+');
+
+            if ($fp === false)
+            {
+                throw new FilesystemException("Failed to open {$downloadedFilepath} for writing.");
+            }
+
             $ch = curl_init(str_replace(" ", "%20", $url));
             curl_setopt($ch, CURLOPT_TIMEOUT, 50);
             curl_setopt($ch, CURLOPT_FILE, $fp);
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-            curl_exec($ch);
-            curl_close($ch);
+            $downloaded = curl_exec($ch);
+            $curlError = curl_error($ch);
             fclose($fp);
+
+            if ($downloaded === false)
+            {
+                throw new FilesystemException("Failed to download {$url}: {$curlError}");
+            }
         }
         else
         {
-            $content = \Safe\file_get_contents($url);
-            file_put_contents($downloadedFilepath, $content);
+            $content = file_get_contents($url);
+
+            if ($content === false)
+            {
+                throw new FilesystemException("Failed to download {$url}.");
+            }
+
+            if (file_put_contents($downloadedFilepath, $content) === false)
+            {
+                throw new FilesystemException("Failed to write the downloaded content to {$downloadedFilepath}.");
+            }
         }
 
         return $downloadedFilepath;

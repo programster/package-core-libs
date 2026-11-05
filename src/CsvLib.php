@@ -7,6 +7,7 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Exceptions\FilesystemException;
 
 class CsvLib
 {
@@ -19,18 +20,37 @@ class CsvLib
      * @param bool $compressed - if true then this will have no line endings or padding, if false
      *                           then the outputted json will be much easier to read by humans.
      * @param string $delimiter - optionally specify a delimiter other than the default comma.
+     * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      * @return void
+     * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not be written.
+     * @throws \JsonException
      */
     public static function convertCsvToJson(
         string $csvFilepath,
         string $jsonFilepath,
         bool $compressed,
-        string $delimiter = ","
-    )
+        string $delimiter = ",",
+        string $enclosure = '"',
+        string $escape = "",
+    ) : void
     {
         $lines = file($csvFilepath);
+
+        if ($lines === false)
+        {
+            throw new FilesystemException("Failed to read CSV file: {$csvFilepath}");
+        }
+
         $jsonFile = fopen($jsonFilepath, "w");
+
+        if ($jsonFile === false)
+        {
+            throw new FilesystemException("Failed to open {$jsonFilepath} for writing.");
+        }
+
         $headers = array();
+        $hasWrittenObject = false;
 
         if ($compressed)
         {
@@ -44,14 +64,20 @@ class CsvLib
 
         foreach ($lines as $lineIndex => $line)
         {
+            $data = str_getcsv($line, $delimiter, $enclosure, $escape);
+
             if ($lineIndex === 0)
             {
                 # this is the header line
-                $headers = str_getcsv($line);
+                $headers = $data;
+            }
+            elseif (self::isBlankRow($data))
+            {
+                // Skip empty lines (users may accidentally put one at the end
+                // libre calc wont strip this either.
             }
             else
             {
-                $data = str_getcsv($line);
                 $obj = new \stdClass();
 
                 foreach ($headers as $headerIndex => $header)
@@ -61,11 +87,11 @@ class CsvLib
 
                 if ($compressed)
                 {
-                    $jsonString = \Safe\json_encode($obj, JSON_UNESCAPED_SLASHES);
+                    $jsonString = json_encode($obj, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
                 }
                 else
                 {
-                    $jsonString = \Safe\json_encode($obj, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+                    $jsonString = json_encode($obj, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
                 }
 
                 if (!$compressed)
@@ -80,7 +106,7 @@ class CsvLib
                     $jsonString = implode(PHP_EOL, $jsonStringLines);
                 }
 
-                if ($lineIndex > 1)
+                if ($hasWrittenObject)
                 {
                     if ($compressed)
                     {
@@ -94,6 +120,7 @@ class CsvLib
                 }
 
                 fwrite($jsonFile, $jsonString);
+                $hasWrittenObject = true;
             }
         }
 
@@ -115,20 +142,37 @@ class CsvLib
      * @param array $keys - optional parameter to specify the indexes to use in the rows. If not
      *                      provided and there is a header, then we will use the header columns
      *                      as indexes.
+     * @param string $delimiter - optionally specify the delimiter if it isn't a comma
+     * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      *
      * @return array - an array list of indexed rows that the CSV has been converted into.
+     * @throws FilesystemException - if the file could not be opened for reading.
      */
-    public static function convertCsvToArray(string $filepath, bool $hasHeader, array $keys=null) : array
+    public static function convertCsvToArray(
+        string $filepath,
+        bool $hasHeader,
+        ?array $keys = null,
+        string $delimiter = ",",
+        string $enclosure = '"',
+        string $escape = "",
+    ) : array
     {
         $file = fopen($filepath, 'r');
+
+        if ($file === false)
+        {
+            throw new FilesystemException("Failed to open {$filepath} for reading.");
+        }
+
         $output = array();
         $firstRow = true;
 
-        while ($row = fgetcsv($file))
+        while ($row = fgetcsv($file, 0, $delimiter, $enclosure, $escape))
         {
             // Skip empty lines (users may accidentally put one at the end
             // libre calc wont strip this either.
-            if (count($row) == 0 || $row[0] === "")
+            if (self::isBlankRow($row))
             {
                 continue;
             }
@@ -186,7 +230,7 @@ class CsvLib
      * @param string $separator - separator to pass through to fgetcsv
      * @param string $enclosure - enclosure to pass through to fgetcsv
      * @param string $escape - excape value to pass through to fgetcsv
-     * @throws \Safe\Exceptions\FilesystemException - if the file at $filepath does not exist or cannot be opened.
+     * @throws FilesystemException - if the file at $filepath does not exist or cannot be opened.
      * @return void
      */
     public static function csvWalk(
@@ -199,7 +243,13 @@ class CsvLib
         string $escape = '\\'
     ) : void
     {
-        $fileHandle = \Safe\fopen($filepath, 'r');
+        $fileHandle = fopen($filepath, 'r');
+
+        if ($fileHandle === false)
+        {
+            throw new FilesystemException("Failed to open {$filepath} for reading.");
+        }
+
         $firstRow = true;
         $rowIndex = -1;
 
@@ -209,7 +259,7 @@ class CsvLib
 
             // Skip empty lines (users may accidentally put one at the end
             // libre calc wont strip this either.
-            if (count($row) == 0 || $row[0] === "")
+            if (self::isBlankRow($row))
             {
                 continue;
             }
@@ -247,6 +297,8 @@ class CsvLib
 
             $callback($arrayToRunCallbackOn, $rowIndex);
         }
+
+        fclose($fileHandle);
     }
 
 
@@ -387,13 +439,14 @@ class CsvLib
         {
             while (!feof($uploaded_fh))
             {
-                $lineArray = fgetcsv($uploaded_fh, 0, $delimiter);
+                $lineArray = fgetcsv($uploaded_fh, 0, $delimiter, escape: $escape);
 
                 if (!empty($lineArray))
                 {
                     foreach ($lineArray as $index => $value)
                     {
-                        $lineArray[$index] = trim($value);
+                        // fgetcsv returns [null] for a blank line.
+                        $lineArray[$index] = trim($value ?? "");
                     }
 
                     fputcsv(
@@ -426,6 +479,9 @@ class CsvLib
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally set the escape sequence to use then passint to fputcsv.
      * @return void
+     * @throws \Exception - if the file contains a blank line before the end of the data (blank lines at the very end
+     * of the file are allowed and are kept), or a row doesn't have one of the columns being removed. The original
+     * file is left untouched if this happens.
      */
     public static function removeColumns(
         string $filepath,
@@ -439,23 +495,53 @@ class CsvLib
         $fileHandle = fopen($filepath, "r");
         $lineNumber = 1;
 
+        // Blank lines are only allowed at the very end of the file, but we can't know whether a blank line is at the
+        // end until we've read past it, so keep track of them until we either hit more data (error) or the end of the
+        // file (write them back out so they are kept).
+        $numPendingBlankLines = 0;
+        $firstPendingBlankLineNumber = 0;
+
         if ($fileHandle)
         {
             while (!feof($fileHandle))
             {
-                $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure);
+                $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape);
 
-                if (!empty($lineArray))
+                if (is_array($lineArray) && self::isBlankRow($lineArray))
                 {
+                    if ($numPendingBlankLines === 0)
+                    {
+                        $firstPendingBlankLineNumber = $lineNumber;
+                    }
+
+                    $numPendingBlankLines++;
+                }
+                elseif (!empty($lineArray))
+                {
+                    if ($numPendingBlankLines > 0)
+                    {
+                        // We write to a temporary file and only replace the original once every line has been
+                        // processed, so throwing here leaves the original file untouched.
+                        fclose($fileHandle);
+                        fclose($tmpFile);
+
+                        throw new \Exception(
+                            "removeColumns: source CSV file has a blank line on line: " . $firstPendingBlankLineNumber
+                        );
+                    }
+
                     foreach ($columnIndexes as $columnHumanIndex)
                     {
                         $columnIndex = $columnHumanIndex - 1;
 
-                        if (!isset($lineArray[$columnIndex]))
+                        // Can't use isset() here, as a field could legitimately be null.
+                        if (!array_key_exists($columnIndex, $lineArray))
                         {
                             $msg = "removeColumns: source CSV file does not have " .
-                                   "column: " . $columnIndex . " on line: " . $lineNumber;
+                                   "column: " . $columnHumanIndex . " on line: " . $lineNumber;
 
+                            fclose($fileHandle);
+                            fclose($tmpFile);
                             throw new \Exception($msg);
                         }
 
@@ -475,6 +561,9 @@ class CsvLib
             }
 
             fclose($fileHandle);
+
+            // Keep any blank lines that were at the end of the file.
+            fwrite($tmpFile, str_repeat("\n", $numPendingBlankLines));
 
             $meta_data = stream_get_meta_data($tmpFile);
             $tmpFileName = $meta_data["uri"];
@@ -511,7 +600,7 @@ class CsvLib
         {
             while (!feof($fileHandle))
             {
-                $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure);
+                $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape);
 
                 if ($lineArray)
                 {
@@ -564,6 +653,12 @@ class CsvLib
     ) : string
     {
         $newFileName = tempnam(sys_get_temp_dir(), "");
+
+        if ($newFileName === false)
+        {
+            throw new FilesystemException("Failed to create a temporary file to store the diff in.");
+        }
+
         $newFileHandle = fopen($newFileName, "w");
 
         if (!$newFileHandle)
@@ -574,21 +669,20 @@ class CsvLib
         $fileHandle1 = fopen($filepath1, "r");
         $fileHandle2 = fopen($filepath2, "r");
 
-        $lineNumber = 0;
-
         if ($fileHandle1 && $fileHandle2)
         {
             while (!feof($fileHandle1))
             {
-                $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure);
-                $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure);
+                $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape);
+                $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure, $escape);
                 $resultArray = array();
 
                 if ($lineArray1)
                 {
                     foreach ($lineArray1 as $index => $value1)
                     {
-                        if (!isset($lineArray2[$index]))
+                        // Can't use isset() here, as fgetcsv returns [null] for blank lines.
+                        if (!is_array($lineArray2) || !array_key_exists($index, $lineArray2))
                         {
                             throw new \Exception("decimalDiff: rows do not have the same column count.");
                         }
@@ -620,14 +714,11 @@ class CsvLib
                     enclosure: $enclosure,
                     escape: $escape
                 );
-
-                $lineNumber++;
             }
 
             fclose($fileHandle1);
             fclose($fileHandle2);
             fclose($newFileHandle);
-            return $newFileName;
         }
         else
         {
@@ -654,6 +745,7 @@ class CsvLib
      *                                    in the tolerances array.
      * @param type $delimiter - optionally specify the delimiter to pass to fgetcsv (comma default)
      * @param string $enclosure - optionally specify the enclosure to pass to fgetcsv (default: ")
+     * @param string $escape - optionally specify the escape character to pass to fgetcsv.
      * @return bool - true if the files are the same, false if different.
      * @throws \Exception
      */
@@ -663,7 +755,8 @@ class CsvLib
         array $tolerances,
         bool $compareOtherColumns = true,
         string $delimiter=",",
-        string $enclosure='"'
+        string $enclosure='"',
+        string $escape="",
     ) : bool
     {
         $hasFailed = false;
@@ -678,8 +771,8 @@ class CsvLib
 
         while (!feof($fileHandle1) && $hasFailed === FALSE)
         {
-            $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure);
-            $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure);
+            $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape);
+            $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure, $escape);
 
             if ($lineArray1)
             {
@@ -687,7 +780,8 @@ class CsvLib
                 {
                     $humanColumnNumber = $index + 1;
 
-                    if (!isset($lineArray2[$index]))
+                    // Can't use isset() here, as fgetcsv returns [null] for blank lines.
+                    if (!is_array($lineArray2) || !array_key_exists($index, $lineArray2))
                     {
                         throw new \Exception("decimalDiff: rows do not have the same column count.");
                     }
@@ -785,7 +879,7 @@ class CsvLib
                 throw new \Exception("Unable to read file for merging: {$filepath}");
             }
 
-            while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure)) !== FALSE)
+            while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure, $escape)) !== FALSE)
             {
                 $copyLineAcross = false;
 
@@ -824,5 +918,18 @@ class CsvLib
         }
 
         fclose($outputFileHandle);
+    }
+
+
+    /**
+     * Determine whether a row returned by fgetcsv/str_getcsv is a blank line, which fgetcsv/str_getcsv return as
+     * [null]. Note that a line of just delimiters (e.g. ",,,") is NOT a blank line, as it is a row of empty values,
+     * which may be legitimate data.
+     * @param array $row - the row as returned by fgetcsv/str_getcsv.
+     * @return bool - true if the row came from a blank line, false otherwise.
+     */
+    private static function isBlankRow(array $row) : bool
+    {
+        return $row === [null];
     }
 }

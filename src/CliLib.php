@@ -6,6 +6,7 @@
 
 namespace Programster\CoreLibs;
 
+use Programster\CoreLibs\Exceptions\ExceptionCommandFailed;
 
 class CliLib
 {
@@ -30,7 +31,23 @@ class CliLib
 
         $percentageStringLength += 3; // add 2 for () and a space before bar starts.
 
-        $terminalWidth = intval(shell_exec("tput cols"));
+        # Fall back to the traditional terminal width if we can't work it out, rather than failing to show the bar.
+        $terminalWidth = 80;
+
+        try
+        {
+            $tputOutput = trim(Core::runCommand("tput cols"));
+
+            if (ctype_digit($tputOutput) && (int) $tputOutput > 0)
+            {
+                $terminalWidth = (int) $tputOutput;
+            }
+        }
+        catch (ExceptionCommandFailed $e)
+        {
+            // Keep the fallback width.
+        }
+
         $barWidth = $terminalWidth - ($percentageStringLength) - 2; // subtract 2 for [] around bar
         $numBars = round(($percentage) / 100 * ($barWidth));
         $numEmptyBars = $barWidth - $numBars;
@@ -71,7 +88,8 @@ class CliLib
             {
                 $char = fgetc(STDIN);
 
-                if ($char === "\n")
+                // fgetc returns false if STDIN reaches EOF/closes before the user presses enter.
+                if ($char === false || $char === "\n")
                 {
                     break;
                 }

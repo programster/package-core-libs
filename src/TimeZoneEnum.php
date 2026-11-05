@@ -7,8 +7,6 @@
 
 namespace Programster\CoreLibs;
 
-use Cassandra\Date;
-
 enum TimeZoneEnum : string
 {
     case Africa_Abidjan                  = 'Africa/Abidjan';
@@ -102,6 +100,7 @@ enum TimeZoneEnum : string
     case America_Chihuahua               = 'America/Chihuahua';
     case America_Ciudad_Juarez           = 'America/Ciudad_Juarez';
     case America_Costa_Rica              = 'America/Costa_Rica';
+    case America_Coyhaique               = 'America/Coyhaique';
     case America_Creston                 = 'America/Creston';
     case America_Cuiaba                  = 'America/Cuiaba';
     case America_Curacao                 = 'America/Curacao';
@@ -235,6 +234,7 @@ enum TimeZoneEnum : string
     case Asia_Bishkek                    = 'Asia/Bishkek';
     case Asia_Brunei                     = 'Asia/Brunei';
     case Asia_Chita                      = 'Asia/Chita';
+    #[\Deprecated("Asia/Choibalsan was removed from the tz database (2024b) and is now just a link to Asia/Ulaanbaatar. Please use Asia_Ulaanbaatar instead.")]
     case Asia_Choibalsan                 = 'Asia/Choibalsan';
     case Asia_Colombo                    = 'Asia/Colombo';
     case Asia_Damascus                   = 'Asia/Damascus';
