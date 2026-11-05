@@ -10,7 +10,7 @@ namespace Programster\CoreLibs;
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\InvalidCsvException;
-use Programster\CoreLibs\Exceptions\InvalidArgumentException;
+use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 final class CsvLib
 {
@@ -322,7 +322,7 @@ final class CsvLib
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void - all data written to the passed in filepath.
      * @throws EmptyArrayException - if there are no rows, or the first row has no columns.
-     * @throws InvalidArgumentException - if the rows are not associative arrays, or don't all have the same keys.
+     * @throws BadArgumentException - if the rows are not associative arrays, or don't all have the same keys.
      * @throws FilesystemException - if the file could not be opened for writing.
      */
     public static function convertArrayToCsv(
@@ -350,7 +350,7 @@ final class CsvLib
 
         if (ArrayLib::isAssoc($firstRow) === FALSE)
         {
-            throw new InvalidArgumentException("convertArrayToCsv expects a list of associative arrays.");
+            throw new BadArgumentException("convertArrayToCsv expects a list of associative arrays.");
         }
 
         $fileHandle = fopen($filepath, 'w');
@@ -386,7 +386,7 @@ final class CsvLib
                 $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) . 
                        " is not the same as the number of values: " . count($row);
 
-                throw new InvalidArgumentException($msg);
+                throw new BadArgumentException($msg);
             }
 
             $rowOfValues = array();
@@ -400,7 +400,7 @@ final class CsvLib
 
                     if (in_array($key, $keys) === FALSE)
                     {
-                        throw new InvalidArgumentException("Row {$index} is missing the expected key {$key}.");
+                        throw new BadArgumentException("Row {$index} is missing the expected key {$key}.");
                     }
                     else
                     {

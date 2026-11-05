@@ -8,7 +8,7 @@ namespace Programster\CoreLibs;
 
 
 use Programster\CoreLibs\Exceptions\StringConversionFailedException;
-use Programster\CoreLibs\Exceptions\InvalidArgumentException;
+use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Random\Randomizer;
 
 final class StringLib
@@ -23,7 +23,7 @@ final class StringLib
      * @param bool $useUppercase - whether to use uppercase. Defaults to true.
      * @param bool $useLowercase - whether to contain lowercase letters. Defaults to true.
      * @return string - the generated random string.
-     * @throws InvalidArgumentException - if $numChars is too short to fit one of each required type of character.
+     * @throws BadArgumentException - if $numChars is too short to fit one of each required type of character.
      */
     public static function generateRandomString(
         int $numChars,
@@ -67,7 +67,7 @@ final class StringLib
 
         if ($numChars < count($requirements))
         {
-            throw new InvalidArgumentException(
+            throw new BadArgumentException(
                 "It is impossible to create a string with " . count($requirements) . " different types of characters " .
                 "when the string can only be {$numChars} long."
             );

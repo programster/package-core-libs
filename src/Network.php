@@ -12,7 +12,7 @@ use Programster\CoreLibs\Exceptions\MissingExtensionException;
 use Programster\CoreLibs\Exceptions\NetworkInterfaceDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\NetworkException;
-use Programster\CoreLibs\Exceptions\InvalidArgumentException;
+use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 final class Network
 {
@@ -40,7 +40,7 @@ final class Network
      * @return string - the raw response from the server, read up until the first newline. If you are expecting a
      *                  format such as JSON, it is up to you to decode it.
      * @throws MissingExtensionException - if the sockets extension isn't installed.
-     * @throws InvalidArgumentException - if the request contains a newline, or $timeout or $attemptsLimit is below 1.
+     * @throws BadArgumentException - if the request contains a newline, or $timeout or $attemptsLimit is below 1.
      * @throws NetworkException - if we failed to connect, send the request, or read a complete response (e.g. if the
      *                            server closed the connection without responding, or the response was larger than
      *                            $bufferSize).
@@ -62,7 +62,7 @@ final class Network
 
         if ($timeout < 1 || $attemptsLimit < 1)
         {
-            throw new InvalidArgumentException("sendTcpRequest: \$timeout and \$attemptsLimit must both be at least 1.");
+            throw new BadArgumentException("sendTcpRequest: \$timeout and \$attemptsLimit must both be at least 1.");
         }
 
         $requestString = (string) $request;
@@ -71,7 +71,7 @@ final class Network
         # which stops at either \n or \r), so the message itself must not contain one, or it would be cut short.
         if (str_contains($requestString, "\n") || str_contains($requestString, "\r"))
         {
-            throw new InvalidArgumentException(
+            throw new BadArgumentException(
                 "sendTcpRequest: the request cannot contain a newline (\\n or \\r), as a newline is used to mark the " .
                 "end of the message."
             );

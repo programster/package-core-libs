@@ -14,7 +14,7 @@ use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\MissingExtensionException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
-use Programster\CoreLibs\Exceptions\InvalidArgumentException;
+use Programster\CoreLibs\Exceptions\BadArgumentException;
 use ZipArchive;
 
 final class Filesystem
@@ -661,8 +661,8 @@ final class Filesystem
      * @param string $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
      * http://php.net/manual/en/function.mkdir.php
      * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
-     * @throws InvalidArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g.
-     *                                    "755", "0755", "0o755" or "1777".
+     * @throws BadArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g.
+     *                                "755", "0755", "0o755" or "1777".
      * @throws FilesystemException - if the temporary directory could not be created.
      */
     public static function tmpDir(string $mode = "0777"): string
@@ -671,7 +671,7 @@ final class Filesystem
         # like 0755 arrives here as the string "493", which would become 043.
         if (preg_match('/^(0o?)?[0-7]{3,4}$/D', $mode) !== 1)
         {
-            throw new InvalidArgumentException(
+            throw new BadArgumentException(
                 "tmpDir: \$mode must be a string of 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. " .
                 "\"0755\" or \"0o755\", but is \"{$mode}\"."
             );
@@ -922,13 +922,13 @@ final class Filesystem
      * @throws FileDoesNotExistException - if file does not exist.
      * @throws FilesystemException - if something goes wrong with getting a file handle even though file exists and
      * can be read, or reading the file fails part way through.
-     * @throws InvalidArgumentException - if $chunkSize is less than 1.
+     * @throws BadArgumentException - if $chunkSize is less than 1.
      */
     public static function isValidUtf8File(string $filepath, int $chunkSize = 8192): bool
     {
         if ($chunkSize < 1)
         {
-            throw new InvalidArgumentException("isValidUtf8File: \$chunkSize must be at least 1.");
+            throw new BadArgumentException("isValidUtf8File: \$chunkSize must be at least 1.");
         }
 
         if (!file_exists($filepath))
@@ -1064,7 +1064,7 @@ final class Filesystem
      * text), "Windows-1251" (Cyrillic), "ISO-8859-2" (Central European), "ISO-8859-15" (Western European with the
      * euro sign) or "SJIS" (Japanese). Note that mbstring does NOT support "Windows-1250".
      * @return void
-     * @throws InvalidArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
+     * @throws BadArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
      * @throws BadFilePermissionsException - if input file cannot be read (but does exist).
      * @throws FileDoesNotExistException - if input file does not exist.
      * @throws MissingExtensionException - if missing the mbstring extension which is required for this function.
@@ -1085,7 +1085,7 @@ final class Filesystem
         }
         catch (\ValueError $e)
         {
-            throw new InvalidArgumentException(
+            throw new BadArgumentException(
                 "convertFileToUtf8: \"{$sourceEncoding}\" is not an encoding that the mbstring extension supports.",
                 0,
                 $e

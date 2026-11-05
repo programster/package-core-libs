@@ -9,7 +9,7 @@
 namespace Programster\CoreLibs;
 
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
-use Programster\CoreLibs\Exceptions\InvalidArgumentException;
+use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 
 final class ArrayLib
@@ -296,7 +296,7 @@ final class ArrayLib
      * @param array $haystack - the array we are pulling values from
      * @param array $indexes - array list of keys we want the values of.
      * @return array - the values, in the order of $indexes.
-     * @throws InvalidArgumentException - if one of the indexes does not exist in $haystack.
+     * @throws BadArgumentException - if one of the indexes does not exist in $haystack.
      */
     public static function getValues(array $haystack, array $indexes): array
     {
@@ -307,7 +307,7 @@ final class ArrayLib
             if (!isset($haystack[$index]))
             {
                 $msg = "index [$index] does not exist in the provided array.";
-                throw new InvalidArgumentException($msg);
+                throw new BadArgumentException($msg);
             }
 
             $values[] = $haystack[$index];
@@ -447,7 +447,7 @@ final class ArrayLib
      *                      in this list should have the same length as keys.
      *                      If any of the rows have indexes, these will be lost.
      * @return array - the generated array list of rows.
-     * @throws InvalidArgumentException - if any of the rows doesn't have the same number of values as there are keys.
+     * @throws BadArgumentException - if any of the rows doesn't have the same number of values as there are keys.
      */
     public static function arrayCombineList(array $keys, array $rows): array
     {
@@ -460,7 +460,7 @@ final class ArrayLib
                 $msg = "arrayCombineList: Number of values in one of the rows is " .
                        "not equal to the number of keys.";
 
-                throw new InvalidArgumentException($msg);
+                throw new BadArgumentException($msg);
             }
 
             $output[] = array_combine($keys, $row);
@@ -488,7 +488,7 @@ final class ArrayLib
      * @param bool $preserveKeys - if true key/value association is maintained in the split arrays
      * @return array - an array of the resulting arrays.
      * @throws EmptyArrayException - if $inputArray has no elements.
-     * @throws InvalidArgumentException - if $numberOfArrays is less than 1.
+     * @throws BadArgumentException - if $numberOfArrays is less than 1.
      */
     public static function split(
         array $inputArray,
@@ -504,7 +504,7 @@ final class ArrayLib
 
         if ($numberOfArrays < 1)
         {
-            throw new InvalidArgumentException(
+            throw new BadArgumentException(
                 "split: \$numberOfArrays must be at least 1, but {$numberOfArrays} was given."
             );
         }

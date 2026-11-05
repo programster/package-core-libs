@@ -8,6 +8,6 @@
 namespace Programster\CoreLibs\Exceptions;
 
 
-class InvalidArgumentException extends CoreLibsException
+class BadArgumentException extends CoreLibsException
 {
 }

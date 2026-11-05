@@ -15,7 +15,7 @@ use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
-use Programster\CoreLibs\Exceptions\InvalidArgumentException;
+use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 final class Core
 {
@@ -142,7 +142,7 @@ final class Core
      *                             args.
      *
      * @return array - the name/value pairs of the arguments.
-     * @throws InvalidArgumentException - if any of the arguments could not be found.
+     * @throws BadArgumentException - if any of the arguments could not be found.
      */
     public static function fetchReqArgsFromArray(array $args, array $inputArray): array
     {
@@ -157,7 +157,7 @@ final class Core
             else
             {
                 $errMsg = "Required parameter: " . $arg . " not specified";
-                throw new InvalidArgumentException($errMsg);
+                throw new BadArgumentException($errMsg);
             }
         }
 
