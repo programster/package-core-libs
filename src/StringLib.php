@@ -7,7 +7,6 @@
 namespace Programster\CoreLibs;
 
 
-use Programster\CoreLibs\Exceptions\ExceptionMissingExtension;
 use Programster\CoreLibs\Exceptions\ExceptionStringConversionFailed;
 use Random\Randomizer;
 

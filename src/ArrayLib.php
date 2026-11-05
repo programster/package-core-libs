@@ -405,7 +405,7 @@ final class ArrayLib
      */
     public static function assocArrayMerge(array $array1, array $array2, \Closure $clashHandler): array
     {
-        $result_array = array();
+        $resultArray = array();
 
         foreach ($array1 as $index => $value)
         {
@@ -416,7 +416,7 @@ final class ArrayLib
                 unset($array2[$index]);
             }
 
-            $result_array[$index] = $value;
+            $resultArray[$index] = $value;
 
             unset($array1[$index]);
         }
@@ -425,10 +425,10 @@ final class ArrayLib
         # Thus we can just merge straight in.
         foreach ($array2 as $index => $value)
         {
-            $result_array[$index] = $value;
+            $resultArray[$index] = $value;
         }
 
-        return $result_array;
+        return $resultArray;
     }
 
 

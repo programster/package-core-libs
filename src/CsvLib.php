@@ -440,13 +440,13 @@ final class CsvLib
     ): void
     {
         $tmpFile = tmpfile();
-        $uploaded_fh = fopen($filepath, "r");
+        $uploadedFileHandle = fopen($filepath, "r");
 
-        if ($uploaded_fh)
+        if ($uploadedFileHandle)
         {
-            while (!feof($uploaded_fh))
+            while (!feof($uploadedFileHandle))
             {
-                $lineArray = fgetcsv($uploaded_fh, 0, $delimiter, escape: $escape);
+                $lineArray = fgetcsv($uploadedFileHandle, 0, $delimiter, escape: $escape);
 
                 if (!empty($lineArray))
                 {
@@ -465,10 +465,10 @@ final class CsvLib
                 }
             }
 
-            fclose($uploaded_fh);
+            fclose($uploadedFileHandle);
 
-            $meta_data = stream_get_meta_data($tmpFile);
-            $tmpFileName = $meta_data["uri"];
+            $metaData = stream_get_meta_data($tmpFile);
+            $tmpFileName = $metaData["uri"];
             rename($tmpFileName, $filepath); # replace the old upload file with new.
         }
         else
@@ -572,8 +572,8 @@ final class CsvLib
             // Keep any blank lines that were at the end of the file.
             fwrite($tmpFile, str_repeat("\n", $numPendingBlankLines));
 
-            $meta_data = stream_get_meta_data($tmpFile);
-            $tmpFileName = $meta_data["uri"];
+            $metaData = stream_get_meta_data($tmpFile);
+            $tmpFileName = $metaData["uri"];
             rename($tmpFileName, $filepath); # replace the old upload file with new.
         }
         else
@@ -627,8 +627,8 @@ final class CsvLib
             }
 
             fclose($fileHandle);
-            $meta_data = stream_get_meta_data($tmpFile);
-            $tmpFileName = $meta_data["uri"];
+            $metaData = stream_get_meta_data($tmpFile);
+            $tmpFileName = $metaData["uri"];
             rename($tmpFileName, $filepath); # replace the old upload file with new.
         }
         else
@@ -861,7 +861,7 @@ final class CsvLib
      * @param string $delimiter - optionally specify the delimiter being used in the files
      * @param string $enclosure - optionally specify the enclosure being used in the files
      * @param string $escape - optionally specify the escape sequence to use when passing to fputcsv.
-     * @throws Exception
+     * @throws ExceptionFilesystem - if the merged file can't be opened for writing, or one of the files can't be read.
      * @return void
      */
     public static function mergeFiles(
@@ -876,6 +876,11 @@ final class CsvLib
         $isFirstFile = true;
         $outputFileHandle = fopen($mergedFilepath, "w");
 
+        if ($outputFileHandle === false)
+        {
+            throw new ExceptionFilesystem("Unable to open the merged file for writing: {$mergedFilepath}");
+        }
+
         foreach ($filepaths as $filepath)
         {
             $readHandle = fopen($filepath, "r");
@@ -883,7 +888,8 @@ final class CsvLib
 
             if ($readHandle === false)
             {
-                throw new \Exception("Unable to read file for merging: {$filepath}");
+                fclose($outputFileHandle);
+                throw new ExceptionFilesystem("Unable to read file for merging: {$filepath}");
             }
 
             while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure, $escape)) !== FALSE)

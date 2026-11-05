@@ -271,24 +271,24 @@ final class Filesystem
         }
 
         self::$s_fileLocks[$filePath] = $fileHandle;
-        $lock_params = 0;
+        $lockParams = 0;
 
         if ($isWriteLock)
         {
-            $lock_params =  $lock_params | LOCK_EX;
+            $lockParams =  $lockParams | LOCK_EX;
         }
         else
         {
             # read lock = shared lock
-            $lock_params = $lock_params | LOCK_SH;
+            $lockParams = $lockParams | LOCK_SH;
         }
 
         if (!$isBlocking)
         {
-            $lock_params = $lock_params | LOCK_NB;
+            $lockParams = $lockParams | LOCK_NB;
         }
 
-        return flock(self::$s_fileLocks[$filePath], $lock_params);
+        return flock(self::$s_fileLocks[$filePath], $lockParams);
     }
 
 
@@ -636,17 +636,24 @@ final class Filesystem
      * @param string $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
      * http://php.net/manual/en/function.mkdir.php
      * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
-     * @throws \Exception
+     * @throws ExceptionFilesystem - if the temporary directory could not be created.
      */
     public static function tmpDir(string $mode = "0777"): string
     {
+        # tempnam() is only used to get a unique name, so remove the file it creates and make a directory there.
         $tempName = tempnam(sys_get_temp_dir(), '');
+
+        if ($tempName === false)
+        {
+            throw new ExceptionFilesystem("Failed to get a unique name for a temporary directory.");
+        }
+
         unlink($tempName);
         mkdir($tempName, octdec($mode));
 
         if (is_dir($tempName) === FALSE)
         {
-            throw new \Exception("Failed to create a temporary directory.");
+            throw new ExceptionFilesystem("Failed to create a temporary directory.");
         }
 
         return $tempName;

@@ -80,11 +80,11 @@ final class Core
     public static function setCliTitle(string $namingPrefix): bool
     {
         $succeeded = false;
-        $num_running = self::getNumProcRunning($namingPrefix);
+        $numRunning = self::getNumProcRunning($namingPrefix);
 
         if (function_exists('cli_set_process_title'))
         {
-            cli_set_process_title($namingPrefix . $num_running);
+            cli_set_process_title($namingPrefix . $numRunning);
             $succeeded = true;
         }
 
@@ -489,7 +489,7 @@ final class Core
      * @param string $variableName - name of the settings variable so that it is reloaded correctly
      * @param string $filePath - path to the file where we want to save the settings. (overwritten)
      * @return void - creates a config file, or throws an exception if failed.
-     * @throws Exception if failed to write to the specified filePath, e.g don't have permissions.
+     * @throws ExceptionFilesystem - if failed to write to the specified filePath, e.g. don't have permissions.
      */
     public static function generateConfig(mixed $settings, string $variableName, string $filePath): void
     {
@@ -505,7 +505,7 @@ final class Core
         if ($wroteFile === FALSE)
         {
             $msg = "Failed to generate config file. Check permissions!";
-            throw new \Exception($msg);
+            throw new ExceptionFilesystem($msg);
         }
     }
 
