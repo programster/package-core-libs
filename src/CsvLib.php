@@ -139,7 +139,7 @@ class CsvLib
      * @param bool $hasHeader - specify whether the CSV file has a header which it will have to
      *                          skip for values, and may or may not be used for indexes of the
      *                          rows depending on whether $keys is provided.
-     * @param array $keys - optional parameter to specify the indexes to use in the rows. If not
+     * @param ?array $keys - optional parameter to specify the indexes to use in the rows. If not
      *                      provided and there is a header, then we will use the header columns
      *                      as indexes.
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
@@ -183,7 +183,7 @@ class CsvLib
 
                 if ($hasHeader)
                 {
-                    if ($keys == null)
+                    if ($keys === null)
                     {
                         $keys = $row;
                     }
@@ -192,9 +192,9 @@ class CsvLib
                 }
             }
 
-            if ($keys != null)
+            if ($keys !== null)
             {
-                if (count($keys) != count($row))
+                if (count($keys) !== count($row))
                 {
                     $msg = "Cannot convert csv to array. Number of keys: " . count($keys) .
                            " is not the same as the number of values: " . count($row);
@@ -889,7 +889,7 @@ class CsvLib
                     {
                         $copyLineAcross = true;
                     }
-                    elseif ($hasHeaders == FALSE)
+                    elseif ($hasHeaders === FALSE)
                     {
                         $copyLineAcross = true;
                     }
