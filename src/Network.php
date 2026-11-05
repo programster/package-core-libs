@@ -387,7 +387,7 @@ final class Network
      * port forwarding.
      * This is a very quick and dirty method that relies on icanhazip.com
      * remaining the same so use with caution.
-     * @return string $ip - the public ip address of this computer.
+     * @return string - the public ip address of this computer.
      * @throws NetworkException - if we failed to get a response from icanhazip.com
      */
     public static function getPublicIp(): string

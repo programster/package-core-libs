@@ -184,7 +184,7 @@ final class ArrayLib
      * @param array $inputArray - the array we are manipulating
      * @param array $indexes - array list of indexes whose elements we wish to remove
      * @param bool $reIndex - override to true if your array needs re-indexing (e.g. 0,1,2,3)
-     * @return array $outputArray - the newly generated output array.
+     * @return array - the newly generated output array.
      */
     public static function removeIndexes(array $inputArray, array $indexes, bool $reIndex=false): array
     {

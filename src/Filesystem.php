@@ -852,7 +852,7 @@ final class Filesystem
      * @param string $filepath - the path to the file you wish to serve up as a download
      * @param string $downloadFilename - the filename the browser should use for the file, e.g. if the user saves it.
      * This can contain any characters, including spaces, punctuation and non-ASCII characters such as "résumé.pdf".
-     * @param string $mimetype - optionally manually specify the mimetype. Can be null to force not setting mimetype on
+     * @param ?string $mimetype - optionally manually specify the mimetype. Can be null to force not setting mimetype on
      * download. Defaults to "auto" which will have PHP try to dynamically figure out the mimetype of the file.
      * @param bool $asAttachment - specify whether the file should be downloaded as an attachment in the browser
      * (default), or set to false for the file to be "inline" so it just appears in the webview rather than being

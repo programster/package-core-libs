@@ -65,7 +65,7 @@ final class Core
      *
      * @param string $location - the location/address/URL you want to redirect to.
      *
-     * @return void - redirects the user and quits.
+     * @return never - redirects the user and quits, so this never returns.
      */
     public static function redirectUser(string $location): never
     {
@@ -173,7 +173,7 @@ final class Core
      * @param array $args - array of all the argument names.
      * @param array $inputArray - array from which we are pulling the optional args.
      *
-     * @return values - array of retrieved values
+     * @return array - array of retrieved values
      */
     public static function fetchOptionalArgsFromArray(array $args, array $inputArray): array
     {
@@ -193,8 +193,8 @@ final class Core
 
     /**
      * Builds the URL of the current page, excluding any ?=&stuff,
-     * @return pageURL - full page URL of the current page
-     *                   e.g. https://www.google.com/some-page
+     * @return string - full page URL of the current page
+     *                  e.g. https://www.google.com/some-page
      */
     public static function getCurrentUrl(): string
     {

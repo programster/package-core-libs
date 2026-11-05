@@ -227,7 +227,7 @@ final class StringLib
      * Converts any newlines to the system's format.
      * The use of " instead of ' is very important!
      * @param string $input - any string input
-     * @return $output - the newly reformatted string
+     * @return string - the newly reformatted string
      */
     public static function convertLineEndings(string $input): string
     {
@@ -292,7 +292,7 @@ final class StringLib
      * need to worry about your replacement pairs clashing with each other. This is faster and
      * simpler to understand but if you need this recursive behaviour, please use the in-built
      * str_replace method instead.
-     * @param string $pairs - array of search/replace pairs to perform
+     * @param array $pairs - array of search/replace pairs to perform
      * @param string $subject - the string to perform substitutions in.
      * @return string - the result of converting the subject string.
      */
