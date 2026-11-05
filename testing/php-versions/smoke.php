@@ -18,6 +18,7 @@ use Programster\CoreLibs\EncryptionLib;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\DecryptionFailedException;
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
+use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\NetworkException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
@@ -388,6 +389,13 @@ $smoke->run("directories and files", function () use ($dir) {
     file_put_contents("{$dir}/sub/deep/f.txt", "abc\nxyz\n");
     Filesystem::getDirectories($dir, true);
     Filesystem::getDirContents($dir);
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::getDirectories("{$dir}/nope"));
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::getDirContents("{$dir}/nope"));
+    # A file isn't a directory either.
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => Filesystem::getDirContents("{$dir}/sub/deep/f.txt")
+    );
     assert(Filesystem::getDirSize("{$dir}/sub") > 0);
     assert(Filesystem::getFileSize("{$dir}/sub/deep/f.txt") === 8.0);
     Filesystem::fileWalk("{$dir}/sub/deep/f.txt", fn(string $line) => null);

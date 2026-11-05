@@ -33,6 +33,9 @@ final class Filesystem
      * @param bool $includePath - set to true to include the full path to the
      *                            dir, not just the dir name.
      * @return array<string> - list of directories within the specified path.
+     * @throws FileDoesNotExistException - if there is no directory at $path.
+     * @throws FilesystemException - if the directory (or, if $recursive, one of its subdirectories) can't be opened,
+     *                               e.g. because it can't be read.
      */
     public static function getDirectories(
         string $path,
@@ -42,43 +45,53 @@ final class Filesystem
     {
         $directories = array();
         $fpath     = realpath($path);
-        $handle    = opendir($path);
 
-        if ($handle)
+        # Throw rather than returning an empty list (with a warning), so that a missing or unreadable directory
+        # can't be mistaken for an empty one.
+        if (!is_dir($path))
         {
-            while (false !== ($filename = readdir($handle)))
+            throw new FileDoesNotExistException("There is no directory at {$path}.");
+        }
+
+        # Suppress the warning, as we throw an exception instead.
+        $handle    = @opendir($path);
+
+        if ($handle === false)
+        {
+            throw new FilesystemException("Failed to open the directory {$path}, e.g. because it can't be read.");
+        }
+
+        while (false !== ($filename = readdir($handle)))
+        {
+            if (strcmp($filename, "..") != 0 &&
+                strcmp($filename, ".") != 0)
             {
-                if (strcmp($filename, "..") != 0 &&
-                    strcmp($filename, ".") != 0)
+                if (is_dir($fpath . "/" . $filename))
                 {
-                    if (is_dir($fpath . "/" . $filename))
+                    if ($includePath)
                     {
-                        if ($includePath)
-                        {
-                            $directories[] = $fpath . "/" . $filename;
-                        }
-                        else
-                        {
-                            $directories[] = $filename;
-                        }
+                        $directories[] = $fpath . "/" . $filename;
+                    }
+                    else
+                    {
+                        $directories[] = $filename;
+                    }
 
-                        if ($recursive)
-                        {
-                            $subFilepath = $fpath . "/" . $filename;
+                    if ($recursive)
+                    {
+                        $subFilepath = $fpath . "/" . $filename;
 
-                            $subFiles = self::getDirectories($subFilepath,
-                                                             $recursive,
-                                                             $includePath);
+                        $subFiles = self::getDirectories($subFilepath,
+                                                         $recursive,
+                                                         $includePath);
 
-                            $directories = array_merge($directories, $subFiles);
-                        }
+                        $directories = array_merge($directories, $subFiles);
                     }
                 }
             }
-
-            closedir($handle);
         }
 
+        closedir($handle);
         return $directories;
     }
 
@@ -97,6 +110,9 @@ final class Filesystem
      * @param bool $includeHiddenFilesAndFolders - if false, then this will not include
      *                                          hidden files and folders (those starting with '.')
      * @return array - the names of all the files/folders within the directory.
+     * @throws FileDoesNotExistException - if there is no directory at $dir.
+     * @throws FilesystemException - if the directory (or, if $recursive, one of its subdirectories) can't be opened,
+     *                               e.g. because it can't be read.
      */
     public static function getDirContents(
         string $dir,
@@ -108,49 +124,34 @@ final class Filesystem
     {
         $fileNames = array();
         $fpath     = realpath($dir);
-        $handle    = opendir($dir);
 
-        if ($handle)
+        # Throw rather than returning an empty list (with a warning), so that a missing or unreadable directory
+        # can't be mistaken for an empty one.
+        if (!is_dir($dir))
         {
-            while (false !== ($fileName = readdir($handle)))
+            throw new FileDoesNotExistException("There is no directory at {$dir}.");
+        }
+
+        # Suppress the warning, as we throw an exception instead.
+        $handle    = @opendir($dir);
+
+        if ($handle === false)
+        {
+            throw new FilesystemException("Failed to open the directory {$dir}, e.g. because it can't be read.");
+        }
+
+        while (false !== ($fileName = readdir($handle)))
+        {
+            if ($includeHiddenFilesAndFolders === false && StringLib::startsWith($fileName, "."))
             {
-                if ($includeHiddenFilesAndFolders === false && StringLib::startsWith($fileName, "."))
+                continue;
+            }
+
+            if (strcmp($fileName, "..") != 0 && strcmp($fileName, ".") != 0)
+            {
+                if (is_dir($fpath . "/" . $fileName))
                 {
-                    continue;
-                }
-
-                if (strcmp($fileName, "..") != 0 && strcmp($fileName, ".") != 0)
-                {
-                    if (is_dir($fpath . "/" . $fileName))
-                    {
-                        if (!$onlyFiles)
-                        {
-                            if ($includePath)
-                            {
-                                $fileNames[] = $fpath . "/" . $fileName;
-                            }
-                            else
-                            {
-                                $fileNames[] = $fileName;
-                            }
-                        }
-
-                        if ($recursive)
-                        {
-                            $subFilePath = $fpath . "/" . $fileName;
-
-                            $subFiles = self::getDirContents(
-                                $subFilePath,
-                                $recursive,
-                                $includePath,
-                                $onlyFiles,
-                                $includeHiddenFilesAndFolders
-                            );
-
-                            $fileNames = array_merge($fileNames, $subFiles);
-                        }
-                    }
-                    else
+                    if (!$onlyFiles)
                     {
                         if ($includePath)
                         {
@@ -161,12 +162,37 @@ final class Filesystem
                             $fileNames[] = $fileName;
                         }
                     }
+
+                    if ($recursive)
+                    {
+                        $subFilePath = $fpath . "/" . $fileName;
+
+                        $subFiles = self::getDirContents(
+                            $subFilePath,
+                            $recursive,
+                            $includePath,
+                            $onlyFiles,
+                            $includeHiddenFilesAndFolders
+                        );
+
+                        $fileNames = array_merge($fileNames, $subFiles);
+                    }
+                }
+                else
+                {
+                    if ($includePath)
+                    {
+                        $fileNames[] = $fpath . "/" . $fileName;
+                    }
+                    else
+                    {
+                        $fileNames[] = $fileName;
+                    }
                 }
             }
-
-            closedir($handle);
         }
 
+        closedir($handle);
         return $fileNames;
     }
 
