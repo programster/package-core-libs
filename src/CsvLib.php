@@ -596,6 +596,7 @@ final class CsvLib
      * @param array $rowIndexes - array of integers specifying the row numbers to remove, starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
+     * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void
      * @throws FilesystemException - if the CSV file could not be opened.
      */
@@ -754,6 +755,7 @@ final class CsvLib
      * CsvLib::removeRows
      *
      * @param string $filepath1 - the path to the file we are checking
+     * @param string $filepath2 - the path to the file we are comparing it against
      * @param array $tolerances - array of column index / tolerance pairs. For this function,
      *                            the column indexes start from 1, not 0.
      * @param bool $compareOtherColumns - optionally specify false to tell this function to ignore

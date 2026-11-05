@@ -69,7 +69,7 @@ final class ArrayLib
 
     /**
      * Fetches the last element of an array
-     * @param array &$inputArray - the array we want the last element of.
+     * @param array $inputArray - the array we want the last element of.
      * @param bool $removeElement - override to true if you also want to remove that element
      * @return mixed - the last element of the array.
      * @throws EmptyArrayException - if the array has no elements.
@@ -614,6 +614,7 @@ final class ArrayLib
      * provided input array. You can think of this as overriding the default
      * if it is set in the $_REQUEST superglobal.
      *
+     * @param array $inputArray - the array to look for the key in, e.g. $_REQUEST.
      * @param string $key - the name of the variable if it would appear
      *                          within the $_REQUEST
      * @param mixed $defaultValue - the value to set if the var is not set

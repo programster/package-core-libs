@@ -63,7 +63,7 @@ final class Core
      * redirection and allows the developer to only have to remember the
      * location they want. (won't forget 'location:')
      *
-     * @param location - the location/address/URL you want to redirect to.
+     * @param string $location - the location/address/URL you want to redirect to.
      *
      * @return void - redirects the user and quits.
      */
@@ -497,6 +497,8 @@ final class Core
      * untampered (as long as the signature still matches). This is useful for things like
      * tokens sent in emails allowing them to perform actions without having to sign in
      * @param array $data - the data we wish to sign.
+     * @param string $secret - the secret key to sign the data with. Keep this private, as anyone who has it can
+     *                         create valid signatures.
      * @return string - the generated signature for the provided data.
      */
     public static function generateSignature(array $data, string $secret): string

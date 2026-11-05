@@ -248,6 +248,7 @@ final class StringLib
      * Check whether the provided string is a regexp.
      * Reference:
      * http://stackoverflow.com/questions/8825025/test-if-a-regular-expression-is-a-valid-one-in-php
+     * @param string $regexp - the string to check, including its delimiters, e.g. "/^[a-z]+$/i".
      * @return bool - true if the string is a valid regular expression, false if not.
      */
     public static function isRegExp(string $regexp): bool
@@ -306,6 +307,9 @@ final class StringLib
      * This will use strpos rather than strstr because strpos is faster and less
      * memory intensive.
      * https://stackoverflow.com/questions/5820586/which-method-is-preferred-strstr-or-strpos
+     * @param string $haystack - the string to search in.
+     * @param string $needle - the string to search for.
+     * @param bool $caseSensitive - whether the search is case sensitive. Defaults to true.
      * @return bool - true if does contain, false if not
      */
     public static function contains(string $haystack, string $needle, bool $caseSensitive = true): bool
