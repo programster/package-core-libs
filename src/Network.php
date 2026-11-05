@@ -398,35 +398,18 @@ final class Network
 
     /**
      * Checks to see if the specified TCP port is open, by trying to connect to it.
+     * UDP ports aren't supported, as there is no way to reliably check whether one is open (UDP has no connection
+     * handshake, so "connecting" succeeds whether anything is listening or not).
      * @param string $host - the host to check against. If empty, this machine's public IP is used.
      * @param int $port - the port to check
-     * @param string $protocol - the protocol of the port. Only "tcp" is supported, as there is no way to reliably check
-     *                           whether a UDP port is open (UDP has no connection handshake, so "connecting" succeeds
-     *                           whether anything is listening or not).
      * @param float $timeout - optionally specify how many seconds to wait for a connection before deciding the port
      *                         isn't open. Hosts behind firewalls often silently drop packets rather than refuse the
      *                         connection, in which case this is how long the check will take.
      * @return bool - true if the port is open, false if not.
-     * @throws \InvalidArgumentException - if a protocol other than "tcp" is specified.
      * @throws \Exception - if $host is empty and we failed to fetch this machine's public IP.
      */
-    public static function isPortOpen(string $host, int $port, string $protocol = 'tcp', float $timeout = 5.0): bool
+    public static function isPortOpen(string $host, int $port, float $timeout = 5.0): bool
     {
-        $protocol = strtolower($protocol);
-
-        if ($protocol === 'udp')
-        {
-            throw new \InvalidArgumentException(
-                "isPortOpen: UDP ports cannot be reliably checked, as UDP has no connection handshake, so connecting " .
-                "succeeds whether or not anything is listening on the port."
-            );
-        }
-
-        if ($protocol !== 'tcp')
-        {
-            throw new \InvalidArgumentException("isPortOpen: unrecognized protocol [{$protocol}]. Only [tcp] is supported.");
-        }
-
         if (empty($host))
         {
             $host = self::getPublicIp();

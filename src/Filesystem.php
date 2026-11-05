@@ -270,7 +270,6 @@ final class Filesystem
             throw new ExceptionFilesystem("Failed to open {$filePath} in order to lock it.");
         }
 
-        self::$s_fileLocks[$filePath] = $fileHandle;
         $lockParams = 0;
 
         if ($isWriteLock)
@@ -288,7 +287,19 @@ final class Filesystem
             $lockParams = $lockParams | LOCK_NB;
         }
 
-        return flock(self::$s_fileLocks[$filePath], $lockParams);
+        $isLocked = flock($fileHandle, $lockParams);
+
+        if ($isLocked)
+        {
+            self::$s_fileLocks[$filePath] = $fileHandle;
+        }
+        else
+        {
+            # Don't keep the handle open if we didn't get the lock, as unlockFile() would never be called for it.
+            fclose($fileHandle);
+        }
+
+        return $isLocked;
     }
 
 
