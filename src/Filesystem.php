@@ -257,7 +257,9 @@ final class Filesystem
      * @param bool $isWriteLock - if false this will get a shared read lock, if true this
      *                               will get an exclusive write lock.
      * @param bool $isBlocking - if true will wait to get lock.
-     * @return bool - true if we managed to lock the file, false otherwise.
+     * @return bool - true if we managed to lock the file. False is only returned when $isBlocking is false and
+     *                something else already holds a conflicting lock, so a blocking lock always returns true.
+     * @throws ExceptionFilesystem - if the file could not be opened, or locking it failed for any other reason.
      */
     public static function lockFile(string $filePath, bool $isWriteLock, bool $isBlocking): bool
     {
@@ -287,7 +289,7 @@ final class Filesystem
             $lockParams = $lockParams | LOCK_NB;
         }
 
-        $isLocked = flock($fileHandle, $lockParams);
+        $isLocked = flock($fileHandle, $lockParams, $wouldBlock);
 
         if ($isLocked)
         {
@@ -297,6 +299,13 @@ final class Filesystem
         {
             # Don't keep the handle open if we didn't get the lock, as unlockFile() would never be called for it.
             fclose($fileHandle);
+
+            # $wouldBlock is only set when a non-blocking lock failed because something else holds the lock, which is
+            # a normal result. Anything else is a genuine failure.
+            if ($wouldBlock !== 1)
+            {
+                throw new ExceptionFilesystem("Failed to lock {$filePath}.");
+            }
         }
 
         return $isLocked;
