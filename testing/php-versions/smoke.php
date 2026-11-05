@@ -339,6 +339,7 @@ $smoke->run("StringLib", function () {
     SmokeTest::expectException(StringConversionFailedException::class, fn() => StringLib::base64UrlDecode("a"));
     assert(StringLib::startsWith("abc", "a") && StringLib::endsWith("abc", "c"));
     assert(StringLib::br2nl("a<br />b") === "a" . PHP_EOL . "b" && StringLib::nl2br("a\nb") === "a<br />b");
+    assert(StringLib::nl2br("a\r\nb") === "a<br />b" && StringLib::nl2br("a\rb") === "a<br />b");
     StringLib::convertLineEndings("a\r\nb");
     assert(StringLib::isRegExp("/a/") && !StringLib::isRegExp("not a regex"));
     assert(StringLib::replace("a", "b", "aa") === "bb" && StringLib::replacePairs(["a" => "b"], "aa") === "bb");

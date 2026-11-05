@@ -192,14 +192,16 @@ final class StringLib
 
     /**
      * My own 'extended' version of nl2br which works in a lot of cases where
-     * the standard nl2br doesn't
+     * the standard nl2br doesn't. Unlike PHP's nl2br(), this replaces the line endings with <br /> rather than
+     * inserting <br /> before them. Windows (\r\n), Unix (\n) and old Mac (\r) line endings are all replaced,
+     * whatever OS this is running on.
      * @param string $input - the input string to convert
-     * @return string $output - the converted string
+     * @return string - the converted string
      */
     public static function nl2br(string $input): string
     {
-        $output = str_replace(PHP_EOL, '<br />', $input);
-        $output = str_replace("\r\n", '<br />', $output);
+        # str_replace() replaces in the order given, so "\r\n" must come first, otherwise it would become two <br />s.
+        $output = str_replace(["\r\n", "\n", "\r"], '<br />', $input);
         return $output;
     }
 
