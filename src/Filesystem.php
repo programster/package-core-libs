@@ -207,12 +207,26 @@ final class Filesystem
     /**
      * Deletes a directory even if it is not already empty. This resolves the
      *  issue with trying to use unlink on a non-empty dir.
+     * Symlinks inside the directory are removed without touching what they point to. However, if $dir is itself a
+     * symlink, this throws rather than guessing whether the link or the folder it points to should be deleted. To
+     * remove just the link, use unlink().
      * @param string $dir - the path to the directory you wish to delete
      * @return void
+     * @throws BadArgumentException - if $dir is a symlink.
      * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
      */
     public static function deleteDir(string $dir): void
     {
+        # Without this, deleting through a symlink would empty the real folder it points to, and then fail to remove
+        # the link. Remove any trailing slash first, as is_link() is false for "link/" (it checks what it points to).
+        if (is_link(rtrim($dir, '/')))
+        {
+            throw new BadArgumentException(
+                "Cannot delete {$dir}, as it is a symlink. Use unlink() to remove the link itself, or call this with " .
+                "the path of the folder it points to, to delete that."
+            );
+        }
+
         Filesystem::emptyDir($dir);
         rmdir($dir);
     }
@@ -405,7 +419,8 @@ final class Filesystem
      * @param string $sourceFolder - path to the folder we wish to zip up.
      * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they
-     *                                have been zipped.
+     *                                have been zipped. If $sourceFolder is a symlink, only the symlink is deleted,
+     *                                and the folder it points to (and the files in it) are kept.
      * @return void
      * @throws FileAlreadyExistsException - if there is already a file at $dest.
      * @throws FileDoesNotExistException - if there is no folder at $sourceFolder.
@@ -484,10 +499,23 @@ final class Filesystem
             throw new FilesystemException("Failed to write the zip file {$dest}: {$error}");
         }
 
-        # Delete all files from "delete list"
         if ($deleteOnComplete)
         {
-            self::deleteDir($sourceFolder);
+            # Remove any trailing slash first, as is_link() is false for "link/" (it checks what it points to).
+            $sourceLink = rtrim($sourceFolder, '/');
+
+            if (is_link($sourceLink))
+            {
+                # Only remove the symlink itself, and keep the folder it points to. (deleteDir() refuses symlinks.)
+                if (!unlink($sourceLink))
+                {
+                    throw new FilesystemException("Zipped {$sourceFolder}, but failed to remove the symlink.");
+                }
+            }
+            else
+            {
+                self::deleteDir($sourceFolder);
+            }
         }
     }
 

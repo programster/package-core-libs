@@ -426,6 +426,20 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
     file_put_contents("{$dir}/bad.zip", "this is not a zip file");
     SmokeTest::expectException(FilesystemException::class, fn() => Filesystem::unzip("{$dir}/bad.zip", "{$dir}/bad", false));
 
+    # deleteDir() through a symlink used to empty the folder it points to, so it must now refuse, and touch nothing.
+    symlink("{$dir}/ziptest", "{$dir}/ziplink");
+    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink"));
+    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink/"));
+    assert(file_exists("{$dir}/ziptest/sub/a.txt") && is_link("{$dir}/ziplink"));
+
+    # zipDir() with $deleteOnComplete on a symlink zips the folder, then removes only the link, keeping the folder.
+    Filesystem::zipDir("{$dir}/ziplink/", "{$dir}/link.zip", true);
+    assert(!is_link("{$dir}/ziplink") && file_exists("{$dir}/ziptest/sub/a.txt"));
+    $linkZip = new ZipArchive();
+    $linkZip->open("{$dir}/link.zip");
+    assert($linkZip->locateName("ziplink/sub/a.txt") !== false);
+    $linkZip->close();
+
     # The zip is only written when it is closed, so this checks that a failed close() is caught.
     SmokeTest::expectException(
         FilesystemException::class,
