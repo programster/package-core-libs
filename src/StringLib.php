@@ -197,14 +197,17 @@ final class StringLib
     /**
      * Replaces the given string's <br> tags with newlines for text fields. This handles every way
      * of writing the tag, in any case: <br>, <br/>, <br />, <BR>, and ones with attributes such as
-     * <br class="x">.
+     * <br class="x">. A line break straight after a tag (as PHP's nl2br() writes) is treated as part
+     * of it, so "a<br />\nb" gives one newline rather than two.
      * @param string $input - the input string
      * @return string - the output string that has been converted.
      */
     public static function br2nl(string $input): string
     {
-        # \b stops this matching other tags that start with "br", such as <bridge>.
-        $output = preg_replace('/<br\b[^>]*>/i', PHP_EOL, $input);
+        # \b stops this matching other tags that start with "br", such as <bridge>. One line break
+        # straight after the tag is matched too, so that converting nl2br()'s output back doesn't give
+        # every line break twice. \r\n comes first, so it is matched as one line break, not two.
+        $output = preg_replace('/<br\b[^>]*>(\r\n|\n|\r)?/i', PHP_EOL, $input);
         return $output;
     }
 

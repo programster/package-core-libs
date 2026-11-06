@@ -28,6 +28,17 @@ $smoke->run("StringLib", function () {
     assert(StringLib::nl2br("a\r\nb") === "a<br />b" && StringLib::nl2br("a\rb") === "a<br />b");
     $expected = implode(PHP_EOL, ["1", "2", "3", "4", "5<bridge>"]);
     assert(StringLib::br2nl("1<br>2<br/>3<BR />4<br class=\"x\">5<bridge>") === $expected);
+
+    # A line break straight after a tag is part of it, so PHP's nl2br() output converts back to one line break per
+    # line, whichever line endings it used. Only one line break is taken, so a blank line after a tag is kept.
+    foreach (["\n", "\r\n", "\r"] as $lineEnding)
+    {
+        $text = "one{$lineEnding}two{$lineEnding}three";
+        assert(StringLib::br2nl(nl2br($text)) === "one" . PHP_EOL . "two" . PHP_EOL . "three");
+    }
+
+    assert(StringLib::br2nl("a<br>\n\nb") === "a" . PHP_EOL . "\nb");
+    assert(StringLib::br2nl("a<br><br>b") === "a" . PHP_EOL . PHP_EOL . "b");
     StringLib::convertLineEndings("a\r\nb");
     assert(StringLib::isRegExp("/a/") && !StringLib::isRegExp("not a regex"));
     assert(StringLib::replace("a", "b", "aa") === "bb" && StringLib::replacePairs(["a" => "b"], "aa") === "bb");
