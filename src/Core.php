@@ -61,16 +61,34 @@ final class Core
 
 
     /**
-     * Tiny helper function to help ensure that exit is always called after redirection and allows
-     * the developer to only have to remember the location they want. (won't forget 'location:')
-     *
-     * @param string $location - the location/address/URL you want to redirect to.
-     *
-     * @return never - redirects the user and quits, so this never returns.
+     * Redirect the user to another page, and exit, so nothing after it runs by mistake.
+     * By default, only a path on this site is allowed (e.g. "/account?tab=2"), so a location taken
+     * from the request (e.g. "?next=...") can't send the user to another site, which attackers use
+     * to make phishing links look trustworthy (an "open redirect").
+     * @param string $location - where to redirect to. Without $allowExternal, this must be a path
+     * starting with a single "/".
+     * @param bool $allowExternal - true to allow any location, including other sites. Only set
+     * this if $location can't come from the user, or has been checked against a list of allowed
+     * sites.
+     * @return never - redirects the user and exits, so this never returns.
+     * @throws BadArgumentException - without $allowExternal, if $location isn't a path on this site
+     * (e.g. it is "https://other.site/", or starts with "//", which browsers treat as another site).
      */
-    public static function redirectUser(string $location): never
+    public static function redirectUser(string $location, bool $allowExternal = false): never
     {
-        header("location: " . $location);
+        # Browsers treat "//other.site" and "/\other.site" as another site, so only a single "/" is a path here.
+        $isSameSitePath = str_starts_with($location, "/")
+            && !str_starts_with($location, "//")
+            && !str_starts_with($location, "/\\");
+
+        if (!$allowExternal && !$isSameSitePath)
+        {
+            throw new BadArgumentException(
+                "redirectUser: {$location} isn't a path on this site, so won't be redirected to (see \$allowExternal)."
+            );
+        }
+
+        header("Location: {$location}");
         exit();
     }
 
@@ -213,6 +231,8 @@ final class Core
      * safe way to get it from the request: HTTP_HOST comes from the client's Host header, and so can
      * SERVER_NAME, depending on the web server's set up, so either could be spoofed. Only the path
      * and query string come from the request.
+     * WARNING: as the path and query string come from the client, they can contain characters such
+     * as " and <, so escape the URL (e.g. with htmlspecialchars()) before putting it in HTML.
      * @param string $fqdn - the fully qualified domain name of the site, e.g. "blog.programster.org".
      * It can include a port if the site isn't on the standard one, e.g. "localhost:8080". Surrounding
      * whitespace and any trailing slashes are removed.

@@ -9,6 +9,7 @@ use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 use Programster\CoreLibs\Enums\MemoryTypeEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
+use Programster\CoreLibs\Network;
 use Programster\CoreLibs\Testing\SmokeTest;
 
 /** @var \Programster\CoreLibs\Testing\SmokeTest $smoke */
@@ -82,3 +83,58 @@ $smoke->run("runCapturingWarning", function () {
     assert($handlerAfter === $handlerBefore, "runCapturingWarning() didn't restore the previous error handler");
 });
 
+$smoke->run("redirectUser", function () use ($dir) {
+    # Without $allowExternal, anything that isn't a path on this site is refused before anything is sent.
+    $otherSites = ["https://evil.example.com/", "//evil.example.com/", "/\\evil.example.com/", "evil.example.com", ""];
+
+    foreach ($otherSites as $location)
+    {
+        SmokeTest::expectException(
+            BadArgumentException::class,
+            fn() => Core::redirectUser($location),
+            "isn't a path on this site"
+        );
+    }
+
+    # A path on this site, or anything with $allowExternal, sends the header and exits. That can only be seen through
+    # a web server, as the CLI doesn't send headers, and exiting would end the tests.
+    mkdir("{$dir}/redirect-www");
+    $page = '<?php require ' . var_export(__DIR__ . '/../../vendor/autoload.php', true) . '; ' .
+        'Programster\\CoreLibs\\Core::redirectUser($_GET["to"], isset($_GET["external"])); echo "did not exit";';
+    file_put_contents("{$dir}/redirect-www/index.php", $page);
+    $portFinder = stream_socket_server("tcp://127.0.0.1:0");
+    $port = (int) substr(strrchr(stream_socket_get_name($portFinder, false), ":"), 1);
+    fclose($portFinder);
+    $nullDevice = ['file', '/dev/null', 'w'];
+
+    $server = proc_open(
+        [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', "{$dir}/redirect-www"],
+        [1 => $nullDevice, 2 => $nullDevice],
+        $pipes
+    );
+
+    $fetch = function (string $query) use ($port): array {
+        $context = stream_context_create(['http' => ['follow_location' => 0, 'ignore_errors' => true]]);
+        $body = file_get_contents("http://127.0.0.1:{$port}/index.php?{$query}", false, $context);
+        return ['headers' => implode("\n", $http_response_header), 'body' => $body];
+    };
+
+    try
+    {
+        for ($i = 0; $i < 50 && !Network::isPortOpen("127.0.0.1", $port, 0.1); $i++)
+        {
+            usleep(100000);
+        }
+
+        $sameSite = $fetch("to=" . urlencode("/account?tab=2"));
+        assert(str_contains($sameSite['headers'], "Location: /account?tab=2"));
+        assert(!str_contains($sameSite['body'], "did not exit"));
+        $external = $fetch("external=1&to=" . urlencode("https://other.example.com/"));
+        assert(str_contains($external['headers'], "Location: https://other.example.com/"));
+    }
+    finally
+    {
+        proc_terminate($server);
+        proc_close($server);
+    }
+});
