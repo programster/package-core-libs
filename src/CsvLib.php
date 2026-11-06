@@ -140,9 +140,10 @@ final class CsvLib
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      *
      * @return array - an array list of indexed rows that the CSV has been converted into.
+     * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws FilesystemException - if the file could not be opened for reading.
-     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are
-     * keys.
+     * @throws InvalidCsvException - if the file isn't valid (see the CsvFile constructor), e.g. it
+     * has a blank line in the middle, or $keys doesn't have the same number of values as the rows.
      */
     public static function convertCsvToArray(
         string $filepath,
@@ -153,6 +154,9 @@ final class CsvLib
         string $escape = "",
     ): array
     {
+        # Check the file first, so a blank line in the middle (which makes it invalid) is an error, rather than skipped.
+        self::validateCsvFile($filepath, $delimiter, $enclosure, $escape);
+
         # Suppress the warning, as we throw an exception instead.
         $file = @fopen($filepath, 'r');
 
@@ -171,8 +175,8 @@ final class CsvLib
         {
             while ($row = fgetcsv($file, 0, $delimiter, $enclosure, $escape))
             {
-                // Skip empty lines (users may accidentally put one at the end
-                // and LibreOffice Calc won't strip this either).
+                # Skip blank lines, which can only be at the end, as the file has been validated (users may
+                # accidentally leave some there, and LibreOffice Calc won't strip them either).
                 if (self::isBlankRow($row))
                 {
                     continue;
@@ -237,9 +241,11 @@ final class CsvLib
      * @param string $delimiter - delimiter to pass through to fgetcsv
      * @param string $enclosure - enclosure to pass through to fgetcsv
      * @param string $escape - escape value to pass through to fgetcsv
-     * @throws FilesystemException - if the file at $filepath does not exist or cannot be opened.
-     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are
-     * headers.
+     * @throws FileDoesNotExistException - if there is no file at $filepath.
+     * @throws FilesystemException - if the file could not be opened for reading.
+     * @throws InvalidCsvException - if the file isn't valid (see the CsvFile constructor), e.g. it
+     * has a blank line in the middle, or $headers doesn't have the same number of values as the
+     * rows.
      * @return void
      */
     public static function csvWalk(
@@ -252,6 +258,9 @@ final class CsvLib
         string $escape = ""
     ): void
     {
+        # Check the file first, so a blank line in the middle (which makes it invalid) is an error, rather than skipped.
+        self::validateCsvFile($filepath, $delimiter, $enclosure, $escape);
+
         # Suppress the warning, as we throw an exception instead.
         $fileHandle = @fopen($filepath, 'r');
 
@@ -272,8 +281,8 @@ final class CsvLib
             {
                 $rowIndex++;
 
-                // Skip empty lines (users may accidentally put one at the end
-                // and LibreOffice Calc won't strip this either).
+                # Skip blank lines, which can only be at the end, as the file has been validated (users may
+                # accidentally leave some there, and LibreOffice Calc won't strip them either).
                 if (self::isBlankRow($row))
                 {
                     continue;
@@ -638,9 +647,9 @@ final class CsvLib
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void
-     * @throws InvalidCsvException - if the file contains a blank line before the end of the data
-     * (blank lines at the very end of the file are allowed and are kept), or a row doesn't have one
-     * of the columns being removed. The original file is left untouched if this happens.
+     * @throws InvalidCsvException - if the file isn't valid (see the CsvFile constructor), e.g. it
+     * has a blank line in the middle (blank lines at the very end are allowed, and are kept), or it
+     * doesn't have one of the columns being removed. The file is left untouched if this happens.
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
      * @throws FilesystemException - if the file could not be read, or its new contents could not be
@@ -656,6 +665,20 @@ final class CsvLib
     {
         Filesystem::checkCanChangeFile($filepath);
 
+        # Check the file first, so a blank line in the middle (which makes it invalid) is an error, and every row has
+        # the same number of columns, so the columns only need checking against the first.
+        $columnCount = (new CsvFile($filepath, false, $delimiter, $enclosure, $escape))->getColumnCount();
+
+        foreach ($columnIndexes as $columnHumanIndex)
+        {
+            if (!is_int($columnHumanIndex) || $columnHumanIndex < 1 || $columnHumanIndex > $columnCount)
+            {
+                throw new InvalidCsvException(
+                    "removeColumns: {$filepath} does not have a column {$columnHumanIndex}, as it has {$columnCount}."
+                );
+            }
+        }
+
         # Suppress the warning, as we throw an exception instead.
         $fileHandle = @fopen($filepath, "r");
 
@@ -666,15 +689,9 @@ final class CsvLib
 
         $tmpFilepath = null;
         $tmpFile = false;
-        $lineNumber = 1;
+        $numTrailingBlankLines = 0;
 
-        // Blank lines are only allowed at the very end of the file, but we can't know whether a blank line is at the
-        // end until we've read past it, so keep track of them until we either hit more data (error) or the end of the
-        // file (write them back out so they are kept).
-        $numPendingBlankLines = 0;
-        $firstPendingBlankLineNumber = 0;
-
-        # Only copy the new contents into the original once every line has been processed, so throwing part way
+        # Only copy the new contents into the original once every row has been processed, so throwing part way
         # through leaves the original untouched.
         try
         {
@@ -692,42 +709,18 @@ final class CsvLib
                 fwrite($tmpFile, self::BYTE_ORDER_MARK);
             }
 
-            while (!feof($fileHandle))
+            while (($lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape)) !== false)
             {
-                $lineArray = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape);
-
-                if (is_array($lineArray) && self::isBlankRow($lineArray))
+                if (self::isBlankRow($lineArray))
                 {
-                    if ($numPendingBlankLines === 0)
-                    {
-                        $firstPendingBlankLineNumber = $lineNumber;
-                    }
-
-                    $numPendingBlankLines++;
+                    # The file has been validated, so blank lines can only be at the end.
+                    $numTrailingBlankLines++;
                 }
-                elseif (!empty($lineArray))
+                else
                 {
-                    if ($numPendingBlankLines > 0)
-                    {
-                        throw new InvalidCsvException(
-                            "removeColumns: source CSV file has a blank line on line: " . $firstPendingBlankLineNumber
-                        );
-                    }
-
                     foreach ($columnIndexes as $columnHumanIndex)
                     {
-                        $columnIndex = $columnHumanIndex - 1;
-
-                        // Can't use isset() here, as a field could legitimately be null.
-                        if (!array_key_exists($columnIndex, $lineArray))
-                        {
-                            $msg = "removeColumns: source CSV file does not have " .
-                                   "column: " . $columnHumanIndex . " on line: " . $lineNumber;
-
-                            throw new InvalidCsvException($msg);
-                        }
-
-                        unset($lineArray[$columnIndex]);
+                        unset($lineArray[$columnHumanIndex - 1]);
                     }
 
                     $written = fputcsv(
@@ -743,12 +736,10 @@ final class CsvLib
                         throw new FilesystemException("removeColumns: Failed to write to the temporary file.");
                     }
                 }
-
-                $lineNumber++;
             }
 
-            // Keep any blank lines that were at the end of the file.
-            fwrite($tmpFile, str_repeat("\n", $numPendingBlankLines));
+            # Keep any blank lines that were at the end of the file.
+            fwrite($tmpFile, str_repeat("\n", $numTrailingBlankLines));
         }
         catch (\Throwable $e)
         {
@@ -1274,8 +1265,9 @@ final class CsvLib
      * Merges multiple csv files together in a memory efficient way. This will gracefully handle
      * cases where the files may or may not have ended with an endline. This will also gracefully
      * handle keeping the headers from the first file (if hasHeaders is set to true), and ignoring
-     * headers in the subsequent files. WARNING - all files need to either have headers or not, not
-     * both
+     * headers in the subsequent files. Blank lines at the end of each file are left out, so they
+     * don't end up in the middle of the merged file. WARNING - all files need to either have headers
+     * or not, not both
      * @param array $filepaths - array of filepaths to csv files we wish to merge
      * @param string $mergedFilepath - where to write the merged file. This will overwrite any
      * existing file if there is one there already. The merged file is written to a temporary file
@@ -1286,6 +1278,9 @@ final class CsvLib
      * @param string $enclosure - optionally specify the enclosure being used in the files
      * @param string $escape - optionally specify the escape sequence to use when passing to
      * fputcsv.
+     * @throws FileDoesNotExistException - if there is no file at one of $filepaths.
+     * @throws InvalidCsvException - if one of the files isn't valid (see the CsvFile constructor),
+     * e.g. it has a blank line in the middle. Nothing is written if this happens.
      * @throws BadFilePermissionsException - if the merged file (or, for a new file, its directory)
      * can't be written to.
      * @throws FilesystemException - if one of the files can't be read, or the merged file can't be
@@ -1301,6 +1296,13 @@ final class CsvLib
         string $escape = "",
     ): void
     {
+        # Check every file first, so a blank line in the middle of one (which makes it invalid) is an error, and
+        # nothing is written.
+        foreach ($filepaths as $filepath)
+        {
+            self::validateCsvFile($filepath, $delimiter, $enclosure, $escape);
+        }
+
         $writeMergedFile = function ($outputFileHandle) use (
             $filepaths,
             $hasHeaders,
@@ -1328,10 +1330,11 @@ final class CsvLib
                     self::writeToOutput($outputFileHandle, self::BYTE_ORDER_MARK);
                 }
 
-                while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure, $escape)) !== FALSE)
+                while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure, $escape)) !== false)
                 {
-                    # Only the first file's header row is kept.
-                    $copyLineAcross = !$isFirstLine || !$hasHeaders || $isFirstFile;
+                    # Only the first file's header row is kept. Blank lines at the end of a file are left out, as they
+                    # would be in the middle of the merged file, making it invalid.
+                    $copyLineAcross = (!$isFirstLine || !$hasHeaders || $isFirstFile) && !self::isBlankRow($fields);
                     $isFirstLine = false;
 
                     if ($copyLineAcross)

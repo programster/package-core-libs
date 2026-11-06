@@ -660,9 +660,13 @@ $smoke->run("CSV reading methods close the file however they end", function () u
         assert($openStreams() === $before, "{$name} left the file open");
     }
 
-    # A missing file still throws FilesystemException, without a PHP warning (which the test runner would report).
-    SmokeTest::expectException(FilesystemException::class, fn() => CsvLib::convertCsvToArray("{$dir}/nope.csv", true));
-    SmokeTest::expectException(FilesystemException::class, fn() => CsvLib::csvWalk("{$dir}/nope.csv", fn() => null));
+    # A missing file throws FileDoesNotExistException, without a PHP warning (which the test runner would report).
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => CsvLib::convertCsvToArray("{$dir}/nope.csv", true)
+    );
+
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => CsvLib::csvWalk("{$dir}/nope.csv", fn() => null));
 });
 
 $smoke->run("CSV writing methods only replace the output once it is complete", function () use ($dir) {
@@ -707,12 +711,12 @@ $smoke->run("CSV writing methods only replace the output once it is complete", f
     CsvLib::mergeFiles(["{$base}/merge-a.csv", "{$base}/merge-b.csv"], "{$base}/merge-a.csv", true);
     assert(file_get_contents("{$base}/merge-a.csv") === "h\n1\n2\n");
 
-    # A file that can't be read part way through leaves an existing merged file as it was.
+    # A missing file is found before anything is written, leaving an existing merged file as it was.
     $resetExisting("{$base}/merged.csv");
     SmokeTest::expectException(
-        FilesystemException::class,
+        FileDoesNotExistException::class,
         fn() => CsvLib::mergeFiles(["{$base}/merge-b.csv", "{$base}/nope.csv"], "{$base}/merged.csv", true),
-        "Unable to read file for merging: {$base}/nope.csv"
+        "There is no file at {$base}/nope.csv"
     );
     assert(file_get_contents("{$base}/merged.csv") === "old contents\n");
 
@@ -771,6 +775,47 @@ $smoke->run("convertCsvToJson", function () use ($dir) {
     SmokeTest::expectException(
         FileDoesNotExistException::class,
         fn() => CsvLib::convertCsvToJson("{$dir}/missing.csv", "{$dir}/missing.json", true)
+    );
+});
+
+$smoke->run("CSV methods treating a blank line in the middle as invalid", function () use ($dir) {
+    $base = "{$dir}/blank-middle";
+    mkdir($base);
+    file_put_contents("{$base}/invalid.csv", "h1,h2\na,b\n\nc,d\n");
+    file_put_contents("{$base}/valid.csv", "h1,h2\n\"multi\nline\",b\n\n");
+
+    $calls = [
+        "convertCsvToArray" => fn(string $path) => CsvLib::convertCsvToArray($path, true),
+        "csvWalk" => fn(string $path) => CsvLib::csvWalk($path, fn() => null),
+        "mergeFiles" => fn(string $path) => CsvLib::mergeFiles(["{$base}/valid.csv", $path], "{$base}/merged.csv", true),
+        "removeColumns" => fn(string $path) => CsvLib::removeColumns($path, [1]),
+    ];
+
+    foreach ($calls as $name => $call)
+    {
+        SmokeTest::expectException(InvalidCsvException::class, fn() => $call("{$base}/invalid.csv"));
+        assert(file_get_contents("{$base}/invalid.csv") === "h1,h2\na,b\n\nc,d\n", "{$name} changed the file");
+    }
+
+    assert(!file_exists("{$base}/merged.csv"));
+
+    # Blank lines at the end are fine, and a quoted value can contain a line break.
+    assert(CsvLib::convertCsvToArray("{$base}/valid.csv", true) === [["h1" => "multi\nline", "h2" => "b"]]);
+
+    # mergeFiles() leaves out blank lines at the end of each file, so they don't end up in the middle.
+    file_put_contents("{$base}/second.csv", "h1,h2\nc,d\n\n");
+    CsvLib::mergeFiles(["{$base}/valid.csv", "{$base}/second.csv"], "{$base}/merged.csv", true);
+    assert(file_get_contents("{$base}/merged.csv") === "h1,h2\n\"multi\nline\",b\nc,d\n");
+
+    # removeColumns() counts rows rather than lines, so a multi-line value is fine, and blank lines at the end are kept.
+    CsvLib::removeColumns("{$base}/valid.csv", [2]);
+    assert(file_get_contents("{$base}/valid.csv") === "h1\n\"multi\nline\"\n\n");
+
+    # A column the file doesn't have is found before anything is changed.
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::removeColumns("{$base}/second.csv", [3]),
+        "does not have a column 3, as it has 2."
     );
 });
 
