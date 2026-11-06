@@ -20,11 +20,25 @@ use Programster\CoreLibs\Testing\SmokeTest;
 /** @var string $dir - a temporary directory for the tests to use, which is deleted afterwards. */
 
 $smoke->run("directories and files", function () use ($dir) {
-    Filesystem::mkdir("{$dir}/sub/deep");
+    Filesystem::mkdir("{$dir}/sub/deep", recursive: true);
     Filesystem::mkdir("{$dir}/sub/deep"); # already existing is fine
+
+    # Without $recursive (the default), a missing parent directory is an error rather than being created.
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::mkdir("{$dir}/no-parent/child"),
+        "mkdir(): No such file or directory"
+    );
+    assert(!file_exists("{$dir}/no-parent"));
     $isFile = "{$dir}/sub/deep/f.txt";
     file_put_contents($isFile, "");
-    SmokeTest::expectException(FilesystemException::class, fn() => Filesystem::mkdir("{$isFile}/child"));
+    # The reason is in the message, even though SmokeTest (like many applications) has its own error handler, which
+    # leaves error_get_last() empty.
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::mkdir("{$isFile}/child"),
+        "Failed to create the directory {$isFile}/child: mkdir(): Not a directory"
+    );
     file_put_contents("{$dir}/sub/deep/f.txt", "abc\nxyz\n");
     Filesystem::getDirectories($dir, true);
     Filesystem::getDirContents($dir);
@@ -55,6 +69,31 @@ $smoke->run("directories and files", function () use ($dir) {
     SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::mkdir("{$dir}/bad", "0758"));
     assert(!file_exists("{$dir}/bad"));
     SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::tmpDir("rwx"));
+
+    # mkdir()'s $overrideUmask gives every directory it creates (including parents) exactly the given permissions,
+    # rather than reduced by the umask, and never changes a directory that already existed.
+    $oldUmask = umask(0022);
+    mkdir("{$dir}/umask-existing", 0700);
+    Filesystem::mkdir("{$dir}/umask-default/child", "0775", recursive: true);
+    Filesystem::mkdir("{$dir}/umask-existing/a/b", "0775", recursive: true, overrideUmask: true);
+    Filesystem::mkdir("{$dir}/umask-sticky", "1777", overrideUmask: true);
+    Filesystem::mkdir("{$dir}/umask-flat", "0770", false, true);
+    umask($oldUmask);
+    clearstatcache();
+    $permsOf = fn(string $path) => fileperms($path) & 07777;
+    assert($permsOf("{$dir}/umask-default") === 0755 && $permsOf("{$dir}/umask-default/child") === 0755);
+    assert($permsOf("{$dir}/umask-existing/a") === 0775 && $permsOf("{$dir}/umask-existing/a/b") === 0775);
+    assert($permsOf("{$dir}/umask-existing") === 0700, "mkdir() changed a directory that already existed");
+    assert($permsOf("{$dir}/umask-sticky") === 01777 && $permsOf("{$dir}/umask-flat") === 0770);
+
+    # The default matches PHP's mkdir() (0777), reduced by the umask, so with the usual umask of 022 it gives 0755.
+    $oldUmask = umask(0022);
+    Filesystem::mkdir("{$dir}/umask-php-default");
+    umask(0002);
+    Filesystem::mkdir("{$dir}/umask-group-default");
+    umask($oldUmask);
+    clearstatcache();
+    assert($permsOf("{$dir}/umask-php-default") === 0755 && $permsOf("{$dir}/umask-group-default") === 0775);
     assert(Filesystem::permissionsStringToInt("755") === 0755);
     assert(Filesystem::permissionsStringToInt("0o1777") === 01777);
     SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::permissionsStringToInt("0x755"));
@@ -601,6 +640,51 @@ $smoke->run("fileFilter", function () use ($dir) {
         );
         assert($callbackRan === false && !file_exists("{$base}/read-only-dir/out.txt"));
         chmod("{$base}/read-only-dir", 0755);
+    }
+});
+
+$smoke->run("tmpDir", function () use ($dir) {
+    # It makes a new, empty directory in the system's temporary directory, with a different name each time.
+    $tmpDir1 = Filesystem::tmpDir();
+    $tmpDir2 = Filesystem::tmpDir("0700");
+    clearstatcache();
+    assert(dirname($tmpDir1) === sys_get_temp_dir() && str_starts_with(basename($tmpDir1), "corelibs-dir-"));
+    assert(is_dir($tmpDir1) && scandir($tmpDir1) === [".", ".."] && $tmpDir1 !== $tmpDir2);
+
+    # The mode is applied, reduced by the umask, as with mkdir().
+    assert((fileperms($tmpDir1) & 0777) === (0777 & ~umask()));
+    assert((fileperms($tmpDir2) & 0777) === (0700 & ~umask()));
+    rmdir($tmpDir1);
+    rmdir($tmpDir2);
+
+    # With $overrideUmask, the mode is applied exactly. Set a known umask, so the difference can be seen.
+    $oldUmask = umask(0022);
+    $exactTmpDir = Filesystem::tmpDir("0777", true);
+    clearstatcache();
+    assert((fileperms($exactTmpDir) & 0777) === 0777);
+    rmdir($exactTmpDir);
+    umask($oldUmask);
+
+    if (SmokeTest::canTestPermissions("tmpDir() in a temporary directory that can't be written to"))
+    {
+        # sys_get_temp_dir() can't be changed once PHP is running, so run a separate PHP with it pointing at a
+        # directory that can't be written to.
+        mkdir("{$dir}/read-only-tmp");
+        chmod("{$dir}/read-only-tmp", 0555);
+        $code = 'require ' . var_export(__DIR__ . '/../../vendor/autoload.php', true) . '; ' .
+            'try { Programster\\CoreLibs\\Filesystem::tmpDir(); echo "created"; } ' .
+            'catch (Exception $e) { echo get_class($e), ": ", $e->getMessage(); }';
+        $output = shell_exec(
+            escapeshellarg(PHP_BINARY) . " -d sys_temp_dir=" . escapeshellarg("{$dir}/read-only-tmp") . " -r " .
+            escapeshellarg($code) . " 2>&1"
+        );
+        $expectedStart = FilesystemException::class . ": Failed to create a temporary directory";
+        assert(
+            str_starts_with((string)$output, $expectedStart),
+            "tmpDir() in a read-only directory gave: {$output}"
+        );
+        assert(scandir("{$dir}/read-only-tmp") === [".", ".."]);
+        chmod("{$dir}/read-only-tmp", 0755);
     }
 });
 

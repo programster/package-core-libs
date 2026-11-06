@@ -1,8 +1,8 @@
 <?php
 
 /*
- * A small test runner for the smoke tests in testing/tests/. Each test is a named callback, which fails if it throws
- * (including a failed assert()) or raises a warning, notice or deprecation.
+ * A small test runner for the smoke tests in testing/tests/. Each test is a named callback, which
+ * fails if it throws (including a failed assert()) or raises a warning, notice or deprecation.
  */
 
 namespace Programster\CoreLibs\Testing;
@@ -74,11 +74,12 @@ final class SmokeTest
      * Assert that a callback throws a specific type of exception.
      * @param string $exceptionClass - the class of exception that should be thrown.
      * @param callable $callback - the code that should throw it.
-     * @param string $messageContains - optionally, text the exception's message must contain, for when the same
-     *                                  class of exception can be thrown for different reasons.
+     * @param string $messageContains - optionally, text the exception's message must contain, for
+     * when the same class of exception can be thrown for different reasons.
      * @return void
      * @throws \Throwable - if the callback throws a different exception, it is rethrown.
-     * @throws \Exception - if the callback doesn't throw at all, or the message doesn't contain $messageContains.
+     * @throws \Exception - if the callback doesn't throw at all, or the message doesn't contain
+     * $messageContains.
      */
     public static function expectException(
         string $exceptionClass,
@@ -118,12 +119,14 @@ final class SmokeTest
 
 
     /**
-     * Give a file to another user and group (OTHER_USER_ID), so that a test can check the library doesn't change a
-     * file's owner. Only root can do this, which the Docker test runs always are. Otherwise, this records the check
-     * as skipped, so that main.php can report it, rather than it passing without checking anything.
+     * Give a file to another user and group (OTHER_USER_ID), so that a test can check the library
+     * doesn't change a file's owner. Only root can do this, which the Docker test runs always are.
+     * Otherwise, this records the check as skipped, so that main.php can report it, rather than it
+     * passing without checking anything.
      * @param string $filepath - the file to give to the other user.
      * @param string $checkName - what the ownership check is for, to show if it is skipped.
-     * @return bool - true if the file now belongs to the other user and group, so the check can be run.
+     * @return bool - true if the file now belongs to the other user and group, so the check can be
+     * run.
      */
     public static function giveToOtherUser(string $filepath, string $checkName): bool
     {
@@ -142,10 +145,11 @@ final class SmokeTest
 
 
     /**
-     * Check whether permission checks can be tested, which needs a normal user, as root can read, write and delete
-     * anything regardless of permissions. If running as root (e.g. the first Docker test run), this records the check
-     * as skipped, so that main.php can report it. run-in-container.sh also runs the tests as a normal user, so
-     * these checks still run in Docker.
+     * Check whether permission checks can be tested, which needs a normal user, as root can read,
+     * write and delete anything regardless of permissions. If running as root (e.g. the first
+     * Docker test run), this records the check as skipped, so that main.php can report it.
+     * run-in-container.sh also runs the tests as a normal user, so these checks still run in
+     * Docker.
      * @param string $checkName - what the permission check is for, to show if it is skipped.
      * @return bool - true if not running as root, so the check can be run.
      */
@@ -166,8 +170,8 @@ final class SmokeTest
 
         if ($isRoot)
         {
-            self::$s_skipped[] = "{$checkName} (needs a normal user, as root ignores permissions, so is covered by the " .
-                "normal-user run in run-all-php-versions.sh)";
+            self::$s_skipped[] = "{$checkName} (needs a normal user, as root ignores permissions, so is covered by " .
+                "the normal-user run in run-all-php-versions.sh)";
         }
 
         return !$isRoot;

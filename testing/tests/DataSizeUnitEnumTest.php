@@ -1,7 +1,8 @@
 <?php
 
 /*
- * Smoke tests for DataSizeUnitEnum. These are run by testing/main.php, which provides $smoke and $dir.
+ * Smoke tests for DataSizeUnitEnum. These are run by testing/main.php, which provides $smoke and
+ * $dir.
  */
 
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;

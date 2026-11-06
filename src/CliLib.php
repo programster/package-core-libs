@@ -16,9 +16,10 @@ final class CliLib
      * Display a progress bar in the CLI. This will dynamically take up the full width of the
      * terminal and if you keep calling this function, it will appear animated as the progress bar
      * keeps writing over the top of itself.
-     * @param float $percentage - the percentage completed. Values below 0 or above 100 are shown as they are in the
-     *                           percentage text, but the bar itself stops at empty or full.
-     * @param int $numDecimalPlaces - the number of decimal places to show for percentage output string
+     * @param float $percentage - the percentage completed. Values below 0 or above 100 are shown as
+     * they are in the percentage text, but the bar itself stops at empty or full.
+     * @param int $numDecimalPlaces - the number of decimal places to show for percentage output
+     * string
      * @return void
      */
     public static function showProgressBar(float $percentage, int $numDecimalPlaces): void
@@ -66,22 +67,21 @@ final class CliLib
 
 
     /**
-     * Script function (not for websites) Fetches the password from the shell
-     * without it being displayed whilst being typed. Only works on *nix systems,
-     * as it requires stty.
-     * Backspace/Delete remove the last character typed. Ctrl+C or Ctrl+D cancel, which throws an exception. The
-     * terminal's settings are always restored afterwards, even if the user cancels.
-     * If the input is not a terminal (e.g. the password is piped in), then there is nothing to hide, so a line is
-     * simply read from the input.
+     * Script function (not for websites) Fetches the password from the shell without it being
+     * displayed whilst being typed. Only works on *nix systems, as it requires stty.
+     * Backspace/Delete remove the last character typed. Ctrl+C or Ctrl+D cancel, which throws an
+     * exception. The terminal's settings are always restored afterwards, even if the user cancels.
+     * If the input is not a terminal (e.g. the password is piped in), then there is nothing to
+     * hide, so a line is simply read from the input.
      *
-     * @param bool $stars - (optional) set to false to stop outputting stars as
-     *                      user types password. This prevents onlookers seeing
-     *                      the password length but does make it more difficult.
+     * @param bool $stars - (optional) set to false to stop outputting stars as user types password.
+     * This prevents onlookers seeing the password length but does make it more difficult.
      *
      * @return string - the password that was typed in.
      * @throws UserCancelledException - if the user pressed Ctrl+C or Ctrl+D.
-     * @throws CommandFailedException - if stty failed, such as on Windows where it doesn't exist. This is thrown before
-     *                                  anything is read, so the password can never be shown on screen by mistake.
+     * @throws CommandFailedException - if stty failed, such as on Windows where it doesn't exist.
+     * This is thrown before anything is read, so the password can never be shown on screen by
+     * mistake.
      * @throws InputEndedException - if the input ended before the password was entered.
      */
     public static function getPasswordFromUserInput(bool $stars = true): string
@@ -195,7 +195,8 @@ final class CliLib
 
 
     /**
-     * Remove the last character from a string, treating multi-byte UTF-8 characters such as "é" as one character.
+     * Remove the last character from a string, treating multi-byte UTF-8 characters such as "é" as
+     * one character.
      * @param string $input - the string to remove the last character from.
      * @return string - the string without its last character.
      */
@@ -208,8 +209,8 @@ final class CliLib
 
 
     /**
-     * Read and discard the rest of a terminal escape sequence, after its starting escape character has been read.
-     * Keys such as the arrow keys send these, e.g. "\e[A" for the up arrow.
+     * Read and discard the rest of a terminal escape sequence, after its starting escape character
+     * has been read. Keys such as the arrow keys send these, e.g. "\e[A" for the up arrow.
      * @return void
      */
     private static function skipEscapeSequence(): void

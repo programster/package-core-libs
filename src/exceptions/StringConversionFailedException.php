@@ -13,13 +13,15 @@ class StringConversionFailedException extends CoreLibsException
 
 
     /**
-     * Create the exception.
-     * The string that failed is deliberately kept out of the exception's message, as it could be sensitive (e.g. a
-     * token), and messages commonly end up in logs. Developers who need it can get it with getFailedString().
-     * @param string $message - the message for the exception. This should NOT include the string that failed.
+     * Create the exception. The string that failed is deliberately kept out of the exception's
+     * message, as it could be sensitive (e.g. a token), and messages commonly end up in logs.
+     * Developers who need it can get it with getFailedString().
+     * @param string $message - the message for the exception. This should NOT include the string
+     * that failed.
      * @param string $failedString - the string that could not be converted.
      * @param int $code - optionally specify the exception code.
-     * @param \Throwable|null $previous - optionally specify the previous exception, if this was caused by another.
+     * @param \Throwable|null $previous - optionally specify the previous exception, if this was
+     * caused by another.
      */
     public function __construct(
         string $message,
@@ -34,8 +36,8 @@ class StringConversionFailedException extends CoreLibsException
 
 
     /**
-     * Control what var_dump() and print_r() show for this exception, so that the string that failed doesn't
-     * accidentally end up in logs or debug output, as it could be sensitive.
+     * Control what var_dump() and print_r() show for this exception, so that the string that failed
+     * doesn't accidentally end up in logs or debug output, as it could be sensitive.
      * @return array - the details to show when this exception is dumped.
      */
     public function __debugInfo(): array

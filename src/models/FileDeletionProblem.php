@@ -1,8 +1,9 @@
 <?php
 
 /*
- * Something that stops a directory being deleted, and why. See DirectoryNotDeletableException::getProblems(). This
- * only holds those details, so its properties are public.
+ * Something that stops a directory being deleted, and why. See
+ * DirectoryNotDeletableException::getProblems(). This only holds those details, so its properties
+ * are public.
  */
 
 namespace Programster\CoreLibs\Models;

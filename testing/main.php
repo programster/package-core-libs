@@ -1,11 +1,11 @@
 <?php
 
 /*
- * Runs the smoke tests in testing/tests/, which call (nearly) every public method in the library, and reports any that
- * fail, throw an error, or raise a warning/deprecation. There is one file of tests per class, e.g. CsvLibTest.php.
- * This is used by run-all-php-versions.sh to check the library works on every supported version of PHP, but it can
- * also be run directly: php testing/main.php
- * Exits with 0 if everything passed, or 1 if anything failed.
+ * Runs the smoke tests in testing/tests/, which call (nearly) every public method in the library,
+ * and reports any that fail, throw an error, or raise a warning/deprecation. There is one file of
+ * tests per class, e.g. CsvLibTest.php. This is used by run-all-php-versions.sh to check the
+ * library works on every supported version of PHP, but it can also be run directly: php
+ * testing/main.php Exits with 0 if everything passed, or 1 if anything failed.
  */
 
 require_once(__DIR__ . '/../vendor/autoload.php');

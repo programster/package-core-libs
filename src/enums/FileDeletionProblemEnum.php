@@ -1,8 +1,8 @@
 <?php
 
 /*
- * Why something can't be deleted, as given by FileDeletionProblem::$reason when Filesystem::deleteDir() or
- * emptyDir() throws a DirectoryNotDeletableException.
+ * Why something can't be deleted, as given by FileDeletionProblem::$reason when
+ * Filesystem::deleteDir() or emptyDir() throws a DirectoryNotDeletableException.
  */
 
 namespace Programster\CoreLibs\Enums;

@@ -1,10 +1,9 @@
 <?php
 
 /*
- * This is a general library that can be used to "extend" the standard library.
- * Only functions that are used frequently and are completely generic should
- * be placed here. Wherever possible, please use more specific libraries such
- * as the StringLib and Filesystem.
+ * This is a general library that can be used to "extend" the standard library. Only functions that
+ * are used frequently and are completely generic should be placed here. Wherever possible, please
+ * use more specific libraries such as the StringLib and Filesystem.
  */
 
 namespace Programster\CoreLibs;
@@ -44,8 +43,8 @@ final class Core
 
 
     /**
-     * Make PHP slightly more like Java and allow printing a line. If this is
-     * in a web app then it will use <br /> as well.
+     * Make PHP slightly more like Java and allow printing a line. If this is in a web app then it
+     * will use <br /> as well.
      * @param string $message - the string to print out.
      * @return void - prints out immediately.
      */
@@ -61,9 +60,8 @@ final class Core
 
 
     /**
-     * Tiny helper function to help ensure that exit is always called after
-     * redirection and allows the developer to only have to remember the
-     * location they want. (won't forget 'location:')
+     * Tiny helper function to help ensure that exit is always called after redirection and allows
+     * the developer to only have to remember the location they want. (won't forget 'location:')
      *
      * @param string $location - the location/address/URL you want to redirect to.
      *
@@ -77,12 +75,12 @@ final class Core
 
 
     /**
-     * Sets the title of the process and will append the appropriate number of
-     * already existing processes with the same title.
+     * Sets the title of the process and will append the appropriate number of already existing
+     * processes with the same title.
      * @param string $namingPrefix - the name to give the process.
      * @return void
-     * @throws CliTitleNotSetException - if the title could not be set, such as when not running from the CLI, where
-     *                                   cli_set_process_title() doesn't exist.
+     * @throws CliTitleNotSetException - if the title could not be set, such as when not running
+     * from the CLI, where cli_set_process_title() doesn't exist.
      * @throws CommandFailedException - if we failed to get the list of processes.
      */
     public static function setCliTitle(string $namingPrefix): void
@@ -106,10 +104,8 @@ final class Core
 
 
     /**
-     * Fetches the number of processes running with the given search name
-     * (have it in their name)
-     * @param string $title - the string to search for a process by
-     *                        (e.g. its name/title)
+     * Fetches the number of processes running with the given search name (have it in their name)
+     * @param string $title - the string to search for a process by (e.g. its name/title)
      * @return int - the number of processes running with that title.
      * @throws CommandFailedException - if we failed to get the list of processes.
      */
@@ -136,18 +132,17 @@ final class Core
 
 
     /**
-     * Fetches the specified list of arguments from the provided array (e.g. $_REQUEST). This will throw an
-     * exception if any of them could not be found.
-     * An argument that is in $inputArray with a null value counts as provided, and its null is returned.
+     * Fetches the specified list of arguments from the provided array (e.g. $_REQUEST). This will
+     * throw an exception if any of them could not be found. An argument that is in $inputArray with
+     * a null value counts as provided, and its null is returned.
      *
-     * @param array $args - array of all the argument names. Each must be a string or an int (the types that array
-     *                      keys can be), so null is not allowed.
-     * @param array $inputArray - array from which we are pulling the required
-     *                             args.
+     * @param array $args - array of all the argument names. Each must be a string or an int (the
+     * types that array keys can be), so null is not allowed.
+     * @param array $inputArray - array from which we are pulling the required args.
      *
      * @return array - the name/value pairs of the arguments.
-     * @throws BadArgumentException - if any of the arguments could not be found, or one of the names in $args is not a
-     *                                string or an int.
+     * @throws BadArgumentException - if any of the arguments could not be found, or one of the
+     * names in $args is not a string or an int.
      */
     public static function fetchReqArgsFromArray(array $args, array $inputArray): array
     {
@@ -174,13 +169,12 @@ final class Core
 
 
     /**
-     * Fetches as many of the specified list of arguments from $_REQUEST that
-     * it can retrieve.
-     * This will NOT throw an exception or return false if it fails to find one.
-     * An argument that is in $inputArray with a null value counts as provided, and its null is returned.
+     * Fetches as many of the specified list of arguments from $_REQUEST that it can retrieve. This
+     * will NOT throw an exception or return false if it fails to find one. An argument that is in
+     * $inputArray with a null value counts as provided, and its null is returned.
      *
-     * @param array $args - array of all the argument names. Each must be a string or an int (the types that array
-     *                      keys can be), so null is not allowed.
+     * @param array $args - array of all the argument names. Each must be a string or an int (the
+     * types that array keys can be), so null is not allowed.
      * @param array $inputArray - array from which we are pulling the optional args.
      *
      * @return array - array of retrieved values
@@ -207,8 +201,7 @@ final class Core
 
     /**
      * Builds the URL of the current page, excluding any ?=&stuff,
-     * @return string - full page URL of the current page
-     *                  e.g. https://www.google.com/some-page
+     * @return string - full page URL of the current page e.g. https://www.google.com/some-page
      */
     public static function getCurrentUrl(): string
     {
@@ -236,17 +229,17 @@ final class Core
 
 
     /**
-     * Ensures that a given value is within the given range and if not, moves
-     * it to the boundary.
-     * This works with numbers, and with dates (e.g. to clamp a DateTime between two others). The value and the
-     * boundaries should be the same kind: comparing a number with a date isn't meaningful.
+     * Ensures that a given value is within the given range and if not, moves it to the boundary.
+     * This works with numbers, and with dates (e.g. to clamp a DateTime between two others). The
+     * value and the boundaries should be the same kind: comparing a number with a date isn't
+     * meaningful.
      *
      * @param int|float|\DateTimeInterface $value - the variable to make sure is within range.
      * @param int|float|\DateTimeInterface $max   - the max allowed value.
      * @param int|float|\DateTimeInterface $min   - the minimum allowed value
      *
-     * @return int|float|\DateTimeInterface - the clamped input. This is $value if it is within range, otherwise the
-     *                                        boundary it was beyond ($max or $min).
+     * @return int|float|\DateTimeInterface - the clamped input. This is $value if it is within
+     * range, otherwise the boundary it was beyond ($max or $min).
      */
     public static function clampValue(
         int|float|\DateTimeInterface $value,
@@ -268,9 +261,10 @@ final class Core
 
 
     /**
-     * Generates a string 'Yes' or 'No' based on the value passed in. This will consider false, null, an empty
-     * string, the string "0", the integer 0, the float 0.0 and an empty array as 'false' values, which give 'No'.
-     * Everything else gives 'Yes' (note that this includes the string "false").
+     * Generates a string 'Yes' or 'No' based on the value passed in. This will consider false,
+     * null, an empty string, the string "0", the integer 0, the float 0.0 and an empty array as
+     * 'false' values, which give 'No'. Everything else gives 'Yes' (note that this includes the
+     * string "false").
      * @param mixed $input - the input variable to decide whether to output yes/no on.
      * @return string - "Yes" or "No"
      */
@@ -281,11 +275,10 @@ final class Core
 
 
     /**
-     * Generates a string 'True' or 'False' based on the value passed in. This will consider false, null, an empty
-     * string, the string "0", the integer 0, the float 0.0 and an empty array as 'false' values. Everything else is
-     * 'true' (note that this includes the string "false").
-     * @param mixed $input - the input variable to decide whether to output true
-     *                       or false on.
+     * Generates a string 'True' or 'False' based on the value passed in. This will consider false,
+     * null, an empty string, the string "0", the integer 0, the float 0.0 and an empty array as
+     * 'false' values. Everything else is 'true' (note that this includes the string "false").
+     * @param mixed $input - the input variable to decide whether to output true or false on.
      * @return string - "True" or "False"
      */
     public static function generateTrueFalseString(mixed $input): string
@@ -295,14 +288,14 @@ final class Core
 
 
     /**
-     * Implement a version guard. This will throw an exception if we do not
-     * have the required version of PHP that is specified.
+     * Implement a version guard. This will throw an exception if we do not have the required
+     * version of PHP that is specified.
      * @param string $reqVersion - required version of PHP, e.g. '8.5.0'
-     * @param string $errMsg - optionally specify the message for the exception. If left empty, a message stating the
-     *                         required and current versions is used.
+     * @param string $errMsg - optionally specify the message for the exception. If left empty, a
+     * message stating the required and current versions is used.
      * @return void
-     * @throws PhpVersionTooLowException - if we do not meet the required PHP version. The exception holds both the
-     *                                     required and current versions.
+     * @throws PhpVersionTooLowException - if we do not meet the required PHP version. The exception
+     * holds both the required and current versions.
      */
     public static function versionGuard(string $reqVersion, string $errMsg = ''): void
     {
@@ -320,9 +313,9 @@ final class Core
 
 
     /**
-     * Fetches the number of vCPU on a Linux machine. I state vCPU instead of
-     * CPU as this includes all hyperthreads/cores. (e.g. an i7 will show up as
-     * 8 even though there is only 1 physical processor)
+     * Fetches the number of vCPU on a Linux machine. I state vCPU instead of CPU as this includes
+     * all hyperthreads/cores. (e.g. an i7 will show up as 8 even though there is only 1 physical
+     * processor)
      * @return int - the number of threads this machine can concurrently run.
      * @throws CommandFailedException - if the nproc command failed.
      * @throws UnexpectedOutputException - if nproc did not return a number.
@@ -342,23 +335,23 @@ final class Core
 
 
     /**
-     * Run a shell command and get its output. Unlike shell_exec(), this throws an exception if the command fails
-     * (exits with a non-zero exit code), rather than returning null, and returns an empty string rather than null if
-     * the command succeeded but didn't output anything.
-     * WARNING - the command is run through the shell, so make sure to escape any values you put into it with
-     * escapeshellarg().
-     * Note that if the command is a pipeline (e.g. "foo | bar"), then the exit code is only that of the last command
-     * in the pipeline, so a failure earlier in the pipeline may not be detected.
-     * WARNING - if the command starts a background process that keeps stdout open (e.g. xclip and wl-copy do this to
-     * keep serving the clipboard), this will wait until that background process exits, which may be never. Redirect
-     * the command's stdout to /dev/null to avoid this.
+     * Run a shell command and get its output. Unlike shell_exec(), this throws an exception if the
+     * command fails (exits with a non-zero exit code), rather than returning null, and returns an
+     * empty string rather than null if the command succeeded but didn't output anything. WARNING -
+     * the command is run through the shell, so make sure to escape any values you put into it with
+     * escapeshellarg(). Note that if the command is a pipeline (e.g. "foo | bar"), then the exit
+     * code is only that of the last command in the pipeline, so a failure earlier in the pipeline
+     * may not be detected. WARNING - if the command starts a background process that keeps stdout
+     * open (e.g. xclip and wl-copy do this to keep serving the clipboard), this will wait until
+     * that background process exits, which may be never. Redirect the command's stdout to /dev/null
+     * to avoid this.
      * @param string $command - the command to run.
-     * @param string|null $input - optionally provide content to send to the command's stdin. If null (the default),
-     *                             the command inherits this script's stdin.
-     * @return string - everything the command wrote to stdout, exactly as it was written (including any trailing
-     *                  newline).
-     * @throws CommandFailedException - if the command could not be run, or exited with a non-zero exit code. The
-     *                                  exception holds the exit code and anything the command wrote to stderr.
+     * @param string|null $input - optionally provide content to send to the command's stdin. If
+     * null (the default), the command inherits this script's stdin.
+     * @return string - everything the command wrote to stdout, exactly as it was written (including
+     * any trailing newline).
+     * @throws CommandFailedException - if the command could not be run, or exited with a non-zero
+     * exit code. The exception holds the exit code and anything the command wrote to stderr.
      */
     public static function runCommand(string $command, ?string $input = null): string
     {
@@ -434,17 +427,18 @@ final class Core
 
 
     /**
-     * Linux specific function that fetches information about the system's memory (RAM and swap) from /proc/meminfo.
-     * Based on:
+     * Linux specific function that fetches information about the system's memory (RAM and swap)
+     * from /proc/meminfo. Based on:
      * http://stackoverflow.com/questions/1455379/get-server-ram-with-php
-     * @param MemoryTypeEnum $type - optionally specify which measurement of memory you want, such as how much is
-     *                               available, rather than the total amount of RAM in the system. Please refer to the
-     *                               MemoryTypeEnum for what each one means.
-     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the amount of memory in. Defaults to MiB.
+     * @param MemoryTypeEnum $type - optionally specify which measurement of memory you want, such
+     * as how much is available, rather than the total amount of RAM in the system. Please refer to
+     * the MemoryTypeEnum for what each one means.
+     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the amount of memory
+     * in. Defaults to MiB.
      * @return float - the amount of memory in the specified unit. E.g. 1.5 for 1536 KiB in MiB.
      * @throws FilesystemException - if /proc/meminfo could not be read.
-     * @throws UnexpectedOutputException - if /proc/meminfo does not contain a field needed for the requested
-     *                                     measurement. Not every field exists on every system.
+     * @throws UnexpectedOutputException - if /proc/meminfo does not contain a field needed for the
+     * requested measurement. Not every field exists on every system.
      */
     public static function getMemory(
         MemoryTypeEnum $type = MemoryTypeEnum::TOTAL,
@@ -507,12 +501,12 @@ final class Core
 
 
     /**
-     * Sign some data. If we get this data back again, we will know that it came from us
-     * untampered (as long as the signature still matches). This is useful for things like
-     * tokens sent in emails allowing them to perform actions without having to sign in
+     * Sign some data. If we get this data back again, we will know that it came from us untampered
+     * (as long as the signature still matches). This is useful for things like tokens sent in
+     * emails allowing them to perform actions without having to sign in
      * @param array $data - the data we wish to sign.
-     * @param string $secret - the secret key to sign the data with. Keep this private, as anyone who has it can
-     *                         create valid signatures.
+     * @param string $secret - the secret key to sign the data with. Keep this private, as anyone
+     * who has it can create valid signatures.
      * @return string - the generated signature for the provided data.
      */
     public static function generateSignature(array $data, string $secret): string
@@ -526,12 +520,12 @@ final class Core
     /**
      * Check if the provided data has the correct signature.
      * @param array $data - the data we received that was signed. The signature MUST NOT be in this
-     *                      array.
+     * array.
      * @param string $signature - the signature that came with the data. This is what we will check
-     *                            is valid for the data received.
+     * is valid for the data received.
      * @param string $serverSecret - the server's secret that it uses for generating signatures.
      * @return bool - true if the signature is correct for the data, or false if not (in which case
-     *                a user probably tried to manipulate the data).
+     * a user probably tried to manipulate the data).
      */
     public static function isValidSignedRequest(array $data, string $signature, string $serverSecret): bool
     {
@@ -544,8 +538,8 @@ final class Core
 
 
     /**
-     * A wrapper around var_dump that will return the result as a string rather than dumping
-     * out immediately.
+     * A wrapper around var_dump that will return the result as a string rather than dumping out
+     * immediately.
      * @param mixed $variable - the variable you want to get the var_dump of
      * @return string - the result of the var_dump
      */
@@ -558,13 +552,15 @@ final class Core
 
 
     /**
-     * Set the content of the user's clipboard (the one used by Ctrl+C / Ctrl+V).
-     * On Linux, this supports both Wayland (using wl-copy from the wl-clipboard package) and X11 (using xclip). On
+     * Set the content of the user's clipboard (the one used by Ctrl+C / Ctrl+V). On Linux, this
+     * supports both Wayland (using wl-copy from the wl-clipboard package) and X11 (using xclip). On
      * macOS this uses pbcopy, and on Windows this uses PowerShell.
      * @param string $content - the content you wish to set in the clipboard.
      * @return void
-     * @throws CommandFailedException - if the clipboard could not be set, such as if the required tool isn't installed.
-     * @throws UnsupportedPlatformException - if running on an unsupported OS, or on Linux without a graphical session.
+     * @throws CommandFailedException - if the clipboard could not be set, such as if the required
+     * tool isn't installed.
+     * @throws UnsupportedPlatformException - if running on an unsupported OS, or on Linux without a
+     * graphical session.
      */
     public static function setClipboard(string $content): void
     {
@@ -595,14 +591,15 @@ final class Core
 
 
     /**
-     * Get the contents of the user's clipboard (the one used by Ctrl+C / Ctrl+V).
-     * On Linux, this supports both Wayland (using wl-paste from the wl-clipboard package) and X11 (using xclip). On
-     * macOS this uses pbpaste, and on Windows this uses PowerShell.
-     * @return string - the content of the clipboard, exactly as it was copied. This will be an empty string if the
-     *                  clipboard is empty, or holds something other than text (e.g. an image).
-     * @throws CommandFailedException - if the clipboard could not be read, such as if the required tool isn't
-     *                                  installed.
-     * @throws UnsupportedPlatformException - if running on an unsupported OS, or on Linux without a graphical session.
+     * Get the contents of the user's clipboard (the one used by Ctrl+C / Ctrl+V). On Linux, this
+     * supports both Wayland (using wl-paste from the wl-clipboard package) and X11 (using xclip).
+     * On macOS this uses pbpaste, and on Windows this uses PowerShell.
+     * @return string - the content of the clipboard, exactly as it was copied. This will be an
+     * empty string if the clipboard is empty, or holds something other than text (e.g. an image).
+     * @throws CommandFailedException - if the clipboard could not be read, such as if the required
+     * tool isn't installed.
+     * @throws UnsupportedPlatformException - if running on an unsupported OS, or on Linux without a
+     * graphical session.
      */
     public static function getClipboard(): string
     {
@@ -674,9 +671,9 @@ final class Core
 
 
     /**
-     * Check that an argument name, for fetchReqArgsFromArray() and fetchOptionalArgsFromArray(), is a string or an
-     * int, as those are the only types an array key can be. Anything else, such as null, would be quietly converted
-     * to a different key (e.g. null becomes "").
+     * Check that an argument name, for fetchReqArgsFromArray() and fetchOptionalArgsFromArray(), is
+     * a string or an int, as those are the only types an array key can be. Anything else, such as
+     * null, would be quietly converted to a different key (e.g. null becomes "").
      * @param mixed $arg - the argument name to check.
      * @return void
      * @throws BadArgumentException - if it isn't a string or an int.
@@ -693,13 +690,14 @@ final class Core
 
 
     /**
-     * Work out whether to use the Wayland clipboard tools (wl-clipboard) or the X11 one (xclip) on Linux.
-     * The native Wayland tools are preferred when running under Wayland, but if they aren't installed and XWayland
-     * is available, we fall back to xclip.
-     * @param string $waylandTool - the Wayland tool we want to use (e.g. "wl-copy" or "wl-paste"), so we can check if
-     *                              it is installed.
+     * Work out whether to use the Wayland clipboard tools (wl-clipboard) or the X11 one (xclip) on
+     * Linux. The native Wayland tools are preferred when running under Wayland, but if they aren't
+     * installed and XWayland is available, we fall back to xclip.
+     * @param string $waylandTool - the Wayland tool we want to use (e.g. "wl-copy" or "wl-paste"),
+     * so we can check if it is installed.
      * @return bool - true to use the Wayland tools, false to use xclip.
-     * @throws UnsupportedPlatformException - if there is no graphical session, and thus no clipboard.
+     * @throws UnsupportedPlatformException - if there is no graphical session, and thus no
+     * clipboard.
      */
     private static function useWaylandClipboard(string $waylandTool): bool
     {

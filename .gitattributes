@@ -1,6 +1,8 @@
-# Leave development-only files out of the archives GitHub generates, which are what Composer downloads when the
-# package is installed. They are still in the repository, so cloning it and running the tests work as normal.
+# Leave development-only files out of the archives GitHub generates, which are what Composer
+# downloads when the package is installed. They are still in the repository, so cloning it and
+# running the tests work as normal.
 /.github          export-ignore
 /testing          export-ignore
 /.gitattributes   export-ignore
 /.gitignore       export-ignore
+/.editorconfig    export-ignore

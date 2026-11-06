@@ -4,8 +4,9 @@ namespace Programster\CoreLibs\Testing;
 
 
 /**
- * A stand-in for the https:// stream wrapper, so that methods that fetch a URL (such as Network::getPublicIp()) can be
- * tested without the internet. Register it with FakeHttpsStream::install(), and put things back with uninstall().
+ * A stand-in for the https:// stream wrapper, so that methods that fetch a URL (such as
+ * Network::getPublicIp()) can be tested without the internet. Register it with
+ * FakeHttpsStream::install(), and put things back with uninstall().
  */
 final class FakeHttpsStream
 {

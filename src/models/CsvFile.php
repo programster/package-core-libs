@@ -1,11 +1,12 @@
 <?php
 
 /*
- * A CSV file that has been checked to be well formed (see the constructor), along with its row and column counts.
- * This doesn't hold the file's data, only its path. Its own methods that change the file (e.g. removeHeader())
- * keep its details up to date. But if the file is changed in any other way, the details may be wrong, and methods
- * that use the file may fail, so use reload() to check it again. Renaming or moving the file with rename() or move()
- * (from File) is fine, as the path is updated.
+ * A CSV file that has been checked to be well formed (see the constructor), along with its row and
+ * column counts. This doesn't hold the file's data, only its path. Its own methods that change the
+ * file (e.g. removeHeader()) keep its details up to date. But if the file is changed in any other
+ * way, the details may be wrong, and methods that use the file may fail, so use reload() to check
+ * it again. Renaming or moving the file with rename() or move() (from File) is fine, as the path is
+ * updated.
  */
 
 namespace Programster\CoreLibs\Models;
@@ -34,23 +35,23 @@ final class CsvFile extends File
 
     /**
      * Load and check a CSV file. A file is valid if:
-     *  - it has no blank lines before the last row of data. Blank lines at the end of the file are allowed, as
-     *    editors often add them. A row of just delimiters (e.g. ",,,") is a row of empty values, not a blank line,
-     *    so it is allowed.
+     *  - it has no blank lines before the last row of data. Blank lines at the end of the file are
+     *    allowed, as editors often add them. A row of just delimiters (e.g. ",,,") is a row of
+     *    empty values, not a blank line, so it is allowed.
      *  - every row has the same number of columns as the first row.
      *  - if $hasHeader is true, it has at least one row (the header).
-     * An empty file (or one with only blank lines) is valid if it has no header, and has 0 rows and 0 columns. A
-     * UTF-8 byte order mark at the start of the file is skipped.
+     * An empty file (or one with only blank lines) is valid if it has no header, and has 0 rows and
+     * 0 columns. A UTF-8 byte order mark at the start of the file is skipped.
      * @param string $filepath - the path to the CSV file.
-     * @param bool $hasHeader - whether the first row is a header row, with the names of the columns. This can't be
-     *                          worked out from the file, so it has to be given.
+     * @param bool $hasHeader - whether the first row is a header row, with the names of the
+     * columns. This can't be worked out from the file, so it has to be given.
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma.
      * @param string $enclosure - optionally specify the enclosure if it isn't a double quote.
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws FilesystemException - if the file could not be opened for reading.
-     * @throws InvalidCsvException - if the file has a blank line before the last row of data, a row with a different
-     *                               number of columns to the first row, or no rows when $hasHeader is true.
+     * @throws InvalidCsvException - if the file has a blank line before the last row of data, a row
+     * with a different number of columns to the first row, or no rows when $hasHeader is true.
      */
     public function __construct(
         string $filepath,
@@ -70,8 +71,9 @@ final class CsvFile extends File
 
 
     /**
-     * Check the file again and update the row and column counts, for when it may have been changed by something
-     * other than this object (e.g. another program). If this throws, the counts are left as they were.
+     * Check the file again and update the row and column counts, for when it may have been changed
+     * by something other than this object (e.g. another program). If this throws, the counts are
+     * left as they were.
      * @return void
      * @throws FilesystemException - if the file could no longer be opened for reading.
      * @throws InvalidCsvException - if the file is no longer valid (see the constructor).
@@ -83,12 +85,14 @@ final class CsvFile extends File
 
 
     /**
-     * Convert this CSV file into an array. An alias for CsvLib::convertCsvToArray(), using this file's header
-     * setting, delimiter, enclosure and escape character.
-     * @param array|null $keys - optionally the keys to use for each row. See CsvLib::convertCsvToArray().
+     * Convert this CSV file into an array. An alias for CsvLib::convertCsvToArray(), using this
+     * file's header setting, delimiter, enclosure and escape character.
+     * @param array|null $keys - optionally the keys to use for each row. See
+     * CsvLib::convertCsvToArray().
      * @return array - an array list of the rows.
      * @throws FilesystemException - if the file could not be opened for reading.
-     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are keys.
+     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are
+     * keys.
      */
     public function toArray(?array $keys = null): array
     {
@@ -104,13 +108,15 @@ final class CsvFile extends File
 
 
     /**
-     * Convert this CSV file into a JSON file. An alias for CsvLib::convertCsvToJson(), using this file's delimiter,
-     * enclosure and escape character. The file must have a header row, as its values are used as the JSON keys.
+     * Convert this CSV file into a JSON file. An alias for CsvLib::convertCsvToJson(), using this
+     * file's delimiter, enclosure and escape character. The file must have a header row, as its
+     * values are used as the JSON keys.
      * @param string $jsonFilepath - the path to write the JSON to. An existing file is overwritten.
      * @param bool $compressed - if true, the JSON has no line endings or padding.
      * @return void
      * @throws NoCsvHeaderException - if this file doesn't have a header row.
-     * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not be written.
+     * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not
+     * be written.
      * @throws \JsonException
      */
     public function toJson(string $jsonFilepath, bool $compressed): void
@@ -135,13 +141,14 @@ final class CsvFile extends File
 
 
     /**
-     * Run a callback on each row of this CSV file. An alias for CsvLib::csvWalk(), using this file's header setting,
-     * delimiter, enclosure and escape character.
+     * Run a callback on each row of this CSV file. An alias for CsvLib::csvWalk(), using this
+     * file's header setting, delimiter, enclosure and escape character.
      * @param callable $callback - the callback to run on each row. See CsvLib::csvWalk().
      * @param array|null $headers - optionally the headers to use. See CsvLib::csvWalk().
      * @return void
      * @throws FilesystemException - if the file could not be opened for reading.
-     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are headers.
+     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are
+     * headers.
      */
     public function walk(callable $callback, ?array $headers = null): void
     {
@@ -158,17 +165,20 @@ final class CsvFile extends File
 
 
     /**
-     * Calculate the differences between this CSV file and another. An alias for CsvLib::decimalDiff(), with this
-     * file as the first file, passing through whether each file has a header row.
-     * @param CsvFile|string $other - the CSV file to compare against, as a CsvFile or a path. A CsvFile must use the
-     *                                same delimiter, enclosure and escape character as this one, but its own header
-     *                                setting is used. A path is read with this file's settings, including whether it
-     *                                has a header, so pass a CsvFile if the other file's header setting is different.
+     * Calculate the differences between this CSV file and another. An alias for
+     * CsvLib::decimalDiff(), with this file as the first file, passing through whether each file
+     * has a header row.
+     * @param CsvFile|string $other - the CSV file to compare against, as a CsvFile or a path. A
+     * CsvFile must use the same delimiter, enclosure and escape character as this one, but its own
+     * header setting is used. A path is read with this file's settings, including whether it has a
+     * header, so pass a CsvFile if the other file's header setting is different.
      * @return string - the path to the created diff CSV file.
-     * @throws BadArgumentException - if $other is a CsvFile that uses a different delimiter, enclosure or escape
-     *                                character.
-     * @throws InvalidCsvException - if the two files don't have the same number of rows and columns.
-     * @throws FilesystemException - if either CSV file could not be opened, or the diff file could not be created.
+     * @throws BadArgumentException - if $other is a CsvFile that uses a different delimiter,
+     * enclosure or escape character.
+     * @throws InvalidCsvException - if the two files don't have the same number of rows and
+     * columns.
+     * @throws FilesystemException - if either CSV file could not be opened, or the diff file could
+     * not be created.
      */
     public function decimalDiff(CsvFile|string $other): string
     {
@@ -185,21 +195,22 @@ final class CsvFile extends File
 
 
     /**
-     * Check whether the numbers in this CSV file and another are the same, within the given tolerances. An alias for
-     * CsvLib::diffTolerance(), with this file as the first file, passing through whether each file has a header row.
-     * @param CsvFile|string $other - the CSV file to compare against, as a CsvFile or a path. A CsvFile must use the
-     *                                same delimiter, enclosure and escape character as this one, but its own header
-     *                                setting is used. A path is read with this file's settings, including whether it
-     *                                has a header, so pass a CsvFile if the other file's header setting is different.
-     * @param array $tolerances - the columns to compare, as column number (from 1) / tolerance pairs. See
-     *                            CsvLib::diffTolerance().
+     * Check whether the numbers in this CSV file and another are the same, within the given
+     * tolerances. An alias for CsvLib::diffTolerance(), with this file as the first file, passing
+     * through whether each file has a header row.
+     * @param CsvFile|string $other - the CSV file to compare against, as a CsvFile or a path. A
+     * CsvFile must use the same delimiter, enclosure and escape character as this one, but its own
+     * header setting is used. A path is read with this file's settings, including whether it has a
+     * header, so pass a CsvFile if the other file's header setting is different.
+     * @param array $tolerances - the columns to compare, as column number (from 1) / tolerance
+     * pairs. See CsvLib::diffTolerance().
      * @return bool - true if every compared value is within its tolerance, false if not.
-     * @throws BadArgumentException - if $other is a CsvFile that uses a different delimiter, enclosure or escape
-     *                                character, or $tolerances isn't valid (see CsvLib::diffTolerance()).
-     * @throws NonNumericCsvValuesException - if any of the listed columns hold non-numeric values, in either file.
-     *                                        getErrors() says where each one is. See CsvLib::diffTolerance().
-     * @throws InvalidCsvException - if either file isn't valid, they don't have the same number of rows of data, or
-     *                               either is missing one of the listed columns.
+     * @throws BadArgumentException - if $other is a CsvFile that uses a different delimiter,
+     * enclosure or escape character, or $tolerances isn't valid (see CsvLib::diffTolerance()).
+     * @throws NonNumericCsvValuesException - if any of the listed columns hold non-numeric values,
+     * in either file. getErrors() says where each one is. See CsvLib::diffTolerance().
+     * @throws InvalidCsvException - if either file isn't valid, they don't have the same number of
+     * rows of data, or either is missing one of the listed columns.
      * @throws FilesystemException - if either CSV file could not be opened.
      */
     public function diffTolerance(CsvFile|string $other, array $tolerances): bool
@@ -218,8 +229,9 @@ final class CsvFile extends File
 
 
     /**
-     * Remove the blank lines at the end of this CSV file. An alias for CsvLib::removeTrailingBlankLines(). The row
-     * and column counts don't change, as blank lines at the end aren't counted as rows.
+     * Remove the blank lines at the end of this CSV file. An alias for
+     * CsvLib::removeTrailingBlankLines(). The row and column counts don't change, as blank lines at
+     * the end aren't counted as rows.
      * @return void
      * @throws FilesystemException - if the file could not be opened, read, or shortened.
      */
@@ -230,12 +242,13 @@ final class CsvFile extends File
 
 
     /**
-     * Remove the header row from this CSV file. Afterwards, hasHeader() is false, and there is one fewer row. The
-     * file isn't checked again, as removing the first row can't make a valid file invalid.
+     * Remove the header row from this CSV file. Afterwards, hasHeader() is false, and there is one
+     * fewer row. The file isn't checked again, as removing the first row can't make a valid file
+     * invalid.
      * @return void
      * @throws NoCsvHeaderException - if this file doesn't have a header row.
-     * @throws InvalidCsvException - if the file is no longer valid, e.g. because it was changed by something else
-     *                               since this CsvFile was created.
+     * @throws InvalidCsvException - if the file is no longer valid, e.g. because it was changed by
+     * something else since this CsvFile was created.
      * @throws FilesystemException - if the file could not be read, or could not be replaced.
      */
     public function removeHeader(): void
@@ -258,12 +271,13 @@ final class CsvFile extends File
 
 
     /**
-     * Read through the file, checking it is valid (see the constructor), and set the row and column counts. The
-     * counts are only set once the whole file has been checked, so if this throws, they are left as they were.
+     * Read through the file, checking it is valid (see the constructor), and set the row and column
+     * counts. The counts are only set once the whole file has been checked, so if this throws, they
+     * are left as they were.
      * @return void
      * @throws FilesystemException - if the file could not be opened for reading.
-     * @throws InvalidCsvException - if the file has a blank line before the last row of data, a row with a different
-     *                               number of columns to the first row, or no rows when it should have a header.
+     * @throws InvalidCsvException - if the file has a blank line before the last row of data, a row
+     * with a different number of columns to the first row, or no rows when it should have a header.
      */
     private function validate(): void
     {
@@ -331,13 +345,13 @@ final class CsvFile extends File
 
 
     /**
-     * Get the path of the other file passed to a method that compares two files. The CsvLib methods that compare two
-     * files read both with the same delimiter, enclosure and escape character, so a CsvFile must use the same ones as
-     * this file.
+     * Get the path of the other file passed to a method that compares two files. The CsvLib methods
+     * that compare two files read both with the same delimiter, enclosure and escape character, so
+     * a CsvFile must use the same ones as this file.
      * @param CsvFile|string $other - the other CSV file, as a CsvFile or a path.
      * @return string - the path to the other CSV file.
-     * @throws BadArgumentException - if $other is a CsvFile that uses a different delimiter, enclosure or escape
-     *                                character.
+     * @throws BadArgumentException - if $other is a CsvFile that uses a different delimiter,
+     * enclosure or escape character.
      */
     private function getOtherFilepath(CsvFile|string $other): string
     {

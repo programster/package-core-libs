@@ -30,18 +30,16 @@ final class Filesystem
 
 
     /**
-     * Retrieves a list of all the directories within the specified directory
-     * It does not include the .. directory (dot directories)
-     * This will NOT return any files
+     * Retrieves a list of all the directories within the specified directory It does not include
+     * the .. directory (dot directories) This will NOT return any files
      * @param string $path - the path to the directory that we want to search.
-     * @param bool $recursive - whether to recursively loop through the
-     *                          directories to find more.
-     * @param bool $includePath - set to true to include the full path to the
-     *                            dir, not just the dir name.
+     * @param bool $recursive - whether to recursively loop through the directories to find more.
+     * @param bool $includePath - set to true to include the full path to the dir, not just the dir
+     * name.
      * @return array<string> - list of directories within the specified path.
      * @throws FileDoesNotExistException - if there is no directory at $path.
-     * @throws FilesystemException - if the directory (or, if $recursive, one of its subdirectories) can't be opened,
-     *                               e.g. because it can't be read.
+     * @throws FilesystemException - if the directory (or, if $recursive, one of its subdirectories)
+     * can't be opened, e.g. because it can't be read.
      */
     public static function getDirectories(
         string $path,
@@ -111,14 +109,14 @@ final class Filesystem
      * @param string $dir - the path to the directory you wish to find the contents of.
      * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
      * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
-     *                            instead of just 'text.txt'
+     * instead of just 'text.txt'
      * @param bool $onlyFiles - whether we include the directory itself in the returned list
-     * @param bool $includeHiddenFilesAndFolders - if false, then this will not include
-     *                                          hidden files and folders (those starting with '.')
+     * @param bool $includeHiddenFilesAndFolders - if false, then this will not include hidden files
+     * and folders (those starting with '.')
      * @return array - the names of all the files/folders within the directory.
      * @throws FileDoesNotExistException - if there is no directory at $dir.
-     * @throws FilesystemException - if the directory (or, if $recursive, one of its subdirectories) can't be opened,
-     *                               e.g. because it can't be read.
+     * @throws FilesystemException - if the directory (or, if $recursive, one of its subdirectories)
+     * can't be opened, e.g. because it can't be read.
      */
     public static function getDirContents(
         string $dir,
@@ -204,24 +202,38 @@ final class Filesystem
 
 
     /**
-     * Wrapper around the mkdir that will only execute it if the directory
-     * doesn't already exist. Also, this defaults to being recursive so that it
-     * will create all relevant parent directories
+     * Wrapper around the mkdir that will only execute it if the directory doesn't already exist. By
+     * default, the parent directory must already exist. Set $recursive to also create any missing
+     * parent directories.
      *
      * @param string $dirPath - the path to the directory we wish to create
-     * @param string $perms - the permissions to set for the directory, as 3 or 4 octal digits, optionally with a
-     *                        leading 0 or 0o, e.g. "0700", "755" or "0o755". Defaults to "0755".
-     * @param bool $recursive - override to false if you want to fail if parent
-     *                          dirs don't exist.
+     * @param string $perms - the permissions to set for the directory, as 3 or 4 octal digits,
+     * optionally with a leading 0 or 0o, e.g. "0700", "755" or "0o755". Defaults to "0777", to
+     * match PHP's own mkdir(). This relies on the umask to reduce it to what is appropriate for the
+     * system, which in most cases (with the usual umask of 022) gives 0755. Pass a stricter value,
+     * e.g. "0700", for a directory that must stay private whatever the umask is.
+     * @param bool $recursive - whether to also create any missing parent directories. Defaults to
+     * false, so a mistyped path fails rather than creating a chain of unexpected directories. If
+     * true, every directory created, including the parents, gets the same $perms, which may not be
+     * what you want for the parents (e.g. a private "0700" directory inside parents that other
+     * users need to get into).
+     * @param bool $overrideUmask - by default, as with PHP's mkdir(), $perms is reduced by the
+     * umask (e.g. "0775" usually gives 0755). Set this to true to give every directory this call
+     * creates (including any parents, if $recursive) exactly $perms instead. Directories that
+     * already existed are never changed. Note that with the default $perms of "0777", this makes
+     * the directory writable by everyone, so pass $perms as well.
      *
      * @return void
-     * @throws BadArgumentException - if $perms is not 3 or 4 octal digits, optionally with a leading 0 or 0o.
-     * @throws FilesystemException - if the directory doesn't exist and could not be created.
+     * @throws BadArgumentException - if $perms is not 3 or 4 octal digits, optionally with a
+     * leading 0 or 0o.
+     * @throws FilesystemException - if the directory doesn't exist and could not be created, or
+     * $overrideUmask is set and its permissions could not be set.
      */
     public static function mkdir(
         string $dirPath,
-        string $perms = "0755",
-        bool $recursive = true
+        string $perms = "0777",
+        bool $recursive = false,
+        bool $overrideUmask = false,
     ): void
     {
         try
@@ -238,12 +250,60 @@ final class Filesystem
             );
         }
 
-        # Suppress the warning, as we throw an exception with the details instead. The second is_dir() check is in
-        # case another process created the directory at the same time.
-        if (!is_dir($dirPath) && !@mkdir($dirPath, $permsInt, $recursive) && !is_dir($dirPath))
+        if (!is_dir($dirPath))
         {
-            $error = error_get_last()['message'] ?? 'unknown error';
-            throw new FilesystemException("Failed to create the directory {$dirPath}: {$error}");
+            # Note which directories this call is about to create, deepest first, so that only those have their
+            # permissions set exactly. Without $recursive, that can only be $dirPath itself.
+            $directoriesToCreate = array();
+            $path = rtrim($dirPath, '/');
+
+            while (
+                !in_array($path, ['', '.', '/'], true)
+                && !file_exists($path)
+                && !is_link($path)
+                && ($recursive || count($directoriesToCreate) === 0)
+            )
+            {
+                $directoriesToCreate[] = $path;
+                $path = dirname($path);
+            }
+
+            # Capture the warning to put its reason in the exception, rather than letting it through. This uses a
+            # temporary error handler rather than @ and error_get_last(), as error_get_last() is empty if the
+            # application has its own error handler.
+            $error = 'unknown error';
+            set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
+                $error = $errorMessage;
+                return true;
+            });
+
+            try
+            {
+                $created = mkdir($dirPath, $permsInt, $recursive);
+            }
+            finally
+            {
+                restore_error_handler();
+            }
+
+            # The is_dir() check is in case another process created the directory at the same time.
+            if (!$created && !is_dir($dirPath))
+            {
+                throw new FilesystemException("Failed to create the directory {$dirPath}: {$error}");
+            }
+
+            if ($created && $overrideUmask)
+            {
+                foreach ($directoriesToCreate as $directory)
+                {
+                    if (!@chmod($directory, $permsInt))
+                    {
+                        throw new FilesystemException(
+                            "Created {$directory}, but failed to set its permissions to {$perms}."
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -251,30 +311,32 @@ final class Filesystem
     /**
      * Deletes a directory even if it is not already empty. This resolves the
      *  issue with trying to use unlink on a non-empty dir.
-     * By default, symlinks are never followed: a symlink inside the directory is removed without touching what it
-     * points to, and if $dir is itself a symlink, this throws rather than guessing whether the link or the folder it
-     * points to should be deleted. (To remove just the link, use unlink().)
-     * With $followSymlinks, symlinks are followed instead, and what they point to is deleted as well as the links: if
-     * $dir is a symlink, the directory it points to is deleted, and then the link. A symlink inside to a directory has
-     * that directory deleted (following the symlinks in it too) before the link, and one to a file has the file deleted
-     * before the link. To avoid loops and deleting more than intended, a symlink that points "up" to a directory that
-     * contains it (e.g. ".." or "/") is never followed, and only the link is removed, and nothing is deleted twice,
-     * however many symlinks lead to it.
-     * Everything is checked before anything is deleted (see emptyDir()), so if anything can't be deleted, nothing is.
-     * This includes anything that would be deleted by following symlinks.
+     * By default, symlinks are never followed: a symlink inside the directory is removed without
+     * touching what it points to, and if $dir is itself a symlink, this throws rather than guessing
+     * whether the link or the folder it points to should be deleted. (To remove just the link, use
+     * unlink().) With $followSymlinks, symlinks are followed instead, and what they point to is
+     * deleted as well as the links: if $dir is a symlink, the directory it points to is deleted,
+     * and then the link. A symlink inside to a directory has that directory deleted (following the
+     * symlinks in it too) before the link, and one to a file has the file deleted before the link.
+     * To avoid loops and deleting more than intended, a symlink that points "up" to a directory
+     * that contains it (e.g. ".." or "/") is never followed, and only the link is removed, and
+     * nothing is deleted twice, however many symlinks lead to it. Everything is checked before
+     * anything is deleted (see emptyDir()), so if anything can't be deleted, nothing is. This
+     * includes anything that would be deleted by following symlinks.
      * @param string $dir - the path to the directory you wish to delete
-     * @param bool $followSymlinks - whether to follow symlinks, and delete what they point to as well as the links.
-     *                               Defaults to false.
+     * @param bool $followSymlinks - whether to follow symlinks, and delete what they point to as
+     * well as the links. Defaults to false.
      * @return void
-     * @throws BadArgumentException - if $dir is a symlink and $followSymlinks is false, or $dir is a symlink to a
-     *                                directory that contains it (so following it would delete the link's own parent).
+     * @throws BadArgumentException - if $dir is a symlink and $followSymlinks is false, or $dir is
+     * a symlink to a directory that contains it (so following it would delete the link's own
+     * parent).
      * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
-     * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted, including $dir
-     *                                         itself (e.g. because its parent directory can't be written to). Its
-     *                                         getProblems() says what, and why. Nothing is deleted if this happens.
-     *                                         This extends BadFilePermissionsException.
-     * @throws FilesystemException - if deleting something still failed part way through, despite the checks (see
-     *                               emptyDir()).
+     * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted,
+     * including $dir itself (e.g. because its parent directory can't be written to). Its
+     * getProblems() says what, and why. Nothing is deleted if this happens. This extends
+     * BadFilePermissionsException.
+     * @throws FilesystemException - if deleting something still failed part way through, despite
+     * the checks (see emptyDir()).
      */
     public static function deleteDir(string $dir, bool $followSymlinks = false): void
     {
@@ -330,26 +392,29 @@ final class Filesystem
 
 
     /**
-     * Deletes all files from a directory, but leaves the directory in place.
-     * If $dir is a symlink to a directory, the contents of the directory it points to are deleted, and both the link
-     * and that directory are left in place. Symlinks inside the directory are handled as in deleteDir(): by default
-     * they are removed without touching what they point to, and with $followSymlinks, what they point to is deleted
-     * as well (never following one that points "up" to a directory containing it, or deleting anything twice).
-     * Everything is checked before anything is deleted, so if anything can't be deleted, nothing is. A directory's
-     * contents can only be deleted if it can be listed and written to, and in a "sticky" directory such as /tmp, only
-     * things the current user owns (or that are in a directory they own) can be deleted. Some causes of failure can't
-     * be seen beforehand, though, such as an immutable file, a read-only filesystem, or another process changing the
-     * directory while it is being deleted. If one of those happens, this throws a FilesystemException part way through,
-     * and some of the contents will already have been deleted.
+     * Deletes all files from a directory, but leaves the directory in place. If $dir is a symlink
+     * to a directory, the contents of the directory it points to are deleted, and both the link and
+     * that directory are left in place. Symlinks inside the directory are handled as in
+     * deleteDir(): by default they are removed without touching what they point to, and with
+     * $followSymlinks, what they point to is deleted as well (never following one that points "up"
+     * to a directory containing it, or deleting anything twice). Everything is checked before
+     * anything is deleted, so if anything can't be deleted, nothing is. A directory's contents can
+     * only be deleted if it can be listed and written to, and in a "sticky" directory such as /tmp,
+     * only things the current user owns (or that are in a directory they own) can be deleted. Some
+     * causes of failure can't be seen beforehand, though, such as an immutable file, a read-only
+     * filesystem, or another process changing the directory while it is being deleted. If one of
+     * those happens, this throws a FilesystemException part way through, and some of the contents
+     * will already have been deleted.
      * @param string $dir - the path to the directory one wishes to empty, or a symlink to it.
-     * @param bool $followSymlinks - whether to follow symlinks inside the directory, and delete what they point to as
-     *                               well as the links. Defaults to false.
+     * @param bool $followSymlinks - whether to follow symlinks inside the directory, and delete
+     * what they point to as well as the links. Defaults to false.
      * @return void
      * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
-     * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted. Its getProblems()
-     *                                         says what, and why (stopping at 100). Nothing is deleted if this
-     *                                         happens. This extends BadFilePermissionsException.
-     * @throws FilesystemException - if deleting something still failed part way through, despite the checks.
+     * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted.
+     * Its getProblems() says what, and why (stopping at 100). Nothing is deleted if this happens.
+     * This extends BadFilePermissionsException.
+     * @throws FilesystemException - if deleting something still failed part way through, despite
+     * the checks.
      */
     public static function emptyDir(string $dir, bool $followSymlinks = false): void
     {
@@ -370,18 +435,19 @@ final class Filesystem
 
 
     /**
-     * Lock a file so that only we can use it.
-     * If $isBlocking is false, this returns false immediately if the lock can't be obtained. If true, it waits until
-     * the lock can be obtained.
+     * Lock a file so that only we can use it. If $isBlocking is false, this returns false
+     * immediately if the lock can't be obtained. If true, it waits until the lock can be obtained.
      * Note that this only allows other processes to see that you have locked it and does not
      * actually guarantee that it cannot be edited at the same time on Linux.
      * @param string $filePath - the full path to the file that we wish to lock
-     * @param bool $isWriteLock - if false this will get a shared read lock, if true this
-     *                               will get an exclusive write lock.
+     * @param bool $isWriteLock - if false this will get a shared read lock, if true this will get
+     * an exclusive write lock.
      * @param bool $isBlocking - if true will wait to get lock.
-     * @return bool - true if we managed to lock the file. False is only returned when $isBlocking is false and
-     *                something else already holds a conflicting lock, so a blocking lock always returns true.
-     * @throws FilesystemException - if the file could not be opened, or locking it failed for any other reason.
+     * @return bool - true if we managed to lock the file. False is only returned when $isBlocking
+     * is false and something else already holds a conflicting lock, so a blocking lock always
+     * returns true.
+     * @throws FilesystemException - if the file could not be opened, or locking it failed for any
+     * other reason.
      */
     public static function lockFile(string $filePath, bool $isWriteLock, bool $isBlocking): bool
     {
@@ -450,17 +516,17 @@ final class Filesystem
 
 
     /**
-     * Fetch the total size of a directory or file, including all
-     * its subdirectories. This is the "apparent size" (the total of the file sizes),
-     * rather than the space taken up on disk, which is rounded up to the filesystem's block size.
-     * This only works on Linux, not Windows.
-     * src: http://stackoverflow.com/questions/478121/php-get-directory-size
-     * @param string $dirPath - the path to the directory we wish to get the
-     *                          size of
-     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults to bytes.
-     * @return float - the size of the directory and all its contents, in the specified unit. E.g. 1.5 for 1536 bytes
-     *                 in KiB.
-     * @throws CommandFailedException - if the du command failed, such as if there is nothing at $dirPath.
+     * Fetch the total size of a directory or file, including all its subdirectories. This is the
+     * "apparent size" (the total of the file sizes), rather than the space taken up on disk, which
+     * is rounded up to the filesystem's block size. This only works on Linux, not Windows. src:
+     * http://stackoverflow.com/questions/478121/php-get-directory-size
+     * @param string $dirPath - the path to the directory we wish to get the size of
+     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults
+     * to bytes.
+     * @return float - the size of the directory and all its contents, in the specified unit. E.g.
+     * 1.5 for 1536 bytes in KiB.
+     * @throws CommandFailedException - if the du command failed, such as if there is nothing at
+     * $dirPath.
      * @throws UnexpectedOutputException - if the output of du was not in the expected format.
      */
     public static function getDirSize(string $dirPath, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
@@ -479,12 +545,16 @@ final class Filesystem
 
 
     /**
-     * Fetch the size of a file. Unlike PHP's filesize(), this throws an exception rather than returning false if it
-     * fails, and it always gets the file's current size, rather than one PHP may have cached earlier in the script.
+     * Fetch the size of a file. Unlike PHP's filesize(), this throws an exception rather than
+     * returning false if it fails, and it always gets the file's current size, rather than one PHP
+     * may have cached earlier in the script.
      * @param string $filepath - the path to the file to get the size of.
-     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults to bytes.
-     * @return float - the size of the file in the specified unit. E.g. 1.5 for a 1536 byte file in KiB.
-     * @throws FileDoesNotExistException - if there is no file at $filepath, or it is a directory (use getDirSize()).
+     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults
+     * to bytes.
+     * @return float - the size of the file in the specified unit. E.g. 1.5 for a 1536 byte file in
+     * KiB.
+     * @throws FileDoesNotExistException - if there is no file at $filepath, or it is a directory
+     * (use getDirSize()).
      * @throws FilesystemException - if the size of the file could not be determined.
      */
     public static function getFileSize(string $filepath, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
@@ -517,15 +587,15 @@ final class Filesystem
 
 
     /**
-     * Zip a directory and all of its contents into a zip file.
-     * The zip contains a single folder, named after $sourceFolder (e.g. zipping "/var/www/project" gives
-     * "project/..."), however the path is written (relative, with a trailing slash, through a symlink etc.).
-     * Empty subdirectories are included, so they are recreated when the zip is extracted.
+     * Zip a directory and all of its contents into a zip file. The zip contains a single folder,
+     * named after $sourceFolder (e.g. zipping "/var/www/project" gives "project/..."), however the
+     * path is written (relative, with a trailing slash, through a symlink etc.). Empty
+     * subdirectories are included, so they are recreated when the zip is extracted.
      * @param string $sourceFolder - path to the folder we wish to zip up.
      * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
-     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they
-     *                                have been zipped. If $sourceFolder is a symlink, only the symlink is deleted,
-     *                                and the folder it points to (and the files in it) are kept.
+     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed
+     * files after they have been zipped. If $sourceFolder is a symlink, only the symlink is
+     * deleted, and the folder it points to (and the files in it) are kept.
      * @return void
      * @throws FileAlreadyExistsException - if there is already a file at $dest.
      * @throws FileDoesNotExistException - if there is no folder at $sourceFolder.
@@ -630,8 +700,8 @@ final class Filesystem
      *
      * @param string $sourceZip - zip file to unzip.
      * @param string $destinationFolder - path to the folder we wish to unzip into.
-     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed files after they have
-     * been zipped.
+     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed
+     * files after they have been zipped.
      * @return void
      * @throws FileDoesNotExistException
      * @throws MissingExtensionException
@@ -677,8 +747,8 @@ final class Filesystem
 
 
     /**
-     * Applies the user-defined callback function to each line of a file.
-     * This is inspired by array_walk (http://php.net/manual/en/function.array-walk.php)
+     * Applies the user-defined callback function to each line of a file. This is inspired by
+     * array_walk (http://php.net/manual/en/function.array-walk.php)
      * @param string $filepath - path to the file to open and loop over.
      * @param callable $callback - callback to execute on every line in the file.
      * @return void
@@ -705,23 +775,25 @@ final class Filesystem
 
 
     /**
-     * Filters a file using the provided callback, in a memory efficient way so that it can process very large files.
-     * This is inspired by array_filter (http://php.net/manual/en/function.array-filter.php)
-     * The kept lines are written to a temporary file in the system's temporary directory first, and only copied into
-     * the file being written once every line has been filtered, so a failure part way through (including the callback
-     * throwing) leaves it untouched. They are copied in place with replaceWithFile(), so an existing file keeps its
-     * permissions, owner and any links to it.
+     * Filters a file using the provided callback, in a memory efficient way so that it can process
+     * very large files. This is inspired by array_filter
+     * (http://php.net/manual/en/function.array-filter.php) The kept lines are written to a
+     * temporary file in the system's temporary directory first, and only copied into the file being
+     * written once every line has been filtered, so a failure part way through (including the
+     * callback throwing) leaves it untouched. They are copied in place with replaceWithFile(), so
+     * an existing file keeps its permissions, owner and any links to it.
      * @param string $inputFile - the path to the file to operate upon.
-     * @param callable $filterCallback - the callback to execute on every line in the file to determine if kept or not.
-     * It must return true to keep the line. Don't forget that this will include its line ending, so you may wish to
-     * use trim() before analysis.
-     * @param string|null $outputFilepath - optionally specify an output filepath to place the filtered content into.
-     * If this is not specified (or is the same file as $inputFile), then the existing file will be modified in-place.
-     * If the output file doesn't exist, it is created, with the default permissions for a new file.
+     * @param callable $filterCallback - the callback to execute on every line in the file to
+     * determine if kept or not. It must return true to keep the line. Don't forget that this will
+     * include its line ending, so you may wish to use trim() before analysis.
+     * @param string|null $outputFilepath - optionally specify an output filepath to place the
+     * filtered content into. If this is not specified (or is the same file as $inputFile), then the
+     * existing file will be modified in-place. If the output file doesn't exist, it is created,
+     * with the default permissions for a new file.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $inputFile.
-     * @throws BadFilePermissionsException - if $inputFile can't be read, or the file to write can't be written (or
-     *                                       created, for a new output file). This is checked before filtering.
+     * @throws BadFilePermissionsException - if $inputFile can't be read, or the file to write can't
+     * be written (or created, for a new output file). This is checked before filtering.
      * @throws FilesystemException - if the filtered content could not be written.
      */
     public static function fileFilter(
@@ -823,11 +895,11 @@ final class Filesystem
 
 
     /**
-     * Converts a permissions string, such as "0755", into the int that PHP's mkdir() and chmod() expect. Unlike
-     * octdec(), this throws for anything that isn't valid, rather than silently ignoring invalid characters
-     * and giving the wrong permissions.
-     * @param string $permissions - 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. "755", "0755",
-     *                              "0o755" or "1777".
+     * Converts a permissions string, such as "0755", into the int that PHP's mkdir() and chmod()
+     * expect. Unlike octdec(), this throws for anything that isn't valid, rather than silently
+     * ignoring invalid characters and giving the wrong permissions.
+     * @param string $permissions - 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g.
+     * "755", "0755", "0o755" or "1777".
      * @return int - the permissions as an int, e.g. 493 (0755) for "0755".
      * @throws BadArgumentException - if $permissions is not in one of the forms above.
      */
@@ -848,15 +920,24 @@ final class Filesystem
 
     /**
      * Create a temporary directory. This will be a randomly named directory in the system's
-     * temporary directory folder (usually /tmp).
-     * @param string $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
-     * http://php.net/manual/en/function.mkdir.php
-     * @return string - the full path to the temporary directory. E.g. /tmp/myRandomDir
-     * @throws BadArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g.
-     *                                "755", "0755", "0o755" or "1777".
-     * @throws FilesystemException - if the temporary directory could not be created.
+     * temporary directory folder (usually /tmp), e.g. /tmp/corelibs-dir-1a2b3c4d5e6f7a8b. The
+     * directory is always a new one made by this call, never one that already existed: mkdir()
+     * fails if anything already exists at the path, so another process can't create it first. If
+     * the random name is already taken, another is tried.
+     * @param string $mode - the permissions the new temporary directory will have, as for mkdir().
+     * As with mkdir(), these are reduced by the umask, so e.g. the default "0777" usually gives
+     * 0755.
+     * @param bool $overrideUmask - set to true to give the directory exactly $mode instead,
+     * ignoring the umask. Note that with the default $mode of "0777", that makes it writable by
+     * everyone.
+     * @return string - the full path to the temporary directory, which is empty.
+     * @throws BadArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading
+     * 0 or 0o, e.g. "755", "0755", "0o755" or "1777".
+     * @throws FilesystemException - if the temporary directory could not be created, e.g. because
+     * the system's temporary directory can't be written to, or $overrideUmask is set and its
+     * permissions could not be set.
      */
-    public static function tmpDir(string $mode = "0777"): string
+    public static function tmpDir(string $mode = "0777", bool $overrideUmask = false): string
     {
         try
         {
@@ -872,36 +953,56 @@ final class Filesystem
             );
         }
 
-        # tempnam() is only used to get a unique name, so remove the file it creates and make a directory there.
-        $tempName = tempnam(sys_get_temp_dir(), '');
+        $parentDir = sys_get_temp_dir();
+        $maxAttempts = 10;
+        $tmpDirPath = null;
 
-        if ($tempName === false)
+        for ($attempt = 1; $attempt <= $maxAttempts && $tmpDirPath === null; $attempt++)
         {
-            throw new FilesystemException("Failed to get a unique name for a temporary directory.");
+            $path = "{$parentDir}/corelibs-dir-" . bin2hex(random_bytes(8));
+
+            # Create the directory in one step, as mkdir() fails if anything already exists there, so a success means
+            # it is a new directory of ours. Suppress the warning, as we throw an exception instead.
+            if (@mkdir($path, $modeInt))
+            {
+                $tmpDirPath = $path;
+            }
+            elseif (!file_exists($path) && !is_link($path))
+            {
+                # It failed for a reason other than the name being taken, which another name won't fix.
+                throw new FilesystemException(
+                    "Failed to create a temporary directory in {$parentDir}, e.g. because it can't be written to."
+                );
+            }
         }
 
-        unlink($tempName);
-        mkdir($tempName, $modeInt);
-
-        if (is_dir($tempName) === FALSE)
+        if ($tmpDirPath === null)
         {
-            throw new FilesystemException("Failed to create a temporary directory.");
+            throw new FilesystemException(
+                "Failed to create a temporary directory in {$parentDir}, as {$maxAttempts} random names were all " .
+                "already taken."
+            );
         }
 
-        return $tempName;
+        if ($overrideUmask && !@chmod($tmpDirPath, $modeInt))
+        {
+            # Don't leave behind a directory with the wrong permissions.
+            @rmdir($tmpDirPath);
+            throw new FilesystemException("Created {$tmpDirPath}, but failed to set its permissions to {$mode}.");
+        }
+
+        return $tmpDirPath;
     }
 
 
     /**
-     * Download a file from the provided URL
-     * This will use curl if it is available, if not it will
-     * fall back to using file_get_contents.
-     * An HTTP error response (a status of 400 or above, such as 404 Not Found) counts as a failed download, rather
-     * than downloading the error page.
+     * Download a file from the provided URL This will use curl if it is available, if not it will
+     * fall back to using file_get_contents. An HTTP error response (a status of 400 or above, such
+     * as 404 Not Found) counts as a failed download, rather than downloading the error page.
      * @param string $url - the URL of the file to download.
      * @return string - the full filepath to the downloaded file on the server.
-     * @throws FilesystemException - if the temporary file could not be created/written to, or the download failed.
-     *                               The temporary file is removed if this happens.
+     * @throws FilesystemException - if the temporary file could not be created/written to, or the
+     * download failed. The temporary file is removed if this happens.
      */
     public static function downloadFile(string $url): string
     {
@@ -971,9 +1072,9 @@ final class Filesystem
 
 
     /**
-     * A more human-readable version of the fileperms function. This one will output in the "-rw-r--r--" style format
-     * rather than a bunch of numbers. The code is taken straight from the examples section of
-     * https://www.php.net/manual/en/function.fileperms.php
+     * A more human-readable version of the fileperms function. This one will output in the
+     * "-rw-r--r--" style format rather than a bunch of numbers. The code is taken straight from the
+     * examples section of https://www.php.net/manual/en/function.fileperms.php
      * @param string $filepath - the path to the file/folder we wish to get the permissions of.
      * @return string - the file permissions string.
      */
@@ -1018,13 +1119,15 @@ final class Filesystem
 
 
     /**
-     * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt"
-     * This only looks at the last part of a path, so dots in directory names are ignored (e.g. "/var/v1.2/README" has
-     * no extension). The extension's case is kept as it is (e.g. "JPG"). As with PHP's pathinfo(), a name that starts
-     * with a dot and has no other dots, such as ".bashrc", is treated as having that extension ("bashrc").
+     * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt" This only
+     * looks at the last part of a path, so dots in directory names are ignored (e.g.
+     * "/var/v1.2/README" has no extension). The extension's case is kept as it is (e.g. "JPG"). As
+     * with PHP's pathinfo(), a name that starts with a dot and has no other dots, such as
+     * ".bashrc", is treated as having that extension ("bashrc").
      * @param string $filename - the name of the file or the full file path
      * @return string - the file extension, without the dot.
-     * @throws NoFileExtensionException - if there is no file extension, such as "README", "file." or "dir/".
+     * @throws NoFileExtensionException - if there is no file extension, such as "README", "file."
+     * or "dir/".
      */
     public static function getFileExtension(string $filename): string
     {
@@ -1042,19 +1145,23 @@ final class Filesystem
     /**
      * Serve up a file to the user. This is particularly useful for CSV/PDF report downloads etc.
      * @param string $filepath - the path to the file you wish to serve up as a download
-     * @param string $downloadFilename - the filename the browser should use for the file, e.g. if the user saves it.
-     * This can contain any characters, including spaces, punctuation and non-ASCII characters such as "résumé.pdf".
-     * @param ?string $mimetype - optionally manually specify the mimetype. Can be null to force not setting mimetype on
-     * download. Defaults to "auto" which will have PHP try to dynamically figure out the mimetype of the file.
-     * @param bool $asAttachment - specify whether the file should be downloaded as an attachment in the browser
-     * (default), or set to false for the file to be "inline" so it just appears in the webview rather than being
-     * downloaded. E.g. for a PDF, the PDF could just be shown in the browser and not automatically downloaded, with
-     * the user choosing to download the file if they wish
+     * @param string $downloadFilename - the filename the browser should use for the file, e.g. if
+     * the user saves it. This can contain any characters, including spaces, punctuation and
+     * non-ASCII characters such as "résumé.pdf".
+     * @param ?string $mimetype - optionally manually specify the mimetype. Can be null to force not
+     * setting mimetype on download. Defaults to "auto" which will have PHP try to dynamically
+     * figure out the mimetype of the file.
+     * @param bool $asAttachment - specify whether the file should be downloaded as an attachment in
+     * the browser (default), or set to false for the file to be "inline" so it just appears in the
+     * webview rather than being downloaded. E.g. for a PDF, the PDF could just be shown in the
+     * browser and not automatically downloaded, with the user choosing to download the file if they
+     * wish
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file exists but cannot be read.
-     * @throws FilesystemException - if the mimetype or size of the file could not be determined, or the file could not
-     * be read. These are checked before any headers are sent, apart from the file failing to be read.
+     * @throws FilesystemException - if the mimetype or size of the file could not be determined, or
+     * the file could not be read. These are checked before any headers are sent, apart from the
+     * file failing to be read.
      */
     public static function streamFileToBrowser(
         string $filepath,
@@ -1117,8 +1224,8 @@ final class Filesystem
      * @return bool - true if valid, false if it contains non-UTF-8 characters.
      * @throws BadFilePermissionsException - if file exists but cannot be read.
      * @throws FileDoesNotExistException - if file does not exist.
-     * @throws FilesystemException - if something goes wrong with getting a file handle even though file exists and
-     * can be read, or reading the file fails part way through.
+     * @throws FilesystemException - if something goes wrong with getting a file handle even though
+     * file exists and can be read, or reading the file fails part way through.
      * @throws BadArgumentException - if $chunkSize is less than 1.
      */
     public static function isValidUtf8File(string $filepath, int $chunkSize = 8192): bool
@@ -1183,34 +1290,38 @@ final class Filesystem
 
 
     /**
-     * Converts a file to UTF-8, if it isn't already.
-     * WARNING - this will overwrite/replace the file!
+     * Converts a file to UTF-8, if it isn't already. WARNING - this will overwrite/replace the
+     * file!
      *
-     * It is not possible to reliably detect which encoding a file is in, as in single-byte encodings such as
-     * Windows-1252, Windows-1251 and ISO-8859-2 every byte is valid, and the same byte means a different character in
-     * each (e.g. 0xE6 is "æ" in Windows-1252, but "ж" in Windows-1251). So this only detects what can be detected
-     * reliably, and otherwise relies on you telling it what encoding the file is in:
+     * It is not possible to reliably detect which encoding a file is in, as in single-byte
+     * encodings such as Windows-1252, Windows-1251 and ISO-8859-2 every byte is valid, and the same
+     * byte means a different character in each (e.g. 0xE6 is "æ" in Windows-1252, but "ж" in
+     * Windows-1251). So this only detects what can be detected reliably, and otherwise relies on
+     * you telling it what encoding the file is in:
      *  1. If the file is already valid UTF-8, it is left untouched.
-     *  2. If the file starts with a UTF-16 or UTF-32 byte order mark (BOM), it is converted from that encoding, and the
-     *     BOM is removed. This overrides $sourceEncoding.
+     *  2. If the file starts with a UTF-16 or UTF-32 byte order mark (BOM), it is converted from
+     *     that encoding, and the BOM is removed. This overrides $sourceEncoding.
      *  3. Otherwise, the file is converted from $sourceEncoding.
-     * The converted contents are written to a temporary file in the system's temporary directory first, then copied
-     * back into the original, so the file keeps its permissions and owner, and only the file (not its directory) needs
-     * to be writable. See replaceWithFile() for what happens if that copy fails part way through.
+     * The converted contents are written to a temporary file in the system's temporary directory
+     * first, then copied back into the original, so the file keeps its permissions and owner, and
+     * only the file (not its directory) needs to be writable. See replaceWithFile() for what
+     * happens if that copy fails part way through.
      *
      * @param string $inputFilepath - the path to the file to convert.
-     * @param string $sourceEncoding - the encoding the file is in, if it is not UTF-8 and has no BOM. This must be an
-     * encoding that the mbstring extension supports, e.g. "Windows-1252" (the default, common for Western European
-     * text), "Windows-1251" (Cyrillic), "ISO-8859-2" (Central European), "ISO-8859-15" (Western European with the
-     * euro sign) or "SJIS" (Japanese). Note that mbstring does NOT support "Windows-1250".
+     * @param string $sourceEncoding - the encoding the file is in, if it is not UTF-8 and has no
+     * BOM. This must be an encoding that the mbstring extension supports, e.g. "Windows-1252" (the
+     * default, common for Western European text), "Windows-1251" (Cyrillic), "ISO-8859-2" (Central
+     * European), "ISO-8859-15" (Western European with the euro sign) or "SJIS" (Japanese). Note
+     * that mbstring does NOT support "Windows-1250".
      * @return void
      * @throws BadArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
-     * @throws BadFilePermissionsException - if the file exists but can't be read, or needs converting but can't be
-     *                                       written.
+     * @throws BadFilePermissionsException - if the file exists but can't be read, or needs
+     * converting but can't be written.
      * @throws FileDoesNotExistException - if input file does not exist.
-     * @throws MissingExtensionException - if missing the mbstring extension which is required for this function.
-     * @throws FilesystemException - if the file is not valid in the encoding it is being converted from, or anything
-     * else goes wrong that is not covered by the other specific exceptions.
+     * @throws MissingExtensionException - if missing the mbstring extension which is required for
+     * this function.
+     * @throws FilesystemException - if the file is not valid in the encoding it is being converted
+     * from, or anything else goes wrong that is not covered by the other specific exceptions.
      */
     public static function convertFileToUtf8(string $inputFilepath, string $sourceEncoding = 'Windows-1252'): void
     {
@@ -1288,9 +1399,9 @@ final class Filesystem
 
 
     /**
-     * Check that a file can be changed in place (e.g. with replaceWithFile()), before any work is done on it. Only
-     * the file itself needs to be readable and writable, not the directory it is in, as the new contents are written
-     * back into the same file.
+     * Check that a file can be changed in place (e.g. with replaceWithFile()), before any work is
+     * done on it. Only the file itself needs to be readable and writable, not the directory it is
+     * in, as the new contents are written back into the same file.
      * @param string $filepath - the path of the file that will be changed.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
@@ -1311,11 +1422,12 @@ final class Filesystem
 
 
     /**
-     * Create an empty temporary file to write a file's new contents to, before they are copied into the original
-     * with replaceWithFile(). This is useful for rewriting a file a piece at a time (e.g. row by row), without
-     * changing the original until the new contents are complete. This is always in the system's temporary
-     * directory, never next to the original, in case that directory is served to the public (e.g. by a web server).
-     * tempnam() creates it with 0600 permissions, so other users can't read the data while it is there.
+     * Create an empty temporary file to write a file's new contents to, before they are copied into
+     * the original with replaceWithFile(). This is useful for rewriting a file a piece at a time
+     * (e.g. row by row), without changing the original until the new contents are complete. This is
+     * always in the system's temporary directory, never next to the original, in case that
+     * directory is served to the public (e.g. by a web server). tempnam() creates it with 0600
+     * permissions, so other users can't read the data while it is there.
      * @return string - the path of the temporary file.
      * @throws FilesystemException - if the temporary file could not be created.
      */
@@ -1334,15 +1446,16 @@ final class Filesystem
 
 
     /**
-     * Copy the contents of a file made by createReplacementFile() into the original file, then delete it. The
-     * contents are written into the original file in place, rather than the temporary file being renamed over it,
-     * so the original keeps its permissions, owner, and any links to it, and only the file (not its directory)
-     * needs to be writable.
-     * This isn't atomic: if it fails part way through (e.g. the disk fills up), the original may be left
-     * half-written. The temporary file is kept in that case, and its path is given in the exception, so that the
+     * Copy the contents of a file made by createReplacementFile() into the original file, then
+     * delete it. The contents are written into the original file in place, rather than the
+     * temporary file being renamed over it, so the original keeps its permissions, owner, and any
+     * links to it, and only the file (not its directory) needs to be writable. This isn't atomic:
+     * if it fails part way through (e.g. the disk fills up), the original may be left half-written.
+     * The temporary file is kept in that case, and its path is given in the exception, so that the
      * new contents aren't lost.
      * @param string $filepath - the path of the file to replace the contents of.
-     * @param string $tmpFilepath - the path of the temporary file with the new contents. It must already be closed.
+     * @param string $tmpFilepath - the path of the temporary file with the new contents. It must
+     * already be closed.
      * @return void
      * @throws FilesystemException - if the contents could not be copied across.
      */
@@ -1388,11 +1501,12 @@ final class Filesystem
 
 
     /**
-     * Build the value for a Content-Disposition header, in the standard way (RFC 6266), so that any filename works.
-     * This gives two versions of the filename: a quoted, ASCII-only fallback for very old clients, and the exact
-     * filename, percent-encoded as UTF-8, which all current browsers use.
-     * E.g. attachment; filename="r_sum_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf
-     * @param bool $asAttachment - true for "attachment" (download), false for "inline" (display in the browser).
+     * Build the value for a Content-Disposition header, in the standard way (RFC 6266), so that any
+     * filename works. This gives two versions of the filename: a quoted, ASCII-only fallback for
+     * very old clients, and the exact filename, percent-encoded as UTF-8, which all current
+     * browsers use. E.g. attachment; filename="r_sum_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf
+     * @param bool $asAttachment - true for "attachment" (download), false for "inline" (display in
+     * the browser).
      * @param string $filename - the filename the browser should use.
      * @return string - the value for the Content-Disposition header.
      */
@@ -1417,9 +1531,9 @@ final class Filesystem
 
 
     /**
-     * Check whether a string is valid UTF-8, without needing the mbstring extension. This uses PCRE, which is always
-     * part of PHP, and rejects the same things that mb_check_encoding() does, such as overlong encodings, surrogates,
-     * and code points above U+10FFFF.
+     * Check whether a string is valid UTF-8, without needing the mbstring extension. This uses
+     * PCRE, which is always part of PHP, and rejects the same things that mb_check_encoding() does,
+     * such as overlong encodings, surrogates, and code points above U+10FFFF.
      * @param string $bytes - the bytes to check.
      * @return bool - true if the bytes are valid UTF-8 (an empty string is), false if not.
      */
@@ -1432,12 +1546,13 @@ final class Filesystem
 
 
     /**
-     * Get the bytes of a UTF-8 character that the provided bytes end part way through, if any. E.g. if the bytes end
-     * with only the first of the two bytes that make up "é", that byte is returned.
-     * This only looks at the start of the last character, so it does not check whether the bytes are valid UTF-8.
+     * Get the bytes of a UTF-8 character that the provided bytes end part way through, if any. E.g.
+     * if the bytes end with only the first of the two bytes that make up "é", that byte is
+     * returned. This only looks at the start of the last character, so it does not check whether
+     * the bytes are valid UTF-8.
      * @param string $bytes - the bytes to check the end of.
-     * @return string - the bytes of the unfinished character at the end (at most 3), or an empty string if the bytes
-     *                  don't end part way through a character.
+     * @return string - the bytes of the unfinished character at the end (at most 3), or an empty
+     * string if the bytes don't end part way through a character.
      */
     private static function getUnfinishedUtf8Character(string $bytes): string
     {
@@ -1475,15 +1590,21 @@ final class Filesystem
 
 
     /**
-     * Add everything in a directory to a deletion plan, in an order that can be deleted (each directory's contents
-     * before the directory itself), going into subdirectories, and checking that each thing can be deleted. See
-     * deleteDir() for how symlinks are handled. Stops once there are 100 problems, as the plan won't be used then.
+     * Add everything in a directory to a deletion plan, in an order that can be deleted (each
+     * directory's contents before the directory itself), going into subdirectories, and checking
+     * that each thing can be deleted. See deleteDir() for how symlinks are handled. Stops once
+     * there are 100 problems, as the plan won't be used then.
      * @param string $dir - the directory whose contents to plan the deletion of.
-     * @param string $realDir - the real path of $dir (with symlinks resolved), used to spot symlinks pointing "up".
-     * @param bool $followSymlinks - whether to follow symlinks, deleting what they point to as well as the links.
-     * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs, which this adds to.
-     * @param array $problems - the list of FileDeletionProblem objects found so far, which this adds to.
-     * @param array $planned - real paths => true, for everything already in the plan, which this adds to.
+     * @param string $realDir - the real path of $dir (with symlinks resolved), used to spot
+     * symlinks pointing "up".
+     * @param bool $followSymlinks - whether to follow symlinks, deleting what they point to as well
+     * as the links.
+     * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs,
+     * which this adds to.
+     * @param array $problems - the list of FileDeletionProblem objects found so far, which this
+     * adds to.
+     * @param array $planned - real paths => true, for everything already in the plan, which this
+     * adds to.
      * @return void
      */
     private static function planDirectoryContents(
@@ -1578,11 +1699,13 @@ final class Filesystem
 
     /**
      * Add one thing to a deletion plan, after checking it can be deleted from its directory.
-     * @param FileDeletionOperationEnum $operation - UNLINK for a file or symlink, or RMDIR for a directory (once it
-     *                                              is empty).
+     * @param FileDeletionOperationEnum $operation - UNLINK for a file or symlink, or RMDIR for a
+     * directory (once it is empty).
      * @param string $path - the thing to delete.
-     * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs, which this adds to.
-     * @param array $problems - the list of FileDeletionProblem objects found so far, which this adds to.
+     * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs,
+     * which this adds to.
+     * @param array $problems - the list of FileDeletionProblem objects found so far, which this
+     * adds to.
      * @return void
      */
     private static function planDeletion(
@@ -1636,8 +1759,8 @@ final class Filesystem
      * @param string $dir - the directory being deleted or emptied, for the message.
      * @param array $plan - a list of [FileDeletionOperationEnum, path] pairs.
      * @return void
-     * @throws FilesystemException - if something still couldn't be deleted. Some of the plan will already have been
-     *                               carried out if this happens.
+     * @throws FilesystemException - if something still couldn't be deleted. Some of the plan will
+     * already have been carried out if this happens.
      */
     private static function runDeletionPlan(string $dir, array $plan): void
     {
@@ -1694,12 +1817,14 @@ final class Filesystem
 
 
     /**
-     * Add a FileDeletionProblem to $problems if something can't be deleted from its directory. Deleting something
-     * needs its directory to be writable and executable, and in a "sticky" directory (e.g. /tmp), it also needs the
-     * current user to own it or the directory (or be root).
+     * Add a FileDeletionProblem to $problems if something can't be deleted from its directory.
+     * Deleting something needs its directory to be writable and executable, and in a "sticky"
+     * directory (e.g. /tmp), it also needs the current user to own it or the directory (or be
+     * root).
      * @param string $parentDir - the directory that $path is in.
      * @param string $path - the thing that would be deleted.
-     * @param array $problems - the list of FileDeletionProblem objects found so far, which this adds to.
+     * @param array $problems - the list of FileDeletionProblem objects found so far, which this
+     * adds to.
      * @return void
      */
     private static function findDeletionProblem(string $parentDir, string $path, array &$problems): void
@@ -1730,16 +1855,17 @@ final class Filesystem
 
 
     /**
-     * Replace the contents of a file. The new contents are written to a temporary file in the system's temporary
-     * directory first, then copied into the original with replaceWithFile(), so the file keeps its permissions,
-     * owner and any links to it, and only the file (not its directory) needs to be writable.
+     * Replace the contents of a file. The new contents are written to a temporary file in the
+     * system's temporary directory first, then copied into the original with replaceWithFile(), so
+     * the file keeps its permissions, owner and any links to it, and only the file (not its
+     * directory) needs to be writable.
      * @param string $filepath - the path to the file to replace the contents of.
      * @param string $contents - the new contents for the file.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
-     * @throws FilesystemException - if the new contents could not be written. See replaceWithFile() for what happens
-     *                               if this fails part way through copying them into the original.
+     * @throws FilesystemException - if the new contents could not be written. See replaceWithFile()
+     * for what happens if this fails part way through copying them into the original.
      */
     private static function replaceFileContents(string $filepath, string $contents): void
     {

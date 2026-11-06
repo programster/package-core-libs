@@ -1,8 +1,8 @@
 <?php
 
 /*
- * The ways something can be deleted, used in the deletion plans that Filesystem::deleteDir() and emptyDir() build
- * before deleting anything. This is mainly for the library's own use.
+ * The ways something can be deleted, used in the deletion plans that Filesystem::deleteDir() and
+ * emptyDir() build before deleting anything. This is mainly for the library's own use.
  */
 
 namespace Programster\CoreLibs\Enums;

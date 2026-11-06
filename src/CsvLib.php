@@ -27,15 +27,15 @@ final class CsvLib
      * Converts a CSV file into a JSON file.
      * @param string $csvFilepath - location of the CSV file we wish to convert.
      * @param string $jsonFilepath - path to where we wish to store the result. If the file already
-     *                               exists, then it will be overwritten. If not then it will be
-     *                               created.
+     * exists, then it will be overwritten. If not then it will be created.
      * @param bool $compressed - if true then this will have no line endings or padding, if false
-     *                           then the outputted json will be much easier to read by humans.
+     * then the outputted json will be much easier to read by humans.
      * @param string $delimiter - optionally specify a delimiter other than the default comma.
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      * @return void
-     * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not be written.
+     * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not
+     * be written.
      * @throws \JsonException
      */
     public static function convertCsvToJson(
@@ -148,25 +148,25 @@ final class CsvLib
 
 
     /**
-     * Loops through the CSV file and puts the data into an array. You can specify whether
-     * the CSV has a header and if keys is not provided then we will use these as indexes. If there
-     * is no header and no keys, then an array list of rows is returned. If keys are provided then
-     * these are always used as the indexes even if it has to override the header.
-     * WARNING - this can be a memory hog.
+     * Loops through the CSV file and puts the data into an array. You can specify whether the CSV
+     * has a header and if keys is not provided then we will use these as indexes. If there is no
+     * header and no keys, then an array list of rows is returned. If keys are provided then these
+     * are always used as the indexes even if it has to override the header. WARNING - this can be a
+     * memory hog.
      * @param string $filepath - the path to the file, including the name.
-     * @param bool $hasHeader - specify whether the CSV file has a header which it will have to
-     *                          skip for values, and may or may not be used for indexes of the
-     *                          rows depending on whether $keys is provided.
+     * @param bool $hasHeader - specify whether the CSV file has a header which it will have to skip
+     * for values, and may or may not be used for indexes of the rows depending on whether $keys is
+     * provided.
      * @param ?array $keys - optional parameter to specify the indexes to use in the rows. If not
-     *                      provided and there is a header, then we will use the header columns
-     *                      as indexes.
+     * provided and there is a header, then we will use the header columns as indexes.
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      *
      * @return array - an array list of indexed rows that the CSV has been converted into.
      * @throws FilesystemException - if the file could not be opened for reading.
-     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are keys.
+     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are
+     * keys.
      */
     public static function convertCsvToArray(
         string $filepath,
@@ -235,24 +235,26 @@ final class CsvLib
 
 
     /**
-     * "Walk" a CSV file like array_walk, except that instead of an array, we walk the CSV file, with each call to
-     * the callback calling the passed callable, with the array representing the CSV row.
+     * "Walk" a CSV file like array_walk, except that instead of an array, we walk the CSV file,
+     * with each call to the callback calling the passed callable, with the array representing the
+     * CSV row.
      * @param string $filepath - the path to the CSV file.
-     * @param callable $callback - the callback to execute on each row of CSV data. Typically, callback takes on two
-     *                             parameters. The array representing the row being the first, and the row index
-     *                             being the second (starts from 0, but the data might start on row 1 if the CSV has
-     *                             headers).
-     * @param bool $hasHeaders - whether the CSV file's first row is the names for the columns. Usually this is true.
-     *                           If the CSV file has headers, then the array passed to the callable will be an
-     *                           associative array of name/value pairs with the name being the corresponding header.
-     * @param null|array $headers - optionally manually specify the headers if you wish to set the keys for the array
-     *                              that gets passed to the callable. If left as null, this is ignored. If set and
-     *                              hasHeaders is set to true, this will override any headers in the file.
+     * @param callable $callback - the callback to execute on each row of CSV data. Typically,
+     * callback takes on two parameters. The array representing the row being the first, and the row
+     * index being the second (starts from 0, but the data might start on row 1 if the CSV has
+     * headers).
+     * @param bool $hasHeaders - whether the CSV file's first row is the names for the columns.
+     * Usually this is true. If the CSV file has headers, then the array passed to the callable will
+     * be an associative array of name/value pairs with the name being the corresponding header.
+     * @param null|array $headers - optionally manually specify the headers if you wish to set the
+     * keys for the array that gets passed to the callable. If left as null, this is ignored. If set
+     * and hasHeaders is set to true, this will override any headers in the file.
      * @param string $delimiter - delimiter to pass through to fgetcsv
      * @param string $enclosure - enclosure to pass through to fgetcsv
      * @param string $escape - escape value to pass through to fgetcsv
      * @throws FilesystemException - if the file at $filepath does not exist or cannot be opened.
-     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are headers.
+     * @throws InvalidCsvException - if a row doesn't have the same number of values as there are
+     * headers.
      * @return void
      */
     public static function csvWalk(
@@ -327,21 +329,24 @@ final class CsvLib
 
 
     /**
-     * Create a CSV file from the provided array of data. This is done in a memory efficient manner of writing one
-     * line at a time to the file rather than building a massive string and dumping the entire string to the file.
-     * @param string $filepath - the path to the file that we will write the csv to, creating if necessary.
-     * @param array $rows - a collection of associative name/value pairs for the data to fill the csv file. The
-     * values will be filled in in the order of the keys in the first row.
+     * Create a CSV file from the provided array of data. This is done in a memory efficient manner
+     * of writing one line at a time to the file rather than building a massive string and dumping
+     * the entire string to the file.
+     * @param string $filepath - the path to the file that we will write the csv to, creating if
+     * necessary.
+     * @param array $rows - a collection of associative name/value pairs for the data to fill the
+     * csv file. The values will be filled in in the order of the keys in the first row.
      * @param bool $addHeader - specify whether we should put a header row in the CSV file. If true,
      * we will use the keys of the first row as we expect all keys to match.
      * @param string $delimiter - optionally specify a delimiter if you don't wish to use the comma
      * @param string $enclosure - optionally specify the enclosure if you don't wish to use "
-     * @param bool $addByteOrderMark - whether to add the byte order mark to the csv, so that Excel handles 
-     * UTF-8 characters.
+     * @param bool $addByteOrderMark - whether to add the byte order mark to the csv, so that Excel
+     * handles UTF-8 characters.
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void - all data written to the passed in filepath.
      * @throws EmptyArrayException - if there are no rows, or the first row has no columns.
-     * @throws BadArgumentException - if the rows are not associative arrays, or don't all have the same keys.
+     * @throws BadArgumentException - if the rows are not associative arrays, or don't all have the
+     * same keys.
      * @throws FilesystemException - if the file could not be opened for writing.
      */
     public static function convertArrayToCsv(
@@ -447,24 +452,28 @@ final class CsvLib
 
 
     /**
-     * Go through the CSV file and trim the whitespace from the start and end of every value. The file is checked as
-     * described in the CsvFile constructor first, so a blank line in the middle of the file makes it invalid, and
-     * nothing is changed. Blank lines at the end of the file are removed, unless $removeTrailingBlankLines is false.
-     * This works row by row rather than reading everything into memory. The new contents are written to a temporary
-     * file in the system's temporary directory, then copied back into the original, which keeps its permissions and
-     * owner (see Filesystem::replaceWithFile()). Only the file, not its directory, needs to be writable.
+     * Go through the CSV file and trim the whitespace from the start and end of every value. The
+     * file is checked as described in the CsvFile constructor first, so a blank line in the middle
+     * of the file makes it invalid, and nothing is changed. Blank lines at the end of the file are
+     * removed, unless $removeTrailingBlankLines is false. This works row by row rather than reading
+     * everything into memory. The new contents are written to a temporary file in the system's
+     * temporary directory, then copied back into the original, which keeps its permissions and
+     * owner (see Filesystem::replaceWithFile()). Only the file, not its directory, needs to be
+     * writable.
      * @param string $filepath - the path to the CSV file we are trimming
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma, e.g. ';'.
-     * @param string $enclosure - optionally specify the enclosure if it isn't a double quote, e.g. "'".
+     * @param string $enclosure - optionally specify the enclosure if it isn't a double quote, e.g.
+     * "'".
      * @param string $escape - the escape sequence to use when passing to fputcsv.
-     * @param bool $removeTrailingBlankLines - whether to also remove the blank lines at the end of the file, using
-     *                                         removeTrailingBlankLines(). Defaults to true.
+     * @param bool $removeTrailingBlankLines - whether to also remove the blank lines at the end of
+     * the file, using removeTrailingBlankLines(). Defaults to true.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
-     * @throws InvalidCsvException - if the file isn't valid (see the CsvFile constructor), e.g. it has a blank line
-     *                               in the middle. The file is left unchanged if this happens.
-     * @throws FilesystemException - if the file could not be read, or its new contents could not be written.
+     * @throws InvalidCsvException - if the file isn't valid (see the CsvFile constructor), e.g. it
+     * has a blank line in the middle. The file is left unchanged if this happens.
+     * @throws FilesystemException - if the file could not be read, or its new contents could not be
+     * written.
      */
     public static function trim(
         string $filepath,
@@ -548,10 +557,11 @@ final class CsvLib
 
 
     /**
-     * Remove the blank lines at the end of a CSV file, which editors and spreadsheet programs often add. The last row
-     * keeps its line ending (whichever of "\n", "\r\n" or "\r" it used), so the file still ends with exactly one.
-     * A file with no blank lines at the end is left as it is, and a file of only blank lines becomes empty.
-     * This changes the file in place, without reading it all into memory, and doesn't change its permissions.
+     * Remove the blank lines at the end of a CSV file, which editors and spreadsheet programs often
+     * add. The last row keeps its line ending (whichever of "\n", "\r\n" or "\r" it used), so the
+     * file still ends with exactly one. A file with no blank lines at the end is left as it is, and
+     * a file of only blank lines becomes empty. This changes the file in place, without reading it
+     * all into memory, and doesn't change its permissions.
      * @param string $filepath - the path to the CSV file.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
@@ -640,21 +650,24 @@ final class CsvLib
 
 
     /**
-     * Remove columns from a CSV file. The new contents are written to a temporary file in the system's temporary
-     * directory, then copied back into the original, which keeps its permissions and owner (see
-     * Filesystem::replaceWithFile()). Only the file, not its directory, needs to be writable.
+     * Remove columns from a CSV file. The new contents are written to a temporary file in the
+     * system's temporary directory, then copied back into the original, which keeps its permissions
+     * and owner (see Filesystem::replaceWithFile()). Only the file, not its directory, needs to be
+     * writable.
      * @param string $filepath - the path of the CSV file we are modifying.
-     * @param array $columnIndexes - array of integers specifying the column indexes to remove, starting at 1
+     * @param array $columnIndexes - array of integers specifying the column indexes to remove,
+     * starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
      * @return void
-     * @throws InvalidCsvException - if the file contains a blank line before the end of the data (blank lines at the
-     * very end of the file are allowed and are kept), or a row doesn't have one of the columns being removed. The
-     * original file is left untouched if this happens.
+     * @throws InvalidCsvException - if the file contains a blank line before the end of the data
+     * (blank lines at the very end of the file are allowed and are kept), or a row doesn't have one
+     * of the columns being removed. The original file is left untouched if this happens.
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
-     * @throws FilesystemException - if the file could not be read, or its new contents could not be written.
+     * @throws FilesystemException - if the file could not be read, or its new contents could not be
+     * written.
      */
     public static function removeColumns(
         string $filepath,
@@ -773,26 +786,29 @@ final class CsvLib
 
 
     /**
-     * Remove rows from a CSV file. Rows are counted as CSV rows rather than lines, so a quoted value that spans
-     * several lines is part of one row. The rows that are kept, and any blank lines at the end of the file, are
-     * copied across exactly as they were (including their quoting and line endings), as is any byte order mark.
-     * The file is checked as described in the CsvFile constructor first, so it can't have blank lines in the middle.
-     * The new contents are written to a temporary file in the system's temporary directory, then copied back into
-     * the original, which keeps its permissions and owner (see Filesystem::replaceWithFile()). Only the file, not its
-     * directory, needs to be writable.
+     * Remove rows from a CSV file. Rows are counted as CSV rows rather than lines, so a quoted
+     * value that spans several lines is part of one row. The rows that are kept, and any blank
+     * lines at the end of the file, are copied across exactly as they were (including their quoting
+     * and line endings), as is any byte order mark. The file is checked as described in the CsvFile
+     * constructor first, so it can't have blank lines in the middle. The new contents are written
+     * to a temporary file in the system's temporary directory, then copied back into the original,
+     * which keeps its permissions and owner (see Filesystem::replaceWithFile()). Only the file, not
+     * its directory, needs to be writable.
      * @param string $filepath - the path of the CSV file we are modifying.
-     * @param array $rowNumbers - the numbers of the rows to remove, e.g. [0, 4]. Any header row counts as a row.
-     *                            Duplicates are allowed, and the order doesn't matter.
+     * @param array $rowNumbers - the numbers of the rows to remove, e.g. [0, 4]. Any header row
+     * counts as a row. Duplicates are allowed, and the order doesn't matter.
      * @param bool $startFromZero - whether the first row is row 0 (the default), or row 1 if false.
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      * @return void
-     * @throws BadArgumentException - if any of $rowNumbers isn't an int, or isn't the number of a row in the file.
+     * @throws BadArgumentException - if any of $rowNumbers isn't an int, or isn't the number of a
+     * row in the file.
      * @throws InvalidCsvException - if the file isn't valid (see the CsvFile constructor).
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
-     * @throws FilesystemException - if the file could not be read, or its new contents could not be written.
+     * @throws FilesystemException - if the file could not be read, or its new contents could not be
+     * written.
      */
     public static function removeRows(
         string $filepath,
@@ -896,9 +912,9 @@ final class CsvLib
 
 
     /**
-     * Check that a CSV file is well formed, throwing an exception describing the first problem found. See the
-     * CsvFile constructor for what counts as valid. To also get the file's row and column counts, create a CsvFile
-     * object instead.
+     * Check that a CSV file is well formed, throwing an exception describing the first problem
+     * found. See the CsvFile constructor for what counts as valid. To also get the file's row and
+     * column counts, create a CsvFile object instead.
      * @param string $filepath - the path to the CSV file to check.
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma.
      * @param string $enclosure - optionally specify the enclosure if it isn't a double quote.
@@ -906,8 +922,8 @@ final class CsvLib
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws FilesystemException - if the file could not be opened for reading.
-     * @throws InvalidCsvException - if the file has a blank line before the last row of data, or a row with a
-     *                               different number of columns to the first row.
+     * @throws InvalidCsvException - if the file has a blank line before the last row of data, or a
+     * row with a different number of columns to the first row.
      */
     public static function validateCsvFile(
         string $filepath,
@@ -923,27 +939,31 @@ final class CsvLib
 
     /**
      * Calculate the mathematical differences between two CSV files. If this comes across string
-     * values, it will check if they are the same and put the string in if they are, otherwise,
-     * it will concatenate the two values with a | divider.
-     * Both files are checked as described in the CsvFile constructor first, so neither may have blank lines in the
-     * middle, and every row in a file must have the same number of columns. The two files must also have the same
-     * number of rows and columns as each other. Blank lines at the end of either file are ignored.
-     * A header row can't be detected automatically, so say which files have one. If both do, the output starts with
-     * a header row made from them in the same way as for other text values (a | between them if they differ, even
-     * if they look like numbers). If only one does, it's skipped, and the output has no header row.
+     * values, it will check if they are the same and put the string in if they are, otherwise, it
+     * will concatenate the two values with a | divider. Both files are checked as described in the
+     * CsvFile constructor first, so neither may have blank lines in the middle, and every row in a
+     * file must have the same number of columns. The two files must also have the same number of
+     * rows and columns as each other. Blank lines at the end of either file are ignored. A header
+     * row can't be detected automatically, so say which files have one. If both do, the output
+     * starts with a header row made from them in the same way as for other text values (a | between
+     * them if they differ, even if they look like numbers). If only one does, it's skipped, and the
+     * output has no header row.
      * @param string $filepath1 - path to a CSV file to compare.
      * @param string $filepath2 - path to a CSV file to compare.
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - the escape sequence to use when passing to fputcsv.
-     * @param bool $file1HasHeader - whether the first row of $filepath1 is a header row. Defaults to false.
-     * @param bool $file2HasHeader - whether the first row of $filepath2 is a header row. Defaults to false.
+     * @param bool $file1HasHeader - whether the first row of $filepath1 is a header row. Defaults
+     * to false.
+     * @param bool $file2HasHeader - whether the first row of $filepath2 is a header row. Defaults
+     * to false.
      * @return string - the path to the created diff CSV file.
-     * @throws InvalidCsvException - if either file isn't valid (including having no rows when it should have a
-     *                               header), or the two files don't have the same number of rows of data and
-     *                               columns as each other.
+     * @throws InvalidCsvException - if either file isn't valid (including having no rows when it
+     * should have a header), or the two files don't have the same number of rows of data and
+     * columns as each other.
      * @throws FileDoesNotExistException - if there is no file at either path.
-     * @throws FilesystemException - if either CSV file could not be opened, or the diff file could not be created.
+     * @throws FilesystemException - if either CSV file could not be opened, or the diff file could
+     * not be created.
      */
     public static function decimalDiff(
         string $filepath1,
@@ -1085,35 +1105,40 @@ final class CsvLib
 
 
     /**
-     * Compare the numbers in two CSV files, allowing each value to differ by up to a given tolerance. This can be
-     * useful for floating point values, where the last decimal place may be different.
-     * Only the columns listed in $tolerances are compared, and they must hold numbers in both files. Every other
-     * column is ignored, as this is only for comparing numbers. To compare text, use a diff tool instead.
-     * Both files are checked completely before anything is compared: first as described in the CsvFile constructor
-     * (e.g. no blank lines in the middle), then for the same number of rows of data, then that they have all the
-     * listed columns, and then for any non-numeric values in those columns. The non-numeric values are reported
-     * together in a NonNumericCsvValuesException, whose getErrors() says where each one is. The search stops after
-     * 100 of them, so a large file full of them doesn't take a long time or use a lot of memory.
-     * A header row can't be detected automatically, so say which files have one. Header rows aren't compared.
+     * Compare the numbers in two CSV files, allowing each value to differ by up to a given
+     * tolerance. This can be useful for floating point values, where the last decimal place may be
+     * different. Only the columns listed in $tolerances are compared, and they must hold numbers in
+     * both files. Every other column is ignored, as this is only for comparing numbers. To compare
+     * text, use a diff tool instead. Both files are checked completely before anything is compared:
+     * first as described in the CsvFile constructor (e.g. no blank lines in the middle), then for
+     * the same number of rows of data, then that they have all the listed columns, and then for any
+     * non-numeric values in those columns. The non-numeric values are reported together in a
+     * NonNumericCsvValuesException, whose getErrors() says where each one is. The search stops
+     * after 100 of them, so a large file full of them doesn't take a long time or use a lot of
+     * memory. A header row can't be detected automatically, so say which files have one. Header
+     * rows aren't compared.
      *
      * @param string $filepath1 - the path to the file we are checking
      * @param string $filepath2 - the path to the file we are comparing it against
-     * @param array $tolerances - the columns to compare, as column number / tolerance pairs, e.g. [1 => 0.01, 3 => 0].
-     *                            The column numbers start from 1, not 0. A tolerance of 0 means the numbers must be
-     *                            equal (e.g. 1.10 and 1.1 are equal).
-     * @param string $delimiter - optionally specify the delimiter to pass to fgetcsv (comma default)
+     * @param array $tolerances - the columns to compare, as column number / tolerance pairs, e.g.
+     * [1 => 0.01, 3 => 0]. The column numbers start from 1, not 0. A tolerance of 0 means the
+     * numbers must be equal (e.g. 1.10 and 1.1 are equal).
+     * @param string $delimiter - optionally specify the delimiter to pass to fgetcsv (comma
+     * default)
      * @param string $enclosure - optionally specify the enclosure to pass to fgetcsv (default: ")
      * @param string $escape - optionally specify the escape character to pass to fgetcsv.
-     * @param bool $file1HasHeader - whether the first row of $filepath1 is a header row. Defaults to false.
-     * @param bool $file2HasHeader - whether the first row of $filepath2 is a header row. Defaults to false.
+     * @param bool $file1HasHeader - whether the first row of $filepath1 is a header row. Defaults
+     * to false.
+     * @param bool $file2HasHeader - whether the first row of $filepath2 is a header row. Defaults
+     * to false.
      * @return bool - true if every compared value is within its tolerance, false if not.
-     * @throws BadArgumentException - if $tolerances is empty, or has a column number that isn't an int of 1 or more,
-     *                                or a tolerance that isn't a number of 0 or more.
+     * @throws BadArgumentException - if $tolerances is empty, or has a column number that isn't an
+     * int of 1 or more, or a tolerance that isn't a number of 0 or more.
      * @throws FileDoesNotExistException - if there is no file at either path.
-     * @throws NonNumericCsvValuesException - if any of the listed columns hold non-numeric values, in either file.
-     *                                        This extends InvalidCsvException.
-     * @throws InvalidCsvException - if either file isn't valid (see the CsvFile constructor), they don't have the same
-     *                               number of rows of data, or either is missing one of the listed columns.
+     * @throws NonNumericCsvValuesException - if any of the listed columns hold non-numeric values,
+     * in either file. This extends InvalidCsvException.
+     * @throws InvalidCsvException - if either file isn't valid (see the CsvFile constructor), they
+     * don't have the same number of rows of data, or either is missing one of the listed columns.
      * @throws FilesystemException - if either CSV file could not be opened.
      */
     public static function diffTolerance(
@@ -1250,20 +1275,21 @@ final class CsvLib
 
 
     /**
-     * Merges multiple csv files together in a memory efficient way.
-     * This will gracefully handle cases where the files may or may not have
-     * ended with an endline.
-     * This will also gracefully handle keeping the headers from the first file
-     * (if hasHeaders is set to true), and ignoring headers in the subsequent files.
-     * WARNING - all files need to either have headers or not, not both
+     * Merges multiple csv files together in a memory efficient way. This will gracefully handle
+     * cases where the files may or may not have ended with an endline. This will also gracefully
+     * handle keeping the headers from the first file (if hasHeaders is set to true), and ignoring
+     * headers in the subsequent files. WARNING - all files need to either have headers or not, not
+     * both
      * @param array $filepaths - array of filepaths to csv files we wish to merge
-     * @param string $mergedFilepath - where to write the merged file. This will overwrite
-     *                                 any existing file if there is one there already.
+     * @param string $mergedFilepath - where to write the merged file. This will overwrite any
+     * existing file if there is one there already.
      * @param bool $hasHeaders - specify if the files have headers or not.
      * @param string $delimiter - optionally specify the delimiter being used in the files
      * @param string $enclosure - optionally specify the enclosure being used in the files
-     * @param string $escape - optionally specify the escape sequence to use when passing to fputcsv.
-     * @throws FilesystemException - if the merged file can't be opened for writing, or one of the files can't be read.
+     * @param string $escape - optionally specify the escape sequence to use when passing to
+     * fputcsv.
+     * @throws FilesystemException - if the merged file can't be opened for writing, or one of the
+     * files can't be read.
      * @return void
      */
     public static function mergeFiles(
@@ -1344,9 +1370,9 @@ final class CsvLib
 
 
     /**
-     * Determine whether a row returned by fgetcsv/str_getcsv is a blank line, which fgetcsv/str_getcsv return as
-     * [null]. Note that a line of just delimiters (e.g. ",,,") is NOT a blank line, as it is a row of empty values,
-     * which may be legitimate data.
+     * Determine whether a row returned by fgetcsv/str_getcsv is a blank line, which
+     * fgetcsv/str_getcsv return as [null]. Note that a line of just delimiters (e.g. ",,,") is NOT
+     * a blank line, as it is a row of empty values, which may be legitimate data.
      * @internal - this is only public so that CsvFile can use it.
      * @param array $row - the row as returned by fgetcsv/str_getcsv.
      * @return bool - true if the row came from a blank line, false otherwise.
@@ -1358,13 +1384,15 @@ final class CsvLib
 
 
     /**
-     * If a file starts with a UTF-8 byte order mark, move past it, so that it doesn't end up as part of the first
-     * value read (e.g. making the first column's name "\xEF\xBB\xBFname" rather than "name"). This must be called
-     * straight after opening the file, before anything has been read from it.
+     * If a file starts with a UTF-8 byte order mark, move past it, so that it doesn't end up as
+     * part of the first value read (e.g. making the first column's name "\xEF\xBB\xBFname" rather
+     * than "name"). This must be called straight after opening the file, before anything has been
+     * read from it.
      * @internal - this is only public so that CsvFile can use it.
-     * @param resource $handle - the file handle, opened for reading. PHP can't declare a resource type, so this is
-     *                           only documented here.
-     * @return bool - true if the file started with a byte order mark (which has now been skipped), false if not.
+     * @param resource $handle - the file handle, opened for reading. PHP can't declare a resource
+     * type, so this is only documented here.
+     * @return bool - true if the file started with a byte order mark (which has now been skipped),
+     * false if not.
      */
     public static function skipByteOrderMark($handle): bool
     {
@@ -1382,12 +1410,15 @@ final class CsvLib
 
 
     /**
-     * Find the values in the given columns of a CSV file that aren't numbers. The header row, if there is one, isn't
-     * checked.
-     * @param CsvFile $csvFile - the CSV file to check. It has already been validated, and has all the columns.
+     * Find the values in the given columns of a CSV file that aren't numbers. The header row, if
+     * there is one, isn't checked.
+     * @param CsvFile $csvFile - the CSV file to check. It has already been validated, and has all
+     * the columns.
      * @param array $columnNumbers - the numbers of the columns to check, starting from 1.
-     * @param int $maxErrors - stop once this many have been found. If this is 0 or less, nothing is checked.
-     * @return array - a list of CsvCellError objects, one for each value found, which is empty if there are none.
+     * @param int $maxErrors - stop once this many have been found. If this is 0 or less, nothing is
+     * checked.
+     * @return array - a list of CsvCellError objects, one for each value found, which is empty if
+     * there are none.
      * @throws FilesystemException - if the file could not be opened.
      */
     private static function findNonNumericValues(CsvFile $csvFile, array $columnNumbers, int $maxErrors): array
@@ -1425,10 +1456,11 @@ final class CsvLib
 
 
     /**
-     * Open a validated CSV file for reading its rows of data, i.e. past any byte order mark and header row.
+     * Open a validated CSV file for reading its rows of data, i.e. past any byte order mark and
+     * header row.
      * @param CsvFile $csvFile - the CSV file to open.
-     * @return resource - the open file handle, positioned at the first row of data. PHP can't declare a resource
-     *                    return type, so this is only documented here.
+     * @return resource - the open file handle, positioned at the first row of data. PHP can't
+     * declare a resource return type, so this is only documented here.
      * @throws FilesystemException - if the file could not be opened.
      */
     private static function openForReadingData(CsvFile $csvFile)
@@ -1453,12 +1485,15 @@ final class CsvLib
 
 
     /**
-     * Clean up after something went wrong while writing a file's new contents to a temporary file, before anything
-     * was copied into the original: close both files, and delete the temporary file. The original is left as it was.
-     * @param resource $fileHandle - the handle of the original file. PHP can't declare a resource type, so this is
-     *                               only documented here.
-     * @param resource|false $tmpFile - the handle of the temporary file, or false if it wasn't opened.
-     * @param string|null $tmpFilepath - the path of the temporary file, or null if it wasn't created.
+     * Clean up after something went wrong while writing a file's new contents to a temporary file,
+     * before anything was copied into the original: close both files, and delete the temporary
+     * file. The original is left as it was.
+     * @param resource $fileHandle - the handle of the original file. PHP can't declare a resource
+     * type, so this is only documented here.
+     * @param resource|false $tmpFile - the handle of the temporary file, or false if it wasn't
+     * opened.
+     * @param string|null $tmpFilepath - the path of the temporary file, or null if it wasn't
+     * created.
      * @return void
      */
     private static function abandonReplacementFile($fileHandle, $tmpFile, ?string $tmpFilepath): void

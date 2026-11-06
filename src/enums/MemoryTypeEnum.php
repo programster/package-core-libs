@@ -3,13 +3,15 @@
 /*
  * The different types of memory measurement that can be requested from Core::getMemory().
  *
- * Most cases map directly onto a field in /proc/meminfo, in which case the backing value is that field's name. A few
- * are calculated from several fields (e.g. USED, BUFF_CACHE and SWAP_USED, which match the columns of the Linux "free"
- * command), and their backing values are not meminfo field names.
+ * Most cases map directly onto a field in /proc/meminfo, in which case the backing value is that
+ * field's name. A few are calculated from several fields (e.g. USED, BUFF_CACHE and SWAP_USED,
+ * which match the columns of the Linux "free" command), and their backing values are not meminfo
+ * field names.
  *
- * Not every field exists on every system. Which ones are present depends on the kernel version, its configuration, and
- * the architecture (e.g. HIGH_TOTAL only exists on 32-bit systems, and CMA_TOTAL is mostly seen on ARM). Requesting
- * one that doesn't exist on the current system results in an exception.
+ * Not every field exists on every system. Which ones are present depends on the kernel version, its
+ * configuration, and the architecture (e.g. HIGH_TOTAL only exists on 32-bit systems, and CMA_TOTAL
+ * is mostly seen on ARM). Requesting one that doesn't exist on the current system results in an
+ * exception.
  *
  * Descriptions are based on https://docs.kernel.org/filesystems/proc.html#meminfo
  */
