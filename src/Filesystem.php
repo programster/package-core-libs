@@ -707,23 +707,27 @@ final class Filesystem
     /**
      * Filters a file using the provided callback, in a memory efficient way so that it can process very large files.
      * This is inspired by array_filter (http://php.net/manual/en/function.array-filter.php)
+     * The kept lines are written to a temporary file in the system's temporary directory first, and only copied into
+     * the file being written once every line has been filtered, so a failure part way through (including the callback
+     * throwing) leaves it untouched. They are copied in place with replaceWithFile(), so an existing file keeps its
+     * permissions, owner and any links to it.
      * @param string $inputFile - the path to the file to operate upon.
      * @param callable $filterCallback - the callback to execute on every line in the file to determine if kept or not.
-     * Don't forget that this will include its line ending, so you may wish to use trim() before analysis.
+     * It must return true to keep the line. Don't forget that this will include its line ending, so you may wish to
+     * use trim() before analysis.
      * @param string|null $outputFilepath - optionally specify an output filepath to place the filtered content into.
      * If this is not specified (or is the same file as $inputFile), then the existing file will be modified in-place.
-     * Please note that when modifying in-place, this function relies on the ability to create and remove a temporary
-     * file in a directory provided by a call to sys_get_temp_dir().
-     * @param int|null $streamChunkSize - optionally specify the chunk size when streaming content from the temporary
-     * file back into the original. This is only applicable when modifying the file in-place.
+     * If the output file doesn't exist, it is created, with the default permissions for a new file.
      * @return void
-     * @throws FilesystemException
+     * @throws FileDoesNotExistException - if there is no file at $inputFile.
+     * @throws BadFilePermissionsException - if $inputFile can't be read, or the file to write can't be written (or
+     *                                       created, for a new output file). This is checked before filtering.
+     * @throws FilesystemException - if the filtered content could not be written.
      */
     public static function fileFilter(
         string   $inputFile,
         callable $filterCallback,
         ?string  $outputFilepath = null,
-        ?int     $streamChunkSize = null,
     ): void
     {
         // If the output file already exists, it may be the input file under a different path (e.g. relative path or
@@ -732,98 +736,89 @@ final class Filesystem
             $outputFilepath === null
             || (file_exists($outputFilepath) && realpath($outputFilepath) === realpath($inputFile))
         );
+        $targetFile = $isInPlace ? $inputFile : $outputFilepath;
 
-        if ($isInPlace)
+        # Check everything before doing any work, so the callback isn't run over the whole file only to fail at the end.
+        if (!is_file($inputFile))
         {
-            // Open with r+ (read/write without truncating) so that we fail immediately, before doing any work, if we
-            // don't have permission to write the filtered content back into the file later.
-            $inputHandle = fopen($inputFile, "r+");
-
-            if ($inputHandle === false)
-            {
-                throw new FilesystemException("Failed to open {$inputFile} for reading and writing.");
-            }
-
-            $tempFilename = tempnam(sys_get_temp_dir(), "filter-");
-
-            if ($tempFilename === false)
-            {
-                throw new FilesystemException("Failed to create a temporary file to filter {$inputFile} into.");
-            }
-        }
-        else
-        {
-            $inputHandle = fopen($inputFile, "r");
-
-            if ($inputHandle === false)
-            {
-                throw new FilesystemException("Failed to open {$inputFile} for reading.");
-            }
-
-            $tempFilename = $outputFilepath;
+            throw new FileDoesNotExistException("There is no file at {$inputFile}.");
         }
 
-        $outputHandle = fopen($tempFilename, "w");
-
-        if ($outputHandle === false)
+        if (!is_readable($inputFile))
         {
-            throw new FilesystemException("Failed to open $tempFilename for writing.");
+            throw new BadFilePermissionsException("{$inputFile} can't be read, so it can't be filtered.");
         }
 
-        while (($line = fgets($inputHandle)) !== false)
+        if (file_exists($targetFile))
         {
-            if ($filterCallback($line) === true)
-            {
-                // keeping the line
-                $wroteLine = fwrite($outputHandle, $line);
+            self::checkCanChangeFile($targetFile);
+        }
+        elseif (!is_writable(dirname($targetFile)))
+        {
+            throw new BadFilePermissionsException(
+                "{$targetFile} can't be created, as " . dirname($targetFile) . " can't be written to."
+            );
+        }
 
-                if ($wroteLine === false)
+        # Suppress the warning, as we throw an exception instead.
+        $inputHandle = @fopen($inputFile, "r");
+
+        if ($inputHandle === false)
+        {
+            throw new FilesystemException("Failed to open {$inputFile} for reading.");
+        }
+
+        $tmpFilepath = null;
+        $tmpHandle = false;
+
+        try
+        {
+            $tmpFilepath = self::createReplacementFile();
+            $tmpHandle = fopen($tmpFilepath, "w");
+
+            if ($tmpHandle === false)
+            {
+                throw new FilesystemException("Failed to open a temporary file to filter {$inputFile} into.");
+            }
+
+            while (($line = fgets($inputHandle)) !== false)
+            {
+                if ($filterCallback($line) === true && fwrite($tmpHandle, $line) === false)
                 {
-                    throw new FilesystemException("Failed to write to {$tempFilename}.");
+                    throw new FilesystemException("Failed to write the filtered content to {$tmpFilepath}.");
                 }
             }
         }
+        catch (\Throwable $e)
+        {
+            # Nothing has been written to the target yet, so it is untouched, and the temporary file can go.
+            fclose($inputHandle);
+
+            if ($tmpHandle !== false)
+            {
+                fclose($tmpHandle);
+            }
+
+            if ($tmpFilepath !== null)
+            {
+                @unlink($tmpFilepath);
+            }
+
+            throw $e;
+        }
 
         fclose($inputHandle);
-        fclose($outputHandle);
+        fclose($tmpHandle);
 
-        if ($isInPlace)
+        # Create a new output file first, so it gets the default permissions for a new file, rather than the temporary
+        # file's 0600.
+        if (!file_exists($targetFile) && @touch($targetFile) === false)
         {
-            // user wished to replace the existing input file, copy the contents across and remove the temporary file
-            $fromHandle = fopen($tempFilename, "r");
-
-            if ($fromHandle === false)
-            {
-                throw new FilesystemException("Failed to open $tempFilename for reading.");
-            }
-
-            $toHandle = fopen($inputFile, "w");
-
-            if ($toHandle === false)
-            {
-                throw new FilesystemException("Failed to open $inputFile for writing.");
-            }
-
-            if ($streamChunkSize !== null)
-            {
-                stream_set_chunk_size($fromHandle, $streamChunkSize);
-            }
-
-            $copiedBytes = stream_copy_to_stream($fromHandle, $toHandle);
-            fclose($fromHandle);
-            fclose($toHandle);
-
-            $unlinked = unlink($tempFilename);
-
-            if ($unlinked === false)
-            {
-                throw new FilesystemException("Failed to remove temporary file: {$tempFilename}");
-            }
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to create {$targetFile}.");
         }
-        else
-        {
-            // user wished to output to a new file, do nothing and keep it as is
-        }
+
+        self::replaceWithFile($targetFile, $tmpFilepath);
     }
 
 

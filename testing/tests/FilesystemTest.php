@@ -517,3 +517,90 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
     }
 });
 
+$smoke->run("fileFilter", function () use ($dir) {
+    $base = "{$dir}/filter";
+    mkdir($base);
+    $keepNonX = fn(string $line) => !str_contains($line, "x");
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
+
+    # In place: the file is changed in place, keeping its permissions, owner and links.
+    file_put_contents("{$base}/in-place.txt", "abc\nxyz\ndef\n");
+    chmod("{$base}/in-place.txt", 0640);
+    link("{$base}/in-place.txt", "{$base}/in-place-link.txt");
+    $ownedByOtherUser = SmokeTest::giveToOtherUser("{$base}/in-place.txt", "fileFilter()");
+    Filesystem::fileFilter("{$base}/in-place.txt", $keepNonX);
+    clearstatcache();
+    assert(file_get_contents("{$base}/in-place.txt") === "abc\ndef\n");
+    assert(file_get_contents("{$base}/in-place-link.txt") === "abc\ndef\n");
+    assert((fileperms("{$base}/in-place.txt") & 0777) === 0640);
+
+    if ($ownedByOtherUser)
+    {
+        SmokeTest::assertOwnedByOtherUser("{$base}/in-place.txt", "fileFilter()");
+    }
+
+    # The same file under another path (here a symlink) counts as in place.
+    symlink("{$base}/in-place.txt", "{$base}/in-place-symlink.txt");
+    Filesystem::fileFilter(
+        "{$base}/in-place.txt",
+        fn(string $line) => $line !== "def\n",
+        "{$base}/in-place-symlink.txt"
+    );
+    assert(file_get_contents("{$base}/in-place.txt") === "abc\n" && is_link("{$base}/in-place-symlink.txt"));
+
+    # The callback throwing part way through leaves the file untouched.
+    file_put_contents("{$base}/throws.txt", "one\ntwo\nthree\n");
+    SmokeTest::expectException(\RuntimeException::class, fn() => Filesystem::fileFilter(
+        "{$base}/throws.txt",
+        fn(string $line) => ($line === "three\n") ? throw new \RuntimeException("stop") : true
+    ));
+    assert(file_get_contents("{$base}/throws.txt") === "one\ntwo\nthree\n");
+
+    # To a new output file: it is created with the default permissions for a new file (not the temporary file's
+    # 0600), and the input is left alone.
+    file_put_contents("{$base}/source.txt", "abc\nxyz\n");
+    Filesystem::fileFilter("{$base}/source.txt", $keepNonX, "{$base}/new-output.txt");
+    clearstatcache();
+    assert(file_get_contents("{$base}/new-output.txt") === "abc\n");
+    assert((fileperms("{$base}/new-output.txt") & 0777) === (0666 & ~umask()));
+    assert(file_get_contents("{$base}/source.txt") === "abc\nxyz\n");
+
+    # To an existing output file: it is replaced, keeping its permissions.
+    file_put_contents("{$base}/existing-output.txt", "old contents that are longer\n");
+    chmod("{$base}/existing-output.txt", 0604);
+    Filesystem::fileFilter("{$base}/source.txt", $keepNonX, "{$base}/existing-output.txt");
+    clearstatcache();
+    assert(file_get_contents("{$base}/existing-output.txt") === "abc\n");
+    assert((fileperms("{$base}/existing-output.txt") & 0777) === 0604);
+
+    # Nothing is left in the temporary directory, whether it worked or not.
+    assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => Filesystem::fileFilter("{$base}/nope.txt", $keepNonX)
+    );
+
+    if (SmokeTest::canTestPermissions("fileFilter() checking permissions before filtering"))
+    {
+        # A read-only file can't be filtered in place, and an output file can't be created in a read-only directory.
+        # Both are found before the callback is run at all.
+        $callbackRan = false;
+        $recordingCallback = function (string $line) use (&$callbackRan) { $callbackRan = true; return true; };
+        file_put_contents("{$base}/read-only.txt", "abc\n");
+        chmod("{$base}/read-only.txt", 0444);
+        SmokeTest::expectException(
+            BadFilePermissionsException::class,
+            fn() => Filesystem::fileFilter("{$base}/read-only.txt", $recordingCallback)
+        );
+        mkdir("{$base}/read-only-dir");
+        chmod("{$base}/read-only-dir", 0555);
+        SmokeTest::expectException(
+            BadFilePermissionsException::class,
+            fn() => Filesystem::fileFilter("{$base}/source.txt", $recordingCallback, "{$base}/read-only-dir/out.txt"),
+            "can't be created"
+        );
+        assert($callbackRan === false && !file_exists("{$base}/read-only-dir/out.txt"));
+        chmod("{$base}/read-only-dir", 0755);
+    }
+});
+
