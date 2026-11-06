@@ -24,7 +24,12 @@ $smoke->run("CSV methods", function () use ($dir) {
     CsvLib::csvWalk("{$dir}/a.csv", fn(array $row) => null);
     CsvLib::convertCsvToJson("{$dir}/a.csv", "{$dir}/a.json", true);
     assert(json_decode(file_get_contents("{$dir}/a.json"), true) === $expectedRows);
-    CsvLib::trim("{$dir}/a.csv", ",");
+    CsvLib::trim("{$dir}/a.csv");
+
+    # trim() uses the enclosure given, so a value enclosed in ' keeps its delimiter, and is written back the same way.
+    file_put_contents("{$dir}/single-quoted.csv", "' a ; b ' ; c \n");
+    CsvLib::trim("{$dir}/single-quoted.csv", ";", "'");
+    assert(file_get_contents("{$dir}/single-quoted.csv") === "'a ; b';c\n");
     copy("{$dir}/a.csv", "{$dir}/b.csv");
     CsvLib::removeColumns("{$dir}/b.csv", [2]);
     CsvLib::removeRows("{$dir}/b.csv", [1]);

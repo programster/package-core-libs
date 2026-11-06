@@ -448,15 +448,17 @@ final class CsvLib
      * This will replace the existing file's contents, so if you need to keep that, make a copy
      * first.
      * @param string $filepath - the path to the CSV file we are trimming
-     * @param string $delimiter - the delimiter/separator used in the CSV. E.g. ',' or ';'
+     * @param string $delimiter - optionally specify the delimiter if it isn't a comma, e.g. ';'.
+     * @param string $enclosure - optionally specify the enclosure if it isn't a double quote, e.g. "'".
      * @param string $escape - the escape sequence to use when passing to fputcsv.
      * @throws FilesystemException - if the CSV file could not be opened.
      * @return void
      */
     public static function trim(
-        string $filepath, 
-        string $delimiter, 
-        string $escape="",
+        string $filepath,
+        string $delimiter = ",",
+        string $enclosure = '"',
+        string $escape = "",
     ): void
     {
         $tmpFile = tmpfile();
@@ -472,7 +474,7 @@ final class CsvLib
 
             while (!feof($uploadedFileHandle))
             {
-                $lineArray = fgetcsv($uploadedFileHandle, 0, $delimiter, escape: $escape);
+                $lineArray = fgetcsv($uploadedFileHandle, 0, $delimiter, $enclosure, $escape);
 
                 if (!empty($lineArray))
                 {
@@ -486,6 +488,7 @@ final class CsvLib
                         stream: $tmpFile,
                         fields: $lineArray,
                         separator: $delimiter,
+                        enclosure: $enclosure,
                         escape: $escape
                     );
                 }
