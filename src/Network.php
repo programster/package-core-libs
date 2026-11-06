@@ -105,6 +105,188 @@ final class Network
 
 
     /**
+     * Calculates the hostname including the starting http:// or https:// at
+     * the beginning. This is useful for linking items by relative source and
+     * getting around htaccess URL rewrites.
+     * @return string  - The URL e.g. 'http://www.technostu.com'
+     */
+    public static function getHostname(): string
+    {
+        $hostname = $_SERVER['HTTP_HOST'];
+
+        if (isset($_SERVER['HTTPS']))
+        {
+            $hostname = 'https://' . $hostname;
+        }
+        else
+        {
+            $hostname = 'http://' . $hostname;
+        }
+
+        return $hostname;
+    }
+
+
+    /**
+     * Fetches this computer's IPv4 addresses on the specified network interface. Please note that you may wish
+     * to run getPublicIp instead which may return a different IP address depending on your network.
+     * @param string $interface - the network interface that we want the IPs of.
+     * @return array<string> - list of the IPv4 addresses of this machine on that interface, in the order the ip
+     *                         command lists them. Will be empty if the interface exists but has no IPv4 addresses.
+     * @throws NetworkInterfaceDoesNotExistException - if there is no network interface with that name.
+     * @throws FilesystemException - if the list of network interfaces could not be read from /sys/class/net.
+     * @throws CommandFailedException - if the ip command failed.
+     */
+    public static function getIps(string $interface): array
+    {
+        # Check against the kernel's own list of interfaces, rather than relying on the ip command's error message.
+        # Comparing against the list (rather than checking if /sys/class/net/{$interface} exists) also means names
+        # like ".." can't match.
+        $interfaces = scandir("/sys/class/net");
+
+        if ($interfaces === false)
+        {
+            throw new FilesystemException("Failed to read the list of network interfaces from /sys/class/net.");
+        }
+
+        if (!in_array($interface, array_diff($interfaces, [".", ".."]), true))
+        {
+            throw new NetworkInterfaceDoesNotExistException($interface);
+        }
+
+        # We deliberately don't use a pipeline (e.g. into awk) here, as a pipeline's exit code is only that of its
+        # last command, which would hide the ip command failing (e.g. because the interface doesn't exist).
+        $output = Core::runCommand("ip -o -4 addr list " . escapeshellarg($interface));
+
+        # Each line looks like: "2: eth0    inet 192.168.1.5/24 brd 192.168.1.255 scope global eth0 ..."
+        preg_match_all('/\binet ([0-9.]+)\//', $output, $matches);
+        $ips = $matches[1];
+        return $ips;
+    }
+
+
+    /**
+     * Determines what this computer's public IP address is. This is not
+     * necessarily the IP address of the computer, and you may need to set up
+     * port forwarding.
+     * This is a very quick and dirty method that relies on icanhazip.com
+     * remaining the same so use with caution.
+     * This uses HTTPS, so that the answer can't be tampered with on the way, which needs the openssl extension. It may
+     * return an IPv6 address, if that is how this computer connects to icanhazip.com.
+     * @param float $timeout - optionally specify how many seconds to wait for icanhazip.com to respond. Defaults to 5.
+     * @return string - the public ip address of this computer.
+     * @throws NetworkException - if we failed to get a response from icanhazip.com, or the response wasn't an IP
+     *                            address.
+     */
+    public static function getPublicIp(float $timeout = 5.0): string
+    {
+        # Without a timeout, this would wait for PHP's default_socket_timeout, which is normally 60 seconds.
+        $context = stream_context_create(['http' => ['timeout' => $timeout]]);
+
+        # Capture the warning to put its reason in the exception, rather than letting it through. This uses a temporary
+        # error handler rather than @ and error_get_last(), as error_get_last() is empty if the application has its
+        # own error handler.
+        $error = 'unknown error';
+        set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
+            $error = $errorMessage;
+            return true;
+        });
+
+        try
+        {
+            $response = file_get_contents('https://icanhazip.com/', false, $context);
+        }
+        finally
+        {
+            restore_error_handler();
+        }
+
+        if ($response === false)
+        {
+            throw new NetworkException("Failed to fetch public IP from icanhazip.com: {$error}");
+        }
+
+        $ip = trim($response);
+
+        # Check we really got an IP address, rather than e.g. an error page from a proxy or captive portal.
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false)
+        {
+            # Only include the start of the response, in case it's a whole web page.
+            throw new NetworkException(
+                "Expected icanhazip.com to respond with an IP address, but got: " . substr($ip, 0, 100)
+            );
+        }
+
+        return $ip;
+    }
+
+
+    /**
+     * Checks to see if the specified TCP port is open, by trying to connect to it.
+     * UDP ports aren't supported, as there is no way to reliably check whether one is open (UDP has no connection
+     * handshake, so "connecting" succeeds whether anything is listening or not).
+     * @param string $host - the host to check against. If empty, this machine's public IP is used.
+     * @param int $port - the port to check
+     * @param float $timeout - optionally specify how many seconds to wait for a connection before deciding the port
+     *                         isn't open. Hosts behind firewalls often silently drop packets rather than refuse the
+     *                         connection, in which case this is how long the check will take.
+     * @return bool - true if the port is open, false if not.
+     * @throws NetworkException - if $host is empty and we failed to fetch this machine's public IP.
+     */
+    public static function isPortOpen(string $host, int $port, float $timeout = 5.0): bool
+    {
+        if (empty($host))
+        {
+            $host = self::getPublicIp();
+        }
+
+        $connection = @fsockopen($host, $port, $errorCode, $errorMessage, $timeout);
+
+        if (is_resource($connection))
+        {
+            $isOpen = true;
+            fclose($connection);
+        }
+        else
+        {
+            $isOpen = false;
+        }
+
+        return $isOpen;
+    }
+
+
+    /**
+     * Return whether the IP address provided is within the private or reserved ranges.
+     * E.g. 192.168.0.0 – 192.168.255.255, 172.16.0.0 – 172.31.255.255, or 10.0.0.0 – 10.255.255.255.
+     * Reserved ranges, such as 127.0.0.0/8 (loopback) and 169.254.0.0/16 (link-local), also count.
+     * This also applies to IPv6 though.
+     * @param string $ip - the IP address to check, e.g. "192.168.1.5" or "fd00::1". IPv6 addresses must not be in
+     *                     square brackets.
+     * @return bool - true if a private/reserved IP, false if not.
+     * @throws BadArgumentException - if $ip is not a valid IPv4 or IPv6 address.
+     */
+    public static function isPrivateIp(string $ip): bool
+    {
+        # Check this first, as the check below returns false both for a private IP and for something that isn't an IP
+        # at all, so without this, anything that isn't an IP would be reported as private.
+        if (filter_var($ip, FILTER_VALIDATE_IP) === false)
+        {
+            throw new BadArgumentException("isPrivateIp: \"{$ip}\" is not a valid IP address.");
+        }
+
+        $publicIp = filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
+
+        $isPrivate = ($publicIp === false);
+        return $isPrivate;
+    }
+
+
+    /**
      * Connect a TCP socket to a host, trying every address the host resolves to (IPv6 and IPv4), and retrying up to
      * $attemptsLimit times with a one second pause between attempts.
      * @param string $host - the hostname, IPv4 address, or IPv6 address (with or without square brackets).
@@ -317,187 +499,5 @@ final class Network
 
             $remaining = substr($remaining, $bytesWritten);
         }
-    }
-
-
-    /**
-     * Calculates the hostname including the starting http:// or https:// at
-     * the beginning. This is useful for linking items by relative source and
-     * getting around htaccess URL rewrites.
-     * @return string  - The URL e.g. 'http://www.technostu.com'
-     */
-    public static function getHostname(): string
-    {
-        $hostname = $_SERVER['HTTP_HOST'];
-
-        if (isset($_SERVER['HTTPS']))
-        {
-            $hostname = 'https://' . $hostname;
-        }
-        else
-        {
-            $hostname = 'http://' . $hostname;
-        }
-
-        return $hostname;
-    }
-
-
-    /**
-     * Fetches this computer's IPv4 addresses on the specified network interface. Please note that you may wish
-     * to run getPublicIp instead which may return a different IP address depending on your network.
-     * @param string $interface - the network interface that we want the IPs of.
-     * @return array<string> - list of the IPv4 addresses of this machine on that interface, in the order the ip
-     *                         command lists them. Will be empty if the interface exists but has no IPv4 addresses.
-     * @throws NetworkInterfaceDoesNotExistException - if there is no network interface with that name.
-     * @throws FilesystemException - if the list of network interfaces could not be read from /sys/class/net.
-     * @throws CommandFailedException - if the ip command failed.
-     */
-    public static function getIps(string $interface): array
-    {
-        # Check against the kernel's own list of interfaces, rather than relying on the ip command's error message.
-        # Comparing against the list (rather than checking if /sys/class/net/{$interface} exists) also means names
-        # like ".." can't match.
-        $interfaces = scandir("/sys/class/net");
-
-        if ($interfaces === false)
-        {
-            throw new FilesystemException("Failed to read the list of network interfaces from /sys/class/net.");
-        }
-
-        if (!in_array($interface, array_diff($interfaces, [".", ".."]), true))
-        {
-            throw new NetworkInterfaceDoesNotExistException($interface);
-        }
-
-        # We deliberately don't use a pipeline (e.g. into awk) here, as a pipeline's exit code is only that of its
-        # last command, which would hide the ip command failing (e.g. because the interface doesn't exist).
-        $output = Core::runCommand("ip -o -4 addr list " . escapeshellarg($interface));
-
-        # Each line looks like: "2: eth0    inet 192.168.1.5/24 brd 192.168.1.255 scope global eth0 ..."
-        preg_match_all('/\binet ([0-9.]+)\//', $output, $matches);
-        $ips = $matches[1];
-        return $ips;
-    }
-
-
-    /**
-     * Determines what this computer's public IP address is. This is not
-     * necessarily the IP address of the computer, and you may need to set up
-     * port forwarding.
-     * This is a very quick and dirty method that relies on icanhazip.com
-     * remaining the same so use with caution.
-     * This uses HTTPS, so that the answer can't be tampered with on the way, which needs the openssl extension. It may
-     * return an IPv6 address, if that is how this computer connects to icanhazip.com.
-     * @param float $timeout - optionally specify how many seconds to wait for icanhazip.com to respond. Defaults to 5.
-     * @return string - the public ip address of this computer.
-     * @throws NetworkException - if we failed to get a response from icanhazip.com, or the response wasn't an IP
-     *                            address.
-     */
-    public static function getPublicIp(float $timeout = 5.0): string
-    {
-        # Without a timeout, this would wait for PHP's default_socket_timeout, which is normally 60 seconds.
-        $context = stream_context_create(['http' => ['timeout' => $timeout]]);
-
-        # Capture the warning to put its reason in the exception, rather than letting it through. This uses a temporary
-        # error handler rather than @ and error_get_last(), as error_get_last() is empty if the application has its
-        # own error handler.
-        $error = 'unknown error';
-        set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
-            $error = $errorMessage;
-            return true;
-        });
-
-        try
-        {
-            $response = file_get_contents('https://icanhazip.com/', false, $context);
-        }
-        finally
-        {
-            restore_error_handler();
-        }
-
-        if ($response === false)
-        {
-            throw new NetworkException("Failed to fetch public IP from icanhazip.com: {$error}");
-        }
-
-        $ip = trim($response);
-
-        # Check we really got an IP address, rather than e.g. an error page from a proxy or captive portal.
-        if (filter_var($ip, FILTER_VALIDATE_IP) === false)
-        {
-            # Only include the start of the response, in case it's a whole web page.
-            throw new NetworkException(
-                "Expected icanhazip.com to respond with an IP address, but got: " . substr($ip, 0, 100)
-            );
-        }
-
-        return $ip;
-    }
-
-
-    /**
-     * Checks to see if the specified TCP port is open, by trying to connect to it.
-     * UDP ports aren't supported, as there is no way to reliably check whether one is open (UDP has no connection
-     * handshake, so "connecting" succeeds whether anything is listening or not).
-     * @param string $host - the host to check against. If empty, this machine's public IP is used.
-     * @param int $port - the port to check
-     * @param float $timeout - optionally specify how many seconds to wait for a connection before deciding the port
-     *                         isn't open. Hosts behind firewalls often silently drop packets rather than refuse the
-     *                         connection, in which case this is how long the check will take.
-     * @return bool - true if the port is open, false if not.
-     * @throws NetworkException - if $host is empty and we failed to fetch this machine's public IP.
-     */
-    public static function isPortOpen(string $host, int $port, float $timeout = 5.0): bool
-    {
-        if (empty($host))
-        {
-            $host = self::getPublicIp();
-        }
-
-        $connection = @fsockopen($host, $port, $errorCode, $errorMessage, $timeout);
-
-        if (is_resource($connection))
-        {
-            $isOpen = true;
-            fclose($connection);
-        }
-        else
-        {
-            $isOpen = false;
-        }
-
-        return $isOpen;
-    }
-
-
-    /**
-     * Return whether the IP address provided is within the private or reserved ranges.
-     * E.g. 192.168.0.0 – 192.168.255.255, 172.16.0.0 – 172.31.255.255, or 10.0.0.0 – 10.255.255.255.
-     * Reserved ranges, such as 127.0.0.0/8 (loopback) and 169.254.0.0/16 (link-local), also count.
-     * This also applies to IPv6 though.
-     * @param string $ip - the IP address to check, e.g. "192.168.1.5" or "fd00::1". IPv6 addresses must not be in
-     *                     square brackets.
-     * @return bool - true if a private/reserved IP, false if not.
-     * @throws BadArgumentException - if $ip is not a valid IPv4 or IPv6 address.
-     */
-    public static function isPrivateIp(string $ip): bool
-    {
-        # Check this first, as the check below returns false both for a private IP and for something that isn't an IP
-        # at all, so without this, anything that isn't an IP would be reported as private.
-        if (filter_var($ip, FILTER_VALIDATE_IP) === false)
-        {
-            throw new BadArgumentException("isPrivateIp: \"{$ip}\" is not a valid IP address.");
-        }
-
-        $publicIp = filter_var(
-            $ip,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-        );
-
-        $isPrivate = ($publicIp === false);
-        return $isPrivate;
     }
 }

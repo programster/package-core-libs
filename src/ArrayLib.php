@@ -374,34 +374,6 @@ final class ArrayLib
 
 
     /**
-     * Get a key for a set, for setDiff(), that is the same for any two sets that are === to each other.
-     * @param mixed $set - the set to get the key of. This is normally an array, but can be any serializable value.
-     * @return string - the key.
-     * @throws \Exception - if the set contains something that can't be serialized, such as a closure.
-     */
-    private static function getSetKey(mixed $set): string
-    {
-        # serialize() writes -0.0 and 0.0 differently, but they are === to each other, so make them the same first.
-        if (is_array($set))
-        {
-            array_walk_recursive($set, function (mixed &$value): void {
-                if ($value === 0.0)
-                {
-                    $value = 0.0;
-                }
-            });
-        }
-        elseif ($set === 0.0)
-        {
-            $set = 0.0;
-        }
-
-        $key = serialize($set);
-        return $key;
-    }
-
-
-    /**
      * Same as array_diff except that this returns the indexes of the values
      * that are in array1 but not array2.
      * WARNING - this is NOT comparing the indexes themselves.
@@ -633,5 +605,33 @@ final class ArrayLib
         }
 
         return $returnVar;
+    }
+
+
+    /**
+     * Get a key for a set, for setDiff(), that is the same for any two sets that are === to each other.
+     * @param mixed $set - the set to get the key of. This is normally an array, but can be any serializable value.
+     * @return string - the key.
+     * @throws \Exception - if the set contains something that can't be serialized, such as a closure.
+     */
+    private static function getSetKey(mixed $set): string
+    {
+        # serialize() writes -0.0 and 0.0 differently, but they are === to each other, so make them the same first.
+        if (is_array($set))
+        {
+            array_walk_recursive($set, function (mixed &$value): void {
+                if ($value === 0.0)
+                {
+                    $value = 0.0;
+                }
+            });
+        }
+        elseif ($set === 0.0)
+        {
+            $set = 0.0;
+        }
+
+        $key = serialize($set);
+        return $key;
     }
 }

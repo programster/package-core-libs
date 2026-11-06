@@ -206,25 +206,6 @@ final class Core
 
 
     /**
-     * Check that an argument name, for fetchReqArgsFromArray() and fetchOptionalArgsFromArray(), is a string or an
-     * int, as those are the only types an array key can be. Anything else, such as null, would be quietly converted
-     * to a different key (e.g. null becomes "").
-     * @param mixed $arg - the argument name to check.
-     * @return void
-     * @throws BadArgumentException - if it isn't a string or an int.
-     */
-    private static function validateArgName(mixed $arg): void
-    {
-        if (!is_string($arg) && !is_int($arg))
-        {
-            throw new BadArgumentException(
-                "Argument names must be strings or ints, but one is " . get_debug_type($arg) . "."
-            );
-        }
-    }
-
-
-    /**
      * Builds the URL of the current page, excluding any ?=&stuff,
      * @return string - full page URL of the current page
      *                  e.g. https://www.google.com/some-page
@@ -689,6 +670,25 @@ final class Core
         }
 
         return $content;
+    }
+
+
+    /**
+     * Check that an argument name, for fetchReqArgsFromArray() and fetchOptionalArgsFromArray(), is a string or an
+     * int, as those are the only types an array key can be. Anything else, such as null, would be quietly converted
+     * to a different key (e.g. null becomes "").
+     * @param mixed $arg - the argument name to check.
+     * @return void
+     * @throws BadArgumentException - if it isn't a string or an int.
+     */
+    private static function validateArgName(mixed $arg): void
+    {
+        if (!is_string($arg) && !is_int($arg))
+        {
+            throw new BadArgumentException(
+                "Argument names must be strings or ints, but one is " . get_debug_type($arg) . "."
+            );
+        }
     }
 
 

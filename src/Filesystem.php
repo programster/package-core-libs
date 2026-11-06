@@ -1115,35 +1115,6 @@ final class Filesystem
 
 
     /**
-     * Build the value for a Content-Disposition header, in the standard way (RFC 6266), so that any filename works.
-     * This gives two versions of the filename: a quoted, ASCII-only fallback for very old clients, and the exact
-     * filename, percent-encoded as UTF-8, which all current browsers use.
-     * E.g. attachment; filename="r_sum_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf
-     * @param bool $asAttachment - true for "attachment" (download), false for "inline" (display in the browser).
-     * @param string $filename - the filename the browser should use.
-     * @return string - the value for the Content-Disposition header.
-     */
-    private static function buildContentDisposition(bool $asAttachment, string $filename): string
-    {
-        # Remove newlines and other control characters, as PHP refuses to send a header containing a newline, and
-        # would drop the whole header (and thus the filename).
-        $cleanFilename = preg_replace('/[\x00-\x1F\x7F]/', '', $filename);
-
-        # The fallback must be plain ASCII, so replace anything else with an underscore. Do this per character if the
-        # filename is valid UTF-8 (so "é" becomes one underscore), otherwise per byte.
-        $asciiFallback = preg_replace('/[^\x20-\x7E]/u', '_', $cleanFilename)
-            ?? preg_replace('/[^\x20-\x7E]/', '_', $cleanFilename);
-
-        # Inside the quotes, backslashes and double quotes must be escaped.
-        $quotedFallback = '"' . addcslashes($asciiFallback, '"\\') . '"';
-
-        $type = ($asAttachment) ? "attachment" : "inline";
-        $contentDisposition = "{$type}; filename={$quotedFallback}; filename*=UTF-8''" . rawurlencode($cleanFilename);
-        return $contentDisposition;
-    }
-
-
-    /**
      * Returns whether the file specified contains only valid UTF-8 character encoding or not.
      * @param string $filepath - the path to the file that we wish to check.
      * @param int $chunkSize - the size of each chunk to check at a time. This is a balance between
@@ -1213,64 +1184,6 @@ final class Filesystem
 
         fclose($handle);
         return $isValid;
-    }
-
-
-    /**
-     * Check whether a string is valid UTF-8, without needing the mbstring extension. This uses PCRE, which is always
-     * part of PHP, and rejects the same things that mb_check_encoding() does, such as overlong encodings, surrogates,
-     * and code points above U+10FFFF.
-     * @param string $bytes - the bytes to check.
-     * @return bool - true if the bytes are valid UTF-8 (an empty string is), false if not.
-     */
-    private static function isValidUtf8(string $bytes): bool
-    {
-        # With the u modifier, preg_match() returns false instead of matching if the subject isn't valid UTF-8.
-        $isValid = (preg_match('//u', $bytes) === 1);
-        return $isValid;
-    }
-
-
-    /**
-     * Get the bytes of a UTF-8 character that the provided bytes end part way through, if any. E.g. if the bytes end
-     * with only the first of the two bytes that make up "é", that byte is returned.
-     * This only looks at the start of the last character, so it does not check whether the bytes are valid UTF-8.
-     * @param string $bytes - the bytes to check the end of.
-     * @return string - the bytes of the unfinished character at the end (at most 3), or an empty string if the bytes
-     *                  don't end part way through a character.
-     */
-    private static function getUnfinishedUtf8Character(string $bytes): string
-    {
-        $unfinished = '';
-        $numBytes = strlen($bytes);
-        $hasFoundStart = false;
-
-        # A UTF-8 character is at most 4 bytes long, so an unfinished one is at most 3 bytes. Walk backwards over
-        # those, looking for the byte that starts the last character (continuation bytes are 10xxxxxx).
-        for ($distanceFromEnd = 1; !$hasFoundStart && $distanceFromEnd <= min(3, $numBytes); $distanceFromEnd++)
-        {
-            $byte = ord($bytes[$numBytes - $distanceFromEnd]);
-
-            if (($byte & 0xC0) !== 0x80)
-            {
-                $hasFoundStart = true;
-
-                # The start byte tells us how long the character should be: 11110xxx = 4, 1110xxxx = 3, 110xxxxx = 2.
-                $expectedLength = match (true) {
-                    $byte >= 0xF0 => 4,
-                    $byte >= 0xE0 => 3,
-                    $byte >= 0xC0 => 2,
-                    default => 1,
-                };
-
-                if ($expectedLength > $distanceFromEnd)
-                {
-                    $unfinished = substr($bytes, -$distanceFromEnd);
-                }
-            }
-        }
-
-        return $unfinished;
     }
 
 
@@ -1376,6 +1289,193 @@ final class Filesystem
             $converted = mb_convert_encoding($content, 'UTF-8', $encoding);
             self::replaceFileContents($inputFilepath, $converted);
         }
+    }
+
+
+    /**
+     * Check that a file can be changed in place (e.g. with replaceWithFile()), before any work is done on it. Only
+     * the file itself needs to be readable and writable, not the directory it is in, as the new contents are written
+     * back into the same file.
+     * @param string $filepath - the path of the file that will be changed.
+     * @return void
+     * @throws FileDoesNotExistException - if there is no file at $filepath.
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
+     */
+    public static function checkCanChangeFile(string $filepath): void
+    {
+        if (!is_file($filepath))
+        {
+            throw new FileDoesNotExistException("There is no file at {$filepath}.");
+        }
+
+        if (!is_readable($filepath) || !is_writable($filepath))
+        {
+            throw new BadFilePermissionsException("{$filepath} must be readable and writable for it to be changed.");
+        }
+    }
+
+
+    /**
+     * Create an empty temporary file to write a file's new contents to, before they are copied into the original
+     * with replaceWithFile(). This is useful for rewriting a file a piece at a time (e.g. row by row), without
+     * changing the original until the new contents are complete. This is always in the system's temporary
+     * directory, never next to the original, in case that directory is served to the public (e.g. by a web server).
+     * tempnam() creates it with 0600 permissions, so other users can't read the data while it is there.
+     * @return string - the path of the temporary file.
+     * @throws FilesystemException - if the temporary file could not be created.
+     */
+    public static function createReplacementFile(): string
+    {
+        # Suppress the warning, as we throw an exception instead.
+        $tmpFilepath = @tempnam(sys_get_temp_dir(), "corelibs-tmp-");
+
+        if ($tmpFilepath === false)
+        {
+            throw new FilesystemException("Failed to create a temporary file in " . sys_get_temp_dir() . ".");
+        }
+
+        return $tmpFilepath;
+    }
+
+
+    /**
+     * Copy the contents of a file made by createReplacementFile() into the original file, then delete it. The
+     * contents are written into the original file in place, rather than the temporary file being renamed over it,
+     * so the original keeps its permissions, owner, and any links to it, and only the file (not its directory)
+     * needs to be writable.
+     * This isn't atomic: if it fails part way through (e.g. the disk fills up), the original may be left
+     * half-written. The temporary file is kept in that case, and its path is given in the exception, so that the
+     * new contents aren't lost.
+     * @param string $filepath - the path of the file to replace the contents of.
+     * @param string $tmpFilepath - the path of the temporary file with the new contents. It must already be closed.
+     * @return void
+     * @throws FilesystemException - if the contents could not be copied across.
+     */
+    public static function replaceWithFile(string $filepath, string $tmpFilepath): void
+    {
+        # Suppress the warnings, as we throw an exception instead.
+        $source = @fopen($tmpFilepath, "r");
+        $target = @fopen($filepath, "r+");
+
+        if ($source === false || $target === false)
+        {
+            # Nothing has been written yet, so the original is untouched, and the temporary file isn't needed.
+            if ($source !== false)
+            {
+                fclose($source);
+            }
+
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to open {$filepath} to write its new contents to.");
+        }
+
+        $newSize = fstat($source)['size'];
+
+        # Write over the old contents first, then cut off whatever is left of them, so the file is only ever
+        # shortened once the new contents are all in place.
+        $succeeded = stream_copy_to_stream($source, $target) === $newSize
+            && ftruncate($target, $newSize)
+            && fflush($target);
+
+        fclose($source);
+        fclose($target);
+
+        if (!$succeeded)
+        {
+            throw new FilesystemException(
+                "Failed to write the new contents of {$filepath}, so it may be incomplete. The complete new contents " .
+                "are in {$tmpFilepath}."
+            );
+        }
+
+        @unlink($tmpFilepath);
+    }
+
+
+    /**
+     * Build the value for a Content-Disposition header, in the standard way (RFC 6266), so that any filename works.
+     * This gives two versions of the filename: a quoted, ASCII-only fallback for very old clients, and the exact
+     * filename, percent-encoded as UTF-8, which all current browsers use.
+     * E.g. attachment; filename="r_sum_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf
+     * @param bool $asAttachment - true for "attachment" (download), false for "inline" (display in the browser).
+     * @param string $filename - the filename the browser should use.
+     * @return string - the value for the Content-Disposition header.
+     */
+    private static function buildContentDisposition(bool $asAttachment, string $filename): string
+    {
+        # Remove newlines and other control characters, as PHP refuses to send a header containing a newline, and
+        # would drop the whole header (and thus the filename).
+        $cleanFilename = preg_replace('/[\x00-\x1F\x7F]/', '', $filename);
+
+        # The fallback must be plain ASCII, so replace anything else with an underscore. Do this per character if the
+        # filename is valid UTF-8 (so "é" becomes one underscore), otherwise per byte.
+        $asciiFallback = preg_replace('/[^\x20-\x7E]/u', '_', $cleanFilename)
+            ?? preg_replace('/[^\x20-\x7E]/', '_', $cleanFilename);
+
+        # Inside the quotes, backslashes and double quotes must be escaped.
+        $quotedFallback = '"' . addcslashes($asciiFallback, '"\\') . '"';
+
+        $type = ($asAttachment) ? "attachment" : "inline";
+        $contentDisposition = "{$type}; filename={$quotedFallback}; filename*=UTF-8''" . rawurlencode($cleanFilename);
+        return $contentDisposition;
+    }
+
+
+    /**
+     * Check whether a string is valid UTF-8, without needing the mbstring extension. This uses PCRE, which is always
+     * part of PHP, and rejects the same things that mb_check_encoding() does, such as overlong encodings, surrogates,
+     * and code points above U+10FFFF.
+     * @param string $bytes - the bytes to check.
+     * @return bool - true if the bytes are valid UTF-8 (an empty string is), false if not.
+     */
+    private static function isValidUtf8(string $bytes): bool
+    {
+        # With the u modifier, preg_match() returns false instead of matching if the subject isn't valid UTF-8.
+        $isValid = (preg_match('//u', $bytes) === 1);
+        return $isValid;
+    }
+
+
+    /**
+     * Get the bytes of a UTF-8 character that the provided bytes end part way through, if any. E.g. if the bytes end
+     * with only the first of the two bytes that make up "é", that byte is returned.
+     * This only looks at the start of the last character, so it does not check whether the bytes are valid UTF-8.
+     * @param string $bytes - the bytes to check the end of.
+     * @return string - the bytes of the unfinished character at the end (at most 3), or an empty string if the bytes
+     *                  don't end part way through a character.
+     */
+    private static function getUnfinishedUtf8Character(string $bytes): string
+    {
+        $unfinished = '';
+        $numBytes = strlen($bytes);
+        $hasFoundStart = false;
+
+        # A UTF-8 character is at most 4 bytes long, so an unfinished one is at most 3 bytes. Walk backwards over
+        # those, looking for the byte that starts the last character (continuation bytes are 10xxxxxx).
+        for ($distanceFromEnd = 1; !$hasFoundStart && $distanceFromEnd <= min(3, $numBytes); $distanceFromEnd++)
+        {
+            $byte = ord($bytes[$numBytes - $distanceFromEnd]);
+
+            if (($byte & 0xC0) !== 0x80)
+            {
+                $hasFoundStart = true;
+
+                # The start byte tells us how long the character should be: 11110xxx = 4, 1110xxxx = 3, 110xxxxx = 2.
+                $expectedLength = match (true) {
+                    $byte >= 0xF0 => 4,
+                    $byte >= 0xE0 => 3,
+                    $byte >= 0xC0 => 2,
+                    default => 1,
+                };
+
+                if ($expectedLength > $distanceFromEnd)
+                {
+                    $unfinished = substr($bytes, -$distanceFromEnd);
+                }
+            }
+        }
+
+        return $unfinished;
     }
 
 
@@ -1631,106 +1731,6 @@ final class Filesystem
                 );
             }
         }
-    }
-
-
-    /**
-     * Check that a file can be changed in place (e.g. with replaceWithFile()), before any work is done on it. Only
-     * the file itself needs to be readable and writable, not the directory it is in, as the new contents are written
-     * back into the same file.
-     * @param string $filepath - the path of the file that will be changed.
-     * @return void
-     * @throws FileDoesNotExistException - if there is no file at $filepath.
-     * @throws BadFilePermissionsException - if the file can't be both read and written.
-     */
-    public static function checkCanChangeFile(string $filepath): void
-    {
-        if (!is_file($filepath))
-        {
-            throw new FileDoesNotExistException("There is no file at {$filepath}.");
-        }
-
-        if (!is_readable($filepath) || !is_writable($filepath))
-        {
-            throw new BadFilePermissionsException("{$filepath} must be readable and writable for it to be changed.");
-        }
-    }
-
-
-    /**
-     * Create an empty temporary file to write a file's new contents to, before they are copied into the original
-     * with replaceWithFile(). This is useful for rewriting a file a piece at a time (e.g. row by row), without
-     * changing the original until the new contents are complete. This is always in the system's temporary
-     * directory, never next to the original, in case that directory is served to the public (e.g. by a web server).
-     * tempnam() creates it with 0600 permissions, so other users can't read the data while it is there.
-     * @return string - the path of the temporary file.
-     * @throws FilesystemException - if the temporary file could not be created.
-     */
-    public static function createReplacementFile(): string
-    {
-        # Suppress the warning, as we throw an exception instead.
-        $tmpFilepath = @tempnam(sys_get_temp_dir(), "corelibs-tmp-");
-
-        if ($tmpFilepath === false)
-        {
-            throw new FilesystemException("Failed to create a temporary file in " . sys_get_temp_dir() . ".");
-        }
-
-        return $tmpFilepath;
-    }
-
-
-    /**
-     * Copy the contents of a file made by createReplacementFile() into the original file, then delete it. The
-     * contents are written into the original file in place, rather than the temporary file being renamed over it,
-     * so the original keeps its permissions, owner, and any links to it, and only the file (not its directory)
-     * needs to be writable.
-     * This isn't atomic: if it fails part way through (e.g. the disk fills up), the original may be left
-     * half-written. The temporary file is kept in that case, and its path is given in the exception, so that the
-     * new contents aren't lost.
-     * @param string $filepath - the path of the file to replace the contents of.
-     * @param string $tmpFilepath - the path of the temporary file with the new contents. It must already be closed.
-     * @return void
-     * @throws FilesystemException - if the contents could not be copied across.
-     */
-    public static function replaceWithFile(string $filepath, string $tmpFilepath): void
-    {
-        # Suppress the warnings, as we throw an exception instead.
-        $source = @fopen($tmpFilepath, "r");
-        $target = @fopen($filepath, "r+");
-
-        if ($source === false || $target === false)
-        {
-            # Nothing has been written yet, so the original is untouched, and the temporary file isn't needed.
-            if ($source !== false)
-            {
-                fclose($source);
-            }
-
-            @unlink($tmpFilepath);
-            throw new FilesystemException("Failed to open {$filepath} to write its new contents to.");
-        }
-
-        $newSize = fstat($source)['size'];
-
-        # Write over the old contents first, then cut off whatever is left of them, so the file is only ever
-        # shortened once the new contents are all in place.
-        $succeeded = stream_copy_to_stream($source, $target) === $newSize
-            && ftruncate($target, $newSize)
-            && fflush($target);
-
-        fclose($source);
-        fclose($target);
-
-        if (!$succeeded)
-        {
-            throw new FilesystemException(
-                "Failed to write the new contents of {$filepath}, so it may be incomplete. The complete new contents " .
-                "are in {$tmpFilepath}."
-            );
-        }
-
-        @unlink($tmpFilepath);
     }
 
 
