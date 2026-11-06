@@ -123,6 +123,36 @@ $smoke->run("File rename and move", function () use ($dir) {
     assert(!is_link("{$base}/real.txt") && file_get_contents("{$base}/real.txt") === "precious");
     assert(is_link("{$base}/to-real") && file_get_contents("{$base}/hard.txt") === "precious");
 
+    # A symlink with a relative target can be renamed in place, but not moved into another directory, as it would then
+    # point somewhere else. Nothing is moved or created if it is refused.
+    mkdir("{$base}/links");
+    mkdir("{$base}/links/elsewhere");
+    file_put_contents("{$base}/links/target.txt", "target");
+    symlink("target.txt", "{$base}/links/relative-link");
+    $relativeLink = new File("{$base}/links/relative-link");
+    $relativeRefusals = [
+        function () use ($relativeLink) { $relativeLink->move("elsewhere"); },
+        function () use ($relativeLink) { $relativeLink->move("not-yet-created", true); },
+        function () use ($relativeLink) { $relativeLink->rename("elsewhere/renamed-link"); },
+    ];
+
+    foreach ($relativeRefusals as $refusal)
+    {
+        SmokeTest::expectException(BadArgumentException::class, $refusal, 'symlink to the relative path "target.txt"');
+    }
+
+    assert(!file_exists("{$base}/links/not-yet-created"));
+    assert(file_get_contents("{$base}/links/relative-link") === "target");
+    $relativeLink->rename("renamed-link");
+    assert(readlink("{$base}/links/renamed-link") === "target.txt");
+    assert(file_get_contents("{$base}/links/renamed-link") === "target");
+
+    # A symlink with an absolute target still points to the same place wherever it goes, so it can be moved.
+    symlink("{$base}/links/target.txt", "{$base}/links/absolute-link");
+    $absoluteLink = new File("{$base}/links/absolute-link");
+    $absoluteLink->move("elsewhere");
+    assert(file_get_contents("{$base}/links/elsewhere/absolute-link") === "target");
+
     # Only existing files can be used.
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => new File("{$base}/nope.txt"));
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => new File("{$base}/sub"));
