@@ -7,6 +7,7 @@
 use Programster\CoreLibs\CsvFile;
 use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
+use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\InvalidCsvException;
@@ -30,6 +31,28 @@ $smoke->run("CSV methods", function () use ($dir) {
     file_put_contents("{$dir}/single-quoted.csv", "' a ; b ' ; c \n");
     CsvLib::trim("{$dir}/single-quoted.csv", ";", "'");
     assert(file_get_contents("{$dir}/single-quoted.csv") === "'a ; b';c\n");
+
+    # trim() removes blank lines at the end unless told not to.
+    file_put_contents("{$dir}/trim-blank-lines.csv", " a \n b \n\n\n");
+    CsvLib::trim("{$dir}/trim-blank-lines.csv");
+    assert(file_get_contents("{$dir}/trim-blank-lines.csv") === "a\nb\n");
+    file_put_contents("{$dir}/trim-blank-lines.csv", " a \n b \n\n\n");
+    CsvLib::trim("{$dir}/trim-blank-lines.csv", removeTrailingBlankLines: false);
+    assert(file_get_contents("{$dir}/trim-blank-lines.csv") === "a\nb\n\n\n");
+
+    # A row of just delimiters is a row of empty values, not a blank line, so it's valid and kept.
+    file_put_contents("{$dir}/trim-blank-lines.csv", " a , b \n , \n c , d \n");
+    CsvLib::trim("{$dir}/trim-blank-lines.csv");
+    assert(file_get_contents("{$dir}/trim-blank-lines.csv") === "a,b\n,\nc,d\n");
+
+    # A blank line in the middle makes the file invalid, so trim() throws and leaves it unchanged.
+    file_put_contents("{$dir}/trim-blank-lines.csv", " a \n\n b \n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::trim("{$dir}/trim-blank-lines.csv"),
+        "blank line at row 2"
+    );
+    assert(file_get_contents("{$dir}/trim-blank-lines.csv") === " a \n\n b \n");
     copy("{$dir}/a.csv", "{$dir}/b.csv");
     CsvLib::removeColumns("{$dir}/b.csv", [2]);
     CsvLib::removeRows("{$dir}/b.csv", [1]);
@@ -437,3 +460,64 @@ $smoke->run("csvWalk headers, keys and row indexes", function () {
     assert($walk(false, ["k1", "k2"]) === $expectedNoHeader);
     assert($walk(false, null) === [["first", "second"], ["hello", "world"], ["foo", "bar"]]);
 });
+
+$smoke->run("CSV methods change files in place", function () use ($dir) {
+    # trim(), removeColumns() and removeRows() write to a temporary file in the system's temporary directory, then copy
+    # the result back into the original. They used to rename a 0600 temporary file over the original.
+    $methods = [
+        "trim" => fn(string $file) => CsvLib::trim($file),
+        "removeColumns" => fn(string $file) => CsvLib::removeColumns($file, [1]),
+        "removeRows" => fn(string $file) => CsvLib::removeRows($file, [0]),
+    ];
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-csv-*");
+
+    # The directory isn't writable (for anyone but root), as only the file itself needs to be.
+    mkdir("{$dir}/in-place");
+
+    foreach ($methods as $name => $method)
+    {
+        $file = "{$dir}/in-place/{$name}.csv";
+        file_put_contents($file, " a , b \n c , d \n");
+        chmod($file, 0640);
+
+        # A hard link to the file sees the change too, which shows the file was changed in place rather than replaced.
+        link($file, "{$file}.link");
+        chmod("{$dir}/in-place", 0555);
+        $method($file);
+        chmod("{$dir}/in-place", 0755);
+        clearstatcache();
+        assert((fileperms($file) & 0777) === 0640, "{$name}() changed the file's permissions");
+        assert(file_get_contents($file) !== " a , b \n c , d \n", "{$name}() didn't change the file");
+        assert(file_get_contents("{$file}.link") === file_get_contents($file), "{$name}() replaced the file");
+    }
+
+    # A failure part way through leaves the original as it was.
+    file_put_contents("{$dir}/in-place/bad.csv", "a,b\n\nc,d\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::removeColumns("{$dir}/in-place/bad.csv", [1])
+    );
+    assert(file_get_contents("{$dir}/in-place/bad.csv") === "a,b\n\nc,d\n");
+
+    # Nothing is left behind in the temporary directory, whether the change worked or not.
+    assert(glob(sys_get_temp_dir() . "/corelibs-csv-*") === $tempFilesBefore);
+
+    # A file that can't be written is rejected before any work is done. Root can write to any file, so this can only be
+    # checked when not running as root.
+    file_put_contents("{$dir}/in-place/read-only.csv", "a\n");
+    chmod("{$dir}/in-place/read-only.csv", 0444);
+
+    if (!is_writable("{$dir}/in-place/read-only.csv"))
+    {
+        foreach ($methods as $method)
+        {
+            SmokeTest::expectException(
+                BadFilePermissionsException::class,
+                fn() => $method("{$dir}/in-place/read-only.csv")
+            );
+        }
+    }
+
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => CsvLib::trim("{$dir}/in-place/nope.csv"));
+});
+
