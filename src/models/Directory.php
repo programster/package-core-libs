@@ -321,7 +321,7 @@ class Directory
             );
         }
 
-        return stat($currentPath)['dev'] !== stat($existingAncestor)['dev'];
+        return !Filesystem::isOnSameFilesystem($currentPath, $existingAncestor);
     }
 
 
@@ -420,6 +420,7 @@ class Directory
         {
             # Keep a relative target as it is if it still works from the new location, otherwise work it out again.
             $wouldPointAt = self::normalisePath("{$newLinkDirectory}/{$linkTarget}");
+
             $newTarget = ($wouldPointAt === $shouldPointAt)
                 ? $linkTarget
                 : self::relativePathBetween($newLinkDirectory, $shouldPointAt);
@@ -829,9 +830,11 @@ class Directory
         if (count($problems) > 0)
         {
             $maxListed = 20;
+
             $countText = (count($problems) >= self::MAX_PROBLEMS)
                 ? self::MAX_PROBLEMS . " or more (stopped counting at " . self::MAX_PROBLEMS . ") problems"
                 : count($problems) . " problem(s)";
+
             $message = "Can't move {$path}, as {$countText} were found, so nothing was moved:\n - " .
                 implode("\n - ", array_slice($problems, 0, $maxListed));
 

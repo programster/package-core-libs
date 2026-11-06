@@ -234,6 +234,7 @@ final class CsvLib
                     {
                         $msg = "Cannot convert CSV to array. Number of keys: " . count($keys) .
                                " is not the same as the number of values: " . count($row);
+
                         throw new InvalidCsvException($msg);
                     }
                     $output[] = array_combine($keys, $row);
@@ -334,6 +335,7 @@ final class CsvLib
                     {
                         $msg = "csvWalk: Cannot convert CSV row to array. Number of keys: " . count($headers) .
                                " is not the same as the number of values: " . count($row);
+
                         throw new InvalidCsvException($msg);
                     }
 
@@ -1235,6 +1237,7 @@ final class CsvLib
 
         $maxErrors = 100;
         $errors = self::findNonNumericValues($csvFile1, $columnNumbers, $maxErrors);
+
         $errors = array_merge(
             $errors,
             self::findNonNumericValues($csvFile2, $columnNumbers, $maxErrors - count($errors))
@@ -1260,6 +1263,7 @@ final class CsvLib
                 };
 
                 $listedErrors = array_map($describeError, array_slice($errors, 0, $maxErrorsListed));
+
                 $message = "diffTolerance: the columns being compared must hold numbers in both files, but " .
                     count($errors) . " non-numeric value(s) were found:\n - " . implode("\n - ", $listedErrors);
 

@@ -285,6 +285,9 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
         fn() => Filesystem::unzip("{$dir}/bad.zip", "{$dir}/bad", false)
     );
 
+    # The destination is only created once the zip has opened, so an invalid zip doesn't leave it behind.
+    assert(!file_exists("{$dir}/bad"));
+
     # deleteDir() through a symlink used to empty the folder it points to, so it must now refuse, and touch nothing.
     symlink("{$dir}/ziptest", "{$dir}/ziplink");
     SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink"));
@@ -789,5 +792,151 @@ $smoke->run("getDirectories / getDirContents and symlinks", function () use ($di
 
     # The links point back into the test directory, so remove them, as other tests list $dir.
     Filesystem::deleteDir($base);
+});
+
+$smoke->run("unzip", function () use ($dir) {
+    $base = "{$dir}/unzip-test";
+    mkdir("{$base}/source/inner", 0777, true);
+    file_put_contents("{$base}/source/inner/a.txt", "a");
+    Filesystem::zipDir("{$base}/source", "{$base}/keep.zip", false);
+
+    # A destination that doesn't exist is created, along with any parents, and the zip is deleted by default.
+    copy("{$base}/keep.zip", "{$base}/delete-me.zip");
+    Filesystem::unzip("{$base}/delete-me.zip", "{$base}/new/nested/destination");
+    assert(file_get_contents("{$base}/new/nested/destination/source/inner/a.txt") === "a");
+    assert(!file_exists("{$base}/delete-me.zip"));
+
+    # A missing zip, and a destination that is a file, are reported clearly.
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => Filesystem::unzip("{$base}/nope.zip", "{$base}/out")
+    );
+    file_put_contents("{$base}/a-file", "not a directory");
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/a-file", false),
+        "as it isn't a directory"
+    );
+    assert(file_get_contents("{$base}/a-file") === "not a directory" && is_file("{$base}/keep.zip"));
+
+    # Nothing is left of the temporary directory it extracts into, wherever that was.
+    assert(glob("{$base}/new/nested/destination/.corelibs-unzip-*") === []);
+    assert(glob(sys_get_temp_dir() . "/corelibs-unzip-*") === []);
+
+    # A destination on a different filesystem from the system's temporary directory can't have the contents moved
+    # there instantly, so it extracts into a hidden directory inside the destination instead. /dev/shm is usually a
+    # separate filesystem, so check there if so.
+    $isSeparateFilesystem = is_dir("/dev/shm")
+        && is_writable("/dev/shm")
+        && stat("/dev/shm")['dev'] !== stat(sys_get_temp_dir())['dev'];
+
+    if ($isSeparateFilesystem)
+    {
+        $otherFilesystem = "/dev/shm/corelibs-unzip-test-" . getmypid();
+
+        try
+        {
+            Filesystem::unzip("{$base}/keep.zip", "{$otherFilesystem}/out", false);
+            assert(file_get_contents("{$otherFilesystem}/out/source/inner/a.txt") === "a");
+            assert(glob("{$otherFilesystem}/out/.corelibs-unzip-*") === []);
+        }
+        finally
+        {
+            if (is_dir($otherFilesystem))
+            {
+                Filesystem::deleteDir($otherFilesystem);
+            }
+        }
+    }
+
+    # Extracting into an existing destination merges into its directories, and replaces files with the same names.
+    mkdir("{$base}/existing/source/inner", 0777, true);
+    file_put_contents("{$base}/existing/source/inner/a.txt", "old a");
+    file_put_contents("{$base}/existing/source/inner/kept.txt", "kept");
+    Filesystem::unzip("{$base}/keep.zip", "{$base}/existing", false);
+    assert(file_get_contents("{$base}/existing/source/inner/a.txt") === "a");
+    assert(file_get_contents("{$base}/existing/source/inner/kept.txt") === "kept");
+
+    # Something in the way that can't be merged (here a file where the zip has a directory) stops it before anything
+    # is moved, leaving the destination exactly as it was.
+    mkdir("{$base}/blocked");
+    file_put_contents("{$base}/blocked/source", "a file in the way");
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/blocked", false),
+        "the zip has a directory at {$base}/blocked/source, where there is already a file."
+    );
+    assert(file_get_contents("{$base}/blocked/source") === "a file in the way");
+    assert(array_values(array_diff(scandir("{$base}/blocked"), [".", ".."])) === ["source"]);
+
+    # Extraction failing part way through leaves nothing behind. This zip has a file "clash" and a directory "clash/",
+    # so once the file is extracted, the directory can't be. A destination it created is removed again too.
+    $clashZip = new ZipArchive();
+    $clashZip->open("{$base}/clash.zip", ZipArchive::CREATE);
+    $clashZip->addFromString("first.txt", "first");
+    $clashZip->addFromString("clash", "a file");
+    $clashZip->addFromString("clash/inside.txt", "inside a directory");
+    $clashZip->close();
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::unzip("{$base}/clash.zip", "{$base}/new-for-clash/deeper", false),
+        "Unable to unzip {$base}/clash.zip"
+    );
+    assert(!file_exists("{$base}/new-for-clash"));
+
+    mkdir("{$base}/existing-for-clash");
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::unzip("{$base}/clash.zip", "{$base}/existing-for-clash", false)
+    );
+    assert(scandir("{$base}/existing-for-clash") === [".", ".."]);
+    assert(glob(sys_get_temp_dir() . "/corelibs-unzip-*") === []);
+
+    if (SmokeTest::canTestPermissions("unzip() reporting why it can't create, extract or delete"))
+    {
+        # A destination that can't be created gives the reason, even though the test runner has its own error handler.
+        mkdir("{$base}/read-only");
+        chmod("{$base}/read-only", 0555);
+        SmokeTest::expectException(
+            FilesystemException::class,
+            fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/read-only/out", false),
+            "Permission denied"
+        );
+
+        # A zip that can't be deleted afterwards is reported, but its contents have already been extracted.
+        mkdir("{$base}/locked-zip");
+        copy("{$base}/keep.zip", "{$base}/locked-zip/locked.zip");
+        chmod("{$base}/locked-zip", 0555);
+        SmokeTest::expectException(
+            FilesystemException::class,
+            fn() => Filesystem::unzip("{$base}/locked-zip/locked.zip", "{$base}/from-locked"),
+            "but failed to delete the zip: unlink("
+        );
+        assert(file_get_contents("{$base}/from-locked/source/inner/a.txt") === "a");
+        assert(is_file("{$base}/locked-zip/locked.zip"));
+        chmod("{$base}/read-only", 0755);
+        chmod("{$base}/locked-zip", 0755);
+    }
+});
+
+$smoke->run("isOnSameFilesystem", function () use ($dir) {
+    # Paths in the same directory are on the same filesystem, including ones that don't exist yet (checked using
+    # the nearest directory above them that does).
+    file_put_contents("{$dir}/same-fs.txt", "x");
+    assert(Filesystem::isOnSameFilesystem("{$dir}/same-fs.txt", $dir));
+    assert(Filesystem::isOnSameFilesystem("{$dir}/not/created/yet.txt", "{$dir}/same-fs.txt"));
+
+    # /dev/shm is usually a separate filesystem, so check there if so.
+    if (is_dir("/dev/shm") && stat("/dev/shm")['dev'] !== stat($dir)['dev'])
+    {
+        assert(!Filesystem::isOnSameFilesystem("/dev/shm", $dir));
+        assert(!Filesystem::isOnSameFilesystem("/dev/shm/not/created/yet", "{$dir}/not/created/yet"));
+    }
+
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => Filesystem::isOnSameFilesystem("relative/path", $dir),
+        "must be an absolute path"
+    );
 });
 

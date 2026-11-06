@@ -14,6 +14,7 @@ use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
 use Programster\CoreLibs\Models\FileDeletionProblem;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
+use Programster\CoreLibs\Exceptions\CoreLibsException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
@@ -782,26 +783,48 @@ final class Filesystem
 
 
     /**
-     * Unzip a zip file and all of its contents into a directory.
-     *
+     * Unzip a zip file and all of its contents into a directory. The directory (and any parent
+     * directories) is created if it doesn't exist, once the zip has been opened successfully.
+     * The zip is first extracted into a temporary directory (created with 0700 permissions, so other
+     * users can't read it) on the same filesystem as the destination, so its contents can then be
+     * moved into place instantly. That is in the system's temporary directory (e.g. /tmp) if it is on
+     * the same filesystem, so nothing appears in the destination until it is complete. Otherwise it
+     * is a hidden directory inside the destination. If extracting fails part way through, the
+     * temporary directory is deleted (along with any directories this created), so nothing is left
+     * behind. As with ZipArchive::extractTo(), existing files with the same names are replaced, and
+     * existing directories are merged into. Anything that can't be (e.g. a file where the destination
+     * has a directory, or an existing directory that can't be written to) is checked for before
+     * anything is moved, and stops it.
      * @param string $sourceZip - zip file to unzip.
      * @param string $destinationFolder - path to the folder we wish to unzip into.
-     * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed
-     * files after they have been zipped.
+     * @param bool $deleteOnComplete - whether to delete the zip file once its contents have been
+     * extracted. Defaults to true.
      * @return void
-     * @throws MissingExtensionException
-     * @throws FilesystemException - if the zip file could not be opened or extracted.
+     * @throws MissingExtensionException - if PHP's zip extension isn't installed.
+     * @throws FileDoesNotExistException - if there is no file at $sourceZip.
+     * @throws BadArgumentException - if $destinationFolder exists, but isn't a directory.
+     * @throws FilesystemException - if the zip file could not be opened or extracted, the destination
+     * could not be created, the contents clash with what is already in the destination, or (with
+     * $deleteOnComplete) the zip could not be deleted afterwards, in which case its contents have
+     * already been extracted. Moving the extracted contents into place is checked first, so is very
+     * unlikely to fail, but if it does, some will have been moved, and the message says where the
+     * rest are.
      */
-    public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete=true): void
+    public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete = true): void
     {
-        if (!extension_loaded('zip') )
+        if (!extension_loaded('zip'))
         {
             throw new MissingExtensionException("Your PHP does not have the zip extension.");
         }
 
-        if (!file_exists($destinationFolder))
+        if (!is_file($sourceZip))
         {
-            mkdir($destinationFolder);
+            throw new FileDoesNotExistException("There is no zip file at {$sourceZip}.");
+        }
+
+        if (file_exists($destinationFolder) && !is_dir($destinationFolder))
+        {
+            throw new BadArgumentException("Can't unzip into {$destinationFolder}, as it isn't a directory.");
         }
 
         $zip = new ZipArchive();
@@ -813,20 +836,90 @@ final class Filesystem
             throw new FilesystemException("Unable to open zip file: {$sourceZip} (ZipArchive error code {$opened}).");
         }
 
-        $unzip = $zip->extractTo($destinationFolder);
+        # Only create the destination now that the zip has opened. Note the top directory this creates, so that
+        # everything it created can be removed again if extracting fails.
+        $topCreatedDirectory = null;
 
-        if (!$unzip)
+        if (!is_dir($destinationFolder))
         {
+            $topCreatedDirectory = rtrim($destinationFolder, "/");
+
+            while (!is_dir(dirname($topCreatedDirectory)))
+            {
+                $topCreatedDirectory = dirname($topCreatedDirectory);
+            }
+
+            self::mkdir($destinationFolder, recursive: true);
+        }
+
+        # Extract into a temporary directory first, so a failure part way through leaves nothing behind. It must be
+        # on the same filesystem as the destination, so the contents can then be moved into place with rename().
+        # Prefer the system's temporary directory, so nothing appears in the destination until it is complete, and
+        # otherwise use a hidden directory inside the destination itself.
+        $systemTmpDirectory = sys_get_temp_dir();
+        $realDestination = realpath($destinationFolder);
+
+        if (is_writable($systemTmpDirectory) && self::isOnSameFilesystem($systemTmpDirectory, $realDestination))
+        {
+            $tmpDirectory = $systemTmpDirectory . "/" . self::randomName("corelibs-unzip-");
+        }
+        else
+        {
+            # Hidden, as it is inside the destination until the contents are moved out of it.
+            $tmpDirectory = $realDestination . "/" . self::randomName(".corelibs-unzip-");
+        }
+
+        self::mkdir($tmpDirectory, "0700", overrideUmask: true);
+
+        $extractZip = function () use ($zip, $tmpDirectory): bool {
+            return $zip->extractTo($tmpDirectory);
+        };
+
+        # Capture the warnings, to put their reasons in the exceptions, rather than letting them through.
+        $extracted = Core::runCapturingWarning($extractZip, $error);
+        $statusIfFailed = $zip->getStatusString();
+        $zip->close();
+        $clashes = $extracted ? self::findMergeProblems($tmpDirectory, $destinationFolder) : array();
+
+        if (!$extracted || count($clashes) > 0)
+        {
+            # Nothing has been moved into place yet, so remove everything this made. This is only a best effort, so
+            # that a failure here doesn't hide the real reason, which is what gets thrown.
+            $toRemove = array_filter([$tmpDirectory, $topCreatedDirectory]);
+            $leftBehind = self::removeDirectoriesQuietly($toRemove);
+
+            $reason = $extracted
+                ? "it clashes with what is already there:\n - " . implode("\n - ", array_slice($clashes, 0, 20))
+                : ($error ?? $statusIfFailed);
+
+            $leftBehindText = (count($leftBehind) > 0)
+                ? " (and couldn't remove what it made, so some is left in " . implode(" and ", $leftBehind) . ")"
+                : "";
+
             throw new FilesystemException(
-                'Unable to unzip file: ' . $sourceZip . ' to destination: ' . $destinationFolder
+                "Unable to unzip {$sourceZip} into {$destinationFolder}, as {$reason}{$leftBehindText}"
             );
         }
 
-        $zip->close();
+        self::mergeDirectoryInto($tmpDirectory, $destinationFolder);
+
+        # Suppress the warning: it is empty now, and if it can't be removed, the files are still all in place.
+        @rmdir($tmpDirectory);
 
         if ($deleteOnComplete)
         {
-            unlink($sourceZip);
+            $deleteZip = function () use ($sourceZip): bool {
+                return unlink($sourceZip);
+            };
+
+            if (!Core::runCapturingWarning($deleteZip, $error))
+            {
+                $error ??= 'unknown error';
+
+                throw new FilesystemException(
+                    "Extracted {$sourceZip} into {$destinationFolder}, but failed to delete the zip: {$error}"
+                );
+            }
         }
     }
 
@@ -893,6 +986,7 @@ final class Filesystem
             $outputFilepath === null
             || (file_exists($outputFilepath) && realpath($outputFilepath) === realpath($inputFile))
         );
+
         $targetFile = $isInPlace ? $inputFile : $outputFilepath;
 
         # Check everything before doing any work, so the callback isn't run over the whole file only to fail at the end.
@@ -980,6 +1074,30 @@ final class Filesystem
 
 
     /**
+     * Check whether two paths are on the same filesystem (e.g. the same disk or partition), so that
+     * something can be moved between them with rename(), rather than having to be copied. A path that
+     * doesn't exist yet is checked using the nearest directory above it that does, as that is where it
+     * would be created. Symlinks are followed, so a symlink is checked by what it points to.
+     * @param string $path1 - an absolute path.
+     * @param string $path2 - another absolute path.
+     * @return bool - true if they are on the same filesystem.
+     * @throws BadArgumentException - if either path isn't absolute.
+     */
+    public static function isOnSameFilesystem(string $path1, string $path2): bool
+    {
+        foreach ([$path1, $path2] as $path)
+        {
+            if (!str_starts_with($path, "/"))
+            {
+                throw new BadArgumentException("isOnSameFilesystem: {$path} must be an absolute path.");
+            }
+        }
+
+        return self::filesystemDeviceOf($path1) === self::filesystemDeviceOf($path2);
+    }
+
+
+    /**
      * Converts a permissions string, such as "0755", into the int that PHP's mkdir() and chmod()
      * expect. Unlike octdec(), this throws for anything that isn't valid, rather than silently
      * ignoring invalid characters and giving the wrong permissions.
@@ -1044,7 +1162,7 @@ final class Filesystem
 
         for ($attempt = 1; $attempt <= $maxAttempts && $tmpDirPath === null; $attempt++)
         {
-            $path = "{$parentDir}/corelibs-dir-" . bin2hex(random_bytes(8));
+            $path = "{$parentDir}/" . self::randomName("corelibs-dir-");
 
             # Create the directory in one step, as mkdir() fails if anything already exists there, so a success means
             # it is a new directory of ours. Suppress the warning, as we throw an exception instead.
@@ -1185,6 +1303,7 @@ final class Filesystem
         // Owner
         $info .= (($perms & 0x0100) ? 'r' : '-');
         $info .= (($perms & 0x0080) ? 'w' : '-');
+
         $info .= (($perms & 0x0040) ?
                     (($perms & 0x0800) ? 's' : 'x' ) :
                     (($perms & 0x0800) ? 'S' : '-'));
@@ -1192,6 +1311,7 @@ final class Filesystem
         // Group
         $info .= (($perms & 0x0020) ? 'r' : '-');
         $info .= (($perms & 0x0010) ? 'w' : '-');
+
         $info .= (($perms & 0x0008) ?
                     (($perms & 0x0400) ? 's' : 'x' ) :
                     (($perms & 0x0400) ? 'S' : '-'));
@@ -1199,6 +1319,7 @@ final class Filesystem
         // World
         $info .= (($perms & 0x0004) ? 'r' : '-');
         $info .= (($perms & 0x0002) ? 'w' : '-');
+
         $info .= (($perms & 0x0001) ?
                     (($perms & 0x0200) ? 't' : 'x' ) :
                     (($perms & 0x0200) ? 'T' : '-'));
@@ -1590,6 +1711,155 @@ final class Filesystem
 
 
     /**
+     * Find anything that would stop mergeDirectoryInto() moving everything from $source into
+     * $destination: a file where $destination has a directory, a directory where it has a file (or
+     * a symlink), or an existing directory that can't be written to.
+     * @param string $source - the directory whose contents would be moved.
+     * @param string $destination - the directory they would be moved into.
+     * @return array<string> - descriptions of the problems found, which is empty if there are none.
+     * @throws FilesystemException - if one of the directories in $source can't be opened.
+     */
+    private static function findMergeProblems(string $source, string $destination): array
+    {
+        $problems = array();
+
+        if (!is_writable($destination) || !is_executable($destination))
+        {
+            $problems[] = "{$destination} can't be written to.";
+        }
+
+        foreach (self::readDirectoryEntries($source) as $entry)
+        {
+            $from = "{$source}/{$entry}";
+            $to = "{$destination}/{$entry}";
+            $fromIsDirectory = is_dir($from) && !is_link($from);
+            $toExists = file_exists($to) || is_link($to);
+            $toIsDirectory = is_dir($to) && !is_link($to);
+
+            if ($toExists && $fromIsDirectory && $toIsDirectory)
+            {
+                $problems = array_merge($problems, self::findMergeProblems($from, $to));
+            }
+            elseif ($toExists && ($fromIsDirectory || $toIsDirectory))
+            {
+                $problems[] = $fromIsDirectory
+                    ? "the zip has a directory at {$to}, where there is already a file."
+                    : "the zip has a file at {$to}, where there is already a directory.";
+            }
+        }
+
+        return $problems;
+    }
+
+
+    /**
+     * Move everything in $source into $destination, merging directories that already exist there,
+     * and replacing files that do (as ZipArchive::extractTo() would). Each emptied directory in
+     * $source is removed as it goes. findMergeProblems() should have found no problems first.
+     * @param string $source - the directory to move everything out of.
+     * @param string $destination - the directory to move it into.
+     * @return void
+     * @throws FilesystemException - if something couldn't be moved. Anything already moved stays
+     * moved, and the rest stays in $source.
+     */
+    private static function mergeDirectoryInto(string $source, string $destination): void
+    {
+        foreach (self::readDirectoryEntries($source) as $entry)
+        {
+            $from = "{$source}/{$entry}";
+            $to = "{$destination}/{$entry}";
+
+            if (is_dir($from) && !is_link($from) && is_dir($to) && !is_link($to))
+            {
+                self::mergeDirectoryInto($from, $to);
+
+                # Suppress the warning: it is empty now, and is only the extraction's own temporary copy.
+                @rmdir($from);
+            }
+            elseif (!@rename($from, $to))
+            {
+                # Suppress the warning, as we throw an exception instead.
+                throw new FilesystemException(
+                    "Failed to move {$from} to {$to}, despite checking it could be, so some of the unzipped " .
+                    "contents are still in {$source}."
+                );
+            }
+        }
+    }
+
+
+    /**
+     * Get the device number of the filesystem a path is on, using the nearest directory above it that
+     * exists if the path itself doesn't.
+     * @param string $path - an absolute path.
+     * @return int - the device number, which is the same for every path on the same filesystem.
+     */
+    private static function filesystemDeviceOf(string $path): int
+    {
+        $existingPath = $path;
+
+        # "/" always exists, so this always stops.
+        while (!file_exists($existingPath))
+        {
+            $existingPath = dirname($existingPath);
+        }
+
+        return stat($existingPath)['dev'];
+    }
+
+
+    /**
+     * Make a random name for a temporary file or directory, e.g. "corelibs-dir-1a2b3c4d5e6f7a8b".
+     * @param string $prefix - what the name starts with.
+     * @return string - the prefix, followed by 16 random hex characters.
+     * @throws FilesystemException - if no random bytes could be got (which only happens if the system
+     * has no source of randomness).
+     */
+    private static function randomName(string $prefix): string
+    {
+        try
+        {
+            $randomPart = bin2hex(random_bytes(8));
+        }
+        catch (\Random\RandomException $e)
+        {
+            throw new FilesystemException("Failed to make a random name for a temporary directory.", 0, $e);
+        }
+
+        return $prefix . $randomPart;
+    }
+
+
+    /**
+     * Remove directories as a best effort, while cleaning up after something else has failed, so that a
+     * failure to remove them doesn't replace the original error.
+     * @param array<string> $directories - the directories to remove. Any that don't exist are skipped.
+     * @return array<string> - the directories that couldn't be removed, which is empty if they all were.
+     */
+    private static function removeDirectoriesQuietly(array $directories): array
+    {
+        $leftBehind = array();
+
+        foreach ($directories as $directory)
+        {
+            if (is_dir($directory))
+            {
+                try
+                {
+                    self::deleteDir($directory);
+                }
+                catch (CoreLibsException $e)
+                {
+                    $leftBehind[] = $directory;
+                }
+            }
+        }
+
+        return $leftBehind;
+    }
+
+
+    /**
      * Read the names of the entries in a directory, apart from "." and "..".
      * @param string $directory - the directory to read.
      * @return array<string> - the names, in the order the system gives them.
@@ -1825,6 +2095,7 @@ final class Filesystem
                                     $problems,
                                     $planned
                                 );
+
                                 self::planDeletion(FileDeletionOperationEnum::RMDIR, $path, $plan, $problems);
                             }
                             else
