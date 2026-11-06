@@ -7,6 +7,7 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;

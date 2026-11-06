@@ -14,7 +14,7 @@
  * Descriptions are based on https://docs.kernel.org/filesystems/proc.html#meminfo
  */
 
-namespace Programster\CoreLibs;
+namespace Programster\CoreLibs\Enums;
 
 
 enum MemoryTypeEnum : string

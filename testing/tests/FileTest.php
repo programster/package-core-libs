@@ -4,11 +4,11 @@
  * Smoke tests for File. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
-use Programster\CoreLibs\CsvFile;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
-use Programster\CoreLibs\File;
+use Programster\CoreLibs\Models\CsvFile;
+use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Testing\SmokeTest;
 
 /** @var \Programster\CoreLibs\Testing\SmokeTest $smoke */

@@ -30,7 +30,9 @@
     "autoload": {
         "psr-4": {
             "Programster\\CoreLibs\\": "src/",
-            "Programster\\CoreLibs\\Exceptions\\": "src/exceptions/"
+            "Programster\\CoreLibs\\Enums\\": "src/enums/",
+            "Programster\\CoreLibs\\Exceptions\\": "src/exceptions/",
+            "Programster\\CoreLibs\\Models\\": "src/models/"
         }
     },
     "autoload-dev": {

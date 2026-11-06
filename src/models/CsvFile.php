@@ -8,14 +8,16 @@
  * (from File) is fine, as the path is updated.
  */
 
-namespace Programster\CoreLibs;
+namespace Programster\CoreLibs\Models;
 
 
+use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\InvalidCsvException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\NoCsvHeaderException;
+use Programster\CoreLibs\Exceptions\NonNumericCsvValuesException;
 
 final class CsvFile extends File
 {
@@ -183,28 +185,29 @@ final class CsvFile extends File
 
 
     /**
-     * Check whether this CSV file and another are the same, within the given tolerances. An alias for
+     * Check whether the numbers in this CSV file and another are the same, within the given tolerances. An alias for
      * CsvLib::diffTolerance(), with this file as the first file, passing through whether each file has a header row.
      * @param CsvFile|string $other - the CSV file to compare against, as a CsvFile or a path. A CsvFile must use the
      *                                same delimiter, enclosure and escape character as this one, but its own header
      *                                setting is used. A path is read with this file's settings, including whether it
      *                                has a header, so pass a CsvFile if the other file's header setting is different.
-     * @param array $tolerances - column index / tolerance pairs. See CsvLib::diffTolerance().
-     * @param bool $compareOtherColumns - whether to compare the columns that have no tolerance. See
-     *                                    CsvLib::diffTolerance().
-     * @return bool - true if the files are the same within the tolerances, false if not.
+     * @param array $tolerances - the columns to compare, as column number (from 1) / tolerance pairs. See
+     *                            CsvLib::diffTolerance().
+     * @return bool - true if every compared value is within its tolerance, false if not.
      * @throws BadArgumentException - if $other is a CsvFile that uses a different delimiter, enclosure or escape
-     *                                character.
-     * @throws InvalidCsvException - if the rows of the two files don't have the same number of columns.
+     *                                character, or $tolerances isn't valid (see CsvLib::diffTolerance()).
+     * @throws NonNumericCsvValuesException - if any of the listed columns hold non-numeric values, in either file.
+     *                                        getErrors() says where each one is. See CsvLib::diffTolerance().
+     * @throws InvalidCsvException - if either file isn't valid, they don't have the same number of rows of data, or
+     *                               either is missing one of the listed columns.
      * @throws FilesystemException - if either CSV file could not be opened.
      */
-    public function diffTolerance(CsvFile|string $other, array $tolerances, bool $compareOtherColumns = true): bool
+    public function diffTolerance(CsvFile|string $other, array $tolerances): bool
     {
         return CsvLib::diffTolerance(
             $this->m_filepath,
             $this->getOtherFilepath($other),
             $tolerances,
-            $compareOtherColumns,
             $this->m_delimiter,
             $this->m_enclosure,
             $this->m_escape,

@@ -4,7 +4,6 @@
  * Smoke tests for CsvLib. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
-use Programster\CoreLibs\CsvFile;
 use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
@@ -12,6 +11,9 @@ use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\InvalidCsvException;
 use Programster\CoreLibs\Exceptions\NoCsvHeaderException;
+use Programster\CoreLibs\Exceptions\NonNumericCsvValuesException;
+use Programster\CoreLibs\Models\CsvCellError;
+use Programster\CoreLibs\Models\CsvFile;
 use Programster\CoreLibs\Testing\SmokeTest;
 
 /** @var \Programster\CoreLibs\Testing\SmokeTest $smoke */
@@ -158,8 +160,108 @@ $smoke->run("CSV methods", function () use ($dir) {
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::diffTolerance("{$dir}/tol1.csv", "{$dir}/tol2.csv", [1 => 0.05]),
-        "non-numeric column"
+        "{$dir}/tol1.csv row 1, column 1: 'price'"
     );
+
+    # Only the columns listed in $tolerances are compared, so a different text column is ignored.
+    file_put_contents("{$dir}/tol-text1.csv", "1.00,abc,10\n2.00,def,20\n\n");
+    file_put_contents("{$dir}/tol-text2.csv", "1.01,xyz,10\n2.00,uvw,21\n");
+    assert(CsvLib::diffTolerance("{$dir}/tol-text1.csv", "{$dir}/tol-text2.csv", [1 => 0.05]));
+    assert(!CsvLib::diffTolerance("{$dir}/tol-text1.csv", "{$dir}/tol-text2.csv", [1 => 0.05, 3 => 0]));
+    assert(CsvLib::diffTolerance("{$dir}/tol-text1.csv", "{$dir}/tol-text2.csv", [1 => 0.05, 3 => 1]));
+
+    # A tolerance of 0 means equal as numbers, so 1.10 and 1.1 match.
+    file_put_contents("{$dir}/tol-zero1.csv", "1.10\n");
+    file_put_contents("{$dir}/tol-zero2.csv", "1.1\n");
+    assert(CsvLib::diffTolerance("{$dir}/tol-zero1.csv", "{$dir}/tol-zero2.csv", [1 => 0]));
+
+    # Every non-numeric value in the listed columns, in both files, is reported in one exception, before anything is
+    # compared. getErrors() gives each one's file, row (counting any header) and column (from 1).
+    file_put_contents("{$dir}/tol-bad1.csv", "h1,h2\n1,abc\nN/A,2\n");
+    file_put_contents("{$dir}/tol-bad2.csv", "1,2\n5,\n");
+    $badErrors = null;
+
+    try
+    {
+        CsvLib::diffTolerance("{$dir}/tol-bad1.csv", "{$dir}/tol-bad2.csv", [1 => 0, 2 => 0], file1HasHeader: true);
+    }
+    catch (NonNumericCsvValuesException $e)
+    {
+        $badErrors = array_map(
+            fn(CsvCellError $error) => [$error->filepath, $error->rowNumber, $error->columnNumber, $error->value],
+            $e->getErrors()
+        );
+        assert(str_contains($e->getMessage(), "3 non-numeric value(s) were found"));
+        assert(str_contains($e->getMessage(), "{$dir}/tol-bad1.csv row 3, column 1: 'N/A'"));
+    }
+
+    assert($badErrors === [
+        ["{$dir}/tol-bad1.csv", 2, 2, "abc"],
+        ["{$dir}/tol-bad1.csv", 3, 1, "N/A"],
+        ["{$dir}/tol-bad2.csv", 2, 2, ""],
+    ]);
+
+    # It still extends InvalidCsvException, so existing catch blocks still work.
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::diffTolerance("{$dir}/tol-bad1.csv", "{$dir}/tol-bad2.csv", [1 => 0], file1HasHeader: true)
+    );
+
+    # A listed column that a file doesn't have is reported before looking for non-numeric values.
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::diffTolerance("{$dir}/tol-bad1.csv", "{$dir}/tol-bad2.csv", [3 => 0], file1HasHeader: true),
+        "{$dir}/tol-bad2.csv has no column 3, as it has 2 column(s)."
+    );
+
+    # Under 100, the message lists the first 10, and says how many more getErrors() has.
+    file_put_contents("{$dir}/tol-some.csv", str_repeat("x\n", 15));
+    SmokeTest::expectException(
+        NonNumericCsvValuesException::class,
+        fn() => CsvLib::diffTolerance("{$dir}/tol-some.csv", "{$dir}/tol-some.csv", [1 => 0]),
+        "and 20 more. Call getErrors() on this exception to get them all."
+    );
+
+    # The search stops at 100 non-numeric values, across both files.
+    file_put_contents("{$dir}/tol-many.csv", str_repeat("x,y\n", 60));
+    $manyErrors = [];
+
+    try
+    {
+        CsvLib::diffTolerance("{$dir}/tol-many.csv", "{$dir}/tol-many.csv", [1 => 0, 2 => 0]);
+    }
+    catch (NonNumericCsvValuesException $e)
+    {
+        $manyErrors = $e->getErrors();
+        assert($e->getMessage() === "diffTolerance: found 100 or more (stopped counting at 100) non-numeric values " .
+            "in the columns being compared. Call getErrors() on this exception to get them.");
+    }
+
+    assert(count($manyErrors) === 100 && $manyErrors[99]->rowNumber === 50 && $manyErrors[99]->columnNumber === 2);
+
+    # Files with different numbers of rows of data, or invalid files, can't be compared.
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::diffTolerance("{$dir}/tol-text1.csv", "{$dir}/tol-zero1.csv", [1 => 0]),
+        "has 2 rows of data, but {$dir}/tol-zero1.csv has 1"
+    );
+    file_put_contents("{$dir}/tol-blank-middle.csv", "1\n\n2\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::diffTolerance("{$dir}/tol-blank-middle.csv", "{$dir}/tol-blank-middle.csv", [1 => 0]),
+        "blank line at row 2"
+    );
+
+    # $tolerances must list at least one column, with valid column numbers and tolerances.
+    $badTolerances = [[], [0 => 1], ["price" => 1], [1 => -0.5], [1 => "abc"]];
+
+    foreach ($badTolerances as $tolerances)
+    {
+        SmokeTest::expectException(
+            BadArgumentException::class,
+            fn() => CsvLib::diffTolerance("{$dir}/tol-zero1.csv", "{$dir}/tol-zero2.csv", $tolerances)
+        );
+    }
 
     # Validation allows blank lines at the end, rows of just delimiters, values spanning several lines, and empty
     # files. Blank lines at the end don't count as rows.
@@ -354,8 +456,8 @@ $smoke->run("CSV methods", function () use ($dir) {
     assert($walkedRows === [["a" => "5", "b" => "x"]]);
     assert(file_get_contents($semi1->decimalDiff($semi2)) === "a;b\n3;x\n");
     assert(file_get_contents($semi1->decimalDiff("{$dir}/semi2.csv")) === "a;b\n3;x\n");
-    assert($semi1->diffTolerance($semi1, []));
-    assert($semi1->diffTolerance("{$dir}/semi1.csv", []));
+    assert($semi1->diffTolerance($semi1, [1 => 0]));
+    assert($semi1->diffTolerance("{$dir}/semi1.csv", [1 => 0]));
 
     # A CsvFile passed as $other brings its own header setting.
     file_put_contents("{$dir}/semi2-no-header.csv", "2;x\n");
@@ -368,7 +470,7 @@ $smoke->run("CSV methods", function () use ($dir) {
         fn() => $semi1->decimalDiff(new CsvFile("{$dir}/diff1.csv", false)),
         "must use the same delimiter"
     );
-    assert(CsvLib::diffTolerance("{$dir}/a.csv", "{$dir}/a.csv", []));
+    assert(CsvLib::diffTolerance("{$dir}/a.csv", "{$dir}/a.csv", [1 => 0], file1HasHeader: true, file2HasHeader: true));
     CsvLib::mergeFiles(["{$dir}/a.csv", "{$dir}/a.csv"], "{$dir}/merged.csv", true);
 });
 

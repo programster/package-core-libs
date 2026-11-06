@@ -5,10 +5,10 @@
  */
 
 use Programster\CoreLibs\Core;
-use Programster\CoreLibs\DataSizeUnitEnum;
+use Programster\CoreLibs\Enums\DataSizeUnitEnum;
+use Programster\CoreLibs\Enums\MemoryTypeEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
-use Programster\CoreLibs\MemoryTypeEnum;
 use Programster\CoreLibs\Testing\SmokeTest;
 
 /** @var \Programster\CoreLibs\Testing\SmokeTest $smoke */

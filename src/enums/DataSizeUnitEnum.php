@@ -5,7 +5,7 @@
  * the binary (base 2, e.g. MiB) units and the decimal (base 10, e.g. MB) units.
  */
 
-namespace Programster\CoreLibs;
+namespace Programster\CoreLibs\Enums;
 
 
 enum DataSizeUnitEnum : string

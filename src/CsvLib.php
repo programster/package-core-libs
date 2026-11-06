@@ -7,11 +7,14 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Models\CsvCellError;
+use Programster\CoreLibs\Models\CsvFile;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\InvalidCsvException;
+use Programster\CoreLibs\Exceptions\NonNumericCsvValuesException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 final class CsvLib
@@ -1078,34 +1081,41 @@ final class CsvLib
 
 
     /**
-     * Perform a diff on two CSV files with a tolerance of values being different by the amount
-     * specified. This can be useful in situations with floating point values where the last decimal
-     * place may be different.
-     *
+     * Compare the numbers in two CSV files, allowing each value to differ by up to a given tolerance. This can be
+     * useful for floating point values, where the last decimal place may be different.
+     * Only the columns listed in $tolerances are compared, and they must hold numbers in both files. Every other
+     * column is ignored, as this is only for comparing numbers. To compare text, use a diff tool instead.
+     * Both files are checked completely before anything is compared: first as described in the CsvFile constructor
+     * (e.g. no blank lines in the middle), then for the same number of rows of data, then that they have all the
+     * listed columns, and then for any non-numeric values in those columns. The non-numeric values are reported
+     * together in a NonNumericCsvValuesException, whose getErrors() says where each one is. The search stops after
+     * 100 of them, so a large file full of them doesn't take a long time or use a lot of memory.
      * A header row can't be detected automatically, so say which files have one. Header rows aren't compared.
      *
      * @param string $filepath1 - the path to the file we are checking
      * @param string $filepath2 - the path to the file we are comparing it against
-     * @param array $tolerances - array of column index / tolerance pairs. For this function,
-     *                            the column indexes start from 1, not 0.
-     * @param bool $compareOtherColumns - optionally specify false to tell this function to ignore
-     *                                    all the other columns and only compare the ones specified
-     *                                    in the tolerances array.
+     * @param array $tolerances - the columns to compare, as column number / tolerance pairs, e.g. [1 => 0.01, 3 => 0].
+     *                            The column numbers start from 1, not 0. A tolerance of 0 means the numbers must be
+     *                            equal (e.g. 1.10 and 1.1 are equal).
      * @param string $delimiter - optionally specify the delimiter to pass to fgetcsv (comma default)
      * @param string $enclosure - optionally specify the enclosure to pass to fgetcsv (default: ")
      * @param string $escape - optionally specify the escape character to pass to fgetcsv.
      * @param bool $file1HasHeader - whether the first row of $filepath1 is a header row. Defaults to false.
      * @param bool $file2HasHeader - whether the first row of $filepath2 is a header row. Defaults to false.
-     * @return bool - true if the files are the same, false if different.
-     * @throws InvalidCsvException - if the rows of the two files don't have the same number of columns, or a column
-     *                               with a tolerance contains a non-numeric value.
+     * @return bool - true if every compared value is within its tolerance, false if not.
+     * @throws BadArgumentException - if $tolerances is empty, or has a column number that isn't an int of 1 or more,
+     *                                or a tolerance that isn't a number of 0 or more.
+     * @throws FileDoesNotExistException - if there is no file at either path.
+     * @throws NonNumericCsvValuesException - if any of the listed columns hold non-numeric values, in either file.
+     *                                        This extends InvalidCsvException.
+     * @throws InvalidCsvException - if either file isn't valid (see the CsvFile constructor), they don't have the same
+     *                               number of rows of data, or either is missing one of the listed columns.
      * @throws FilesystemException - if either CSV file could not be opened.
      */
     public static function diffTolerance(
         string $filepath1,
         string $filepath2,
         array $tolerances,
-        bool $compareOtherColumns = true,
         string $delimiter=",",
         string $enclosure='"',
         string $escape="",
@@ -1113,92 +1123,118 @@ final class CsvLib
         bool $file2HasHeader = false,
     ): bool
     {
+        # Without any columns to compare, every pair of files would count as the same, which is never useful.
+        if (count($tolerances) === 0)
+        {
+            throw new BadArgumentException("diffTolerance: \$tolerances must list at least one column to compare.");
+        }
+
+        foreach ($tolerances as $columnNumber => $tolerance)
+        {
+            if (!is_int($columnNumber) || $columnNumber < 1 || !is_numeric($tolerance) || $tolerance < 0)
+            {
+                throw new BadArgumentException(
+                    "diffTolerance: \$tolerances must be column number => tolerance pairs, with column numbers of 1 " .
+                    "or more and tolerances of 0 or more, but has " . var_export($columnNumber, true) . " => " .
+                    var_export($tolerance, true) . "."
+                );
+            }
+        }
+
+        # Check both files completely before comparing anything, so every problem is found up front.
+        $csvFile1 = new CsvFile($filepath1, $file1HasHeader, $delimiter, $enclosure, $escape);
+        $csvFile2 = new CsvFile($filepath2, $file2HasHeader, $delimiter, $enclosure, $escape);
+        $dataRowCount1 = $csvFile1->getRowCount() - ($file1HasHeader ? 1 : 0);
+        $dataRowCount2 = $csvFile2->getRowCount() - ($file2HasHeader ? 1 : 0);
+
+        if ($dataRowCount1 !== $dataRowCount2)
+        {
+            throw new InvalidCsvException(
+                "diffTolerance: {$filepath1} has {$dataRowCount1} rows of data, but {$filepath2} has " .
+                "{$dataRowCount2}. If only one of them has a header row, set \$file1HasHeader or \$file2HasHeader."
+            );
+        }
+
+        # Every row in a file has the same number of columns, so a missing column only needs checking once per file.
+        $columnNumbers = array_keys($tolerances);
+        $missingColumns = array();
+
+        foreach ([$csvFile1, $csvFile2] as $csvFile)
+        {
+            foreach ($columnNumbers as $columnNumber)
+            {
+                if ($columnNumber > $csvFile->getColumnCount())
+                {
+                    $missingColumns[] = "{$csvFile->getFilepath()} has no column {$columnNumber}, as it has " .
+                        "{$csvFile->getColumnCount()} column(s).";
+                }
+            }
+        }
+
+        if (count($missingColumns) > 0)
+        {
+            throw new InvalidCsvException(
+                "diffTolerance: \$tolerances lists columns that aren't in the files:\n - " .
+                implode("\n - ", $missingColumns)
+            );
+        }
+
+        $maxErrors = 100;
+        $errors = self::findNonNumericValues($csvFile1, $columnNumbers, $maxErrors);
+        $errors = array_merge(
+            $errors,
+            self::findNonNumericValues($csvFile2, $columnNumbers, $maxErrors - count($errors))
+        );
+
+        if (count($errors) > 0)
+        {
+            if (count($errors) >= $maxErrors)
+            {
+                # The search stopped here, so there may be more than this. Listing them all would make the message
+                # enormous, so point to getErrors() instead.
+                $message = "diffTolerance: found {$maxErrors} or more (stopped counting at {$maxErrors}) non-numeric " .
+                    "values in the columns being compared. Call getErrors() on this exception to get them.";
+            }
+            else
+            {
+                # List a few in the message, for logs. getErrors() has all of them.
+                $maxErrorsListed = 10;
+                $listedErrors = array_map(
+                    fn(CsvCellError $error) => "{$error->filepath} row {$error->rowNumber}, column " .
+                        "{$error->columnNumber}: " . var_export($error->value, true),
+                    array_slice($errors, 0, $maxErrorsListed)
+                );
+                $message = "diffTolerance: the columns being compared must hold numbers in both files, but " .
+                    count($errors) . " non-numeric value(s) were found:\n - " . implode("\n - ", $listedErrors);
+
+                if (count($errors) > $maxErrorsListed)
+                {
+                    $message .= "\n - and " . (count($errors) - $maxErrorsListed) . " more. Call getErrors() on " .
+                        "this exception to get them all.";
+                }
+            }
+
+            throw new NonNumericCsvValuesException($message, $errors);
+        }
+
         $hasFailed = false;
-        $humanRowNumber = 1;
-        $fileHandle1 = fopen($filepath1, "r");
-        $fileHandle2 = fopen($filepath2, "r");
+        $fileHandle1 = self::openForReadingData($csvFile1);
+        $fileHandle2 = self::openForReadingData($csvFile2);
 
-        if (!$fileHandle1 || !$fileHandle2)
-        {
-            throw new FilesystemException("diffTolerance: Failed to open CSV files for comparison.");
-        }
-
-        # Skip any byte order marks, otherwise the first value would never match or be seen as a number.
-        self::skipByteOrderMark($fileHandle1);
-        self::skipByteOrderMark($fileHandle2);
-
-        # Header rows are names rather than values, so skip them.
-        if ($file1HasHeader)
-        {
-            fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape);
-        }
-
-        if ($file2HasHeader)
-        {
-            fgetcsv($fileHandle2, 0, $delimiter, $enclosure, $escape);
-        }
-
-        while (!feof($fileHandle1) && $hasFailed === FALSE)
+        # Every value being compared is now known to be a number. Stop at the first one that is out of tolerance.
+        for ($rowIndex = 0; $rowIndex < $dataRowCount1 && $hasFailed === false; $rowIndex++)
         {
             $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape);
             $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure, $escape);
 
-            if ($lineArray1)
+            foreach ($tolerances as $columnNumber => $tolerance)
             {
-                foreach ($lineArray1 as $index => $value1)
+                # Compare the difference, as !== on the values would count 1.100 and 1.1 as different.
+                if (abs($lineArray1[$columnNumber - 1] - $lineArray2[$columnNumber - 1]) > $tolerance)
                 {
-                    $humanColumnNumber = $index + 1;
-
-                    // Can't use isset() here, as fgetcsv returns [null] for blank lines.
-                    if (!is_array($lineArray2) || !array_key_exists($index, $lineArray2))
-                    {
-                        throw new InvalidCsvException("diffTolerance: rows do not have the same column count.");
-                    }
-
-                    $value2 = $lineArray2[$index];
-
-                    if ($compareOtherColumns || (isset($tolerances[$humanColumnNumber])))
-                    {
-                        if (is_numeric($value1) && is_numeric($value2))
-                        {
-                            $numericDifference = abs($value1 - $value2);
-
-                            if (isset($tolerances[$humanColumnNumber]))
-                            {
-                                if ($numericDifference > $tolerances[$humanColumnNumber])
-                                {
-                                    $hasFailed = TRUE;
-                                }
-                            }
-                            else
-                            {
-                                if ($numericDifference > 0) // can't use !== on the values as 1.100 !== 1.1
-                                {
-                                    $hasFailed = TRUE;
-                                }
-                            }
-                        }
-                        else
-                        {
-                            // comparing non numeric values...
-                            if (isset($tolerances[$humanColumnNumber]))
-                            {
-                                $msg = "diffTolerance: Trying to perform numeric tolerance " .
-                                       "diff on non-numeric column. Column: $humanColumnNumber " .
-                                       "Row of data: $humanRowNumber";
-
-                                throw new InvalidCsvException($msg);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // Skip this column as we don't wish to check it.
-                    }
+                    $hasFailed = true;
                 }
             }
-
-            $humanRowNumber++;
         }
 
         fclose($fileHandle1);
@@ -1300,6 +1336,77 @@ final class CsvLib
         }
 
         fclose($outputFileHandle);
+    }
+
+
+    /**
+     * Find the values in the given columns of a CSV file that aren't numbers. The header row, if there is one, isn't
+     * checked.
+     * @param CsvFile $csvFile - the CSV file to check. It has already been validated, and has all the columns.
+     * @param array $columnNumbers - the numbers of the columns to check, starting from 1.
+     * @param int $maxErrors - stop once this many have been found. If this is 0 or less, nothing is checked.
+     * @return array - a list of CsvCellError objects, one for each value found, which is empty if there are none.
+     * @throws FilesystemException - if the file could not be opened.
+     */
+    private static function findNonNumericValues(CsvFile $csvFile, array $columnNumbers, int $maxErrors): array
+    {
+        $errors = array();
+        $dataRowCount = $csvFile->getRowCount() - ($csvFile->hasHeader() ? 1 : 0);
+
+        if ($maxErrors > 0)
+        {
+            $handle = self::openForReadingData($csvFile);
+
+            for ($rowIndex = 0; $rowIndex < $dataRowCount && count($errors) < $maxErrors; $rowIndex++)
+            {
+                $row = fgetcsv($handle, 0, $csvFile->getDelimiter(), $csvFile->getEnclosure(), $csvFile->getEscape());
+
+                # Give the row's number in the file, counting the header row, so it's easy to find.
+                $rowNumber = $rowIndex + 1 + ($csvFile->hasHeader() ? 1 : 0);
+
+                foreach ($columnNumbers as $columnNumber)
+                {
+                    $value = $row[$columnNumber - 1];
+
+                    if (count($errors) < $maxErrors && !is_numeric($value))
+                    {
+                        $errors[] = new CsvCellError($csvFile->getFilepath(), $rowNumber, $columnNumber, $value);
+                    }
+                }
+            }
+
+            fclose($handle);
+        }
+
+        return $errors;
+    }
+
+
+    /**
+     * Open a validated CSV file for reading its rows of data, i.e. past any byte order mark and header row.
+     * @param CsvFile $csvFile - the CSV file to open.
+     * @return resource - the open file handle, positioned at the first row of data. PHP can't declare a resource
+     *                    return type, so this is only documented here.
+     * @throws FilesystemException - if the file could not be opened.
+     */
+    private static function openForReadingData(CsvFile $csvFile)
+    {
+        # Suppress the warning, as we throw an exception instead.
+        $handle = @fopen($csvFile->getFilepath(), "r");
+
+        if ($handle === false)
+        {
+            throw new FilesystemException("Failed to open {$csvFile->getFilepath()} for reading.");
+        }
+
+        self::skipByteOrderMark($handle);
+
+        if ($csvFile->hasHeader())
+        {
+            fgetcsv($handle, 0, $csvFile->getDelimiter(), $csvFile->getEnclosure(), $csvFile->getEscape());
+        }
+
+        return $handle;
     }
 
 

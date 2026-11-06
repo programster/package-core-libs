@@ -9,6 +9,8 @@
 
 namespace Programster\CoreLibs;
 
+use Programster\CoreLibs\Enums\DataSizeUnitEnum;
+use Programster\CoreLibs\Enums\MemoryTypeEnum;
 use Programster\CoreLibs\Exceptions\CliTitleNotSetException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;

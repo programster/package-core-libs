@@ -4,7 +4,7 @@
  * Smoke tests for DataSizeUnitEnum. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
-use Programster\CoreLibs\DataSizeUnitEnum;
+use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 
 /** @var \Programster\CoreLibs\Testing\SmokeTest $smoke */
 /** @var string $dir - a temporary directory for the tests to use, which is deleted afterwards. */

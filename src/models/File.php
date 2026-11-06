@@ -5,9 +5,10 @@
  * only its path. It can be used on its own, or extended for specific types of file (e.g. CsvFile).
  */
 
-namespace Programster\CoreLibs;
+namespace Programster\CoreLibs\Models;
 
 
+use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
