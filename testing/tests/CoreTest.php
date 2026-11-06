@@ -62,3 +62,23 @@ $smoke->run("other Core methods", function () {
     SmokeTest::expectException(BadArgumentException::class, fn() => Core::fetchOptionalArgsFromArray([null], []));
     assert(str_contains(Core::var_dump(1), "int(1)"));
 });
+
+$smoke->run("runCapturingWarning", function () {
+    # It returns what the callback returns, and gives the warning's message, without letting it through (the test
+    # runner would report a warning that got through as a failure).
+    $result = Core::runCapturingWarning(fn() => file_get_contents("/nonexistent/file"), $warning);
+    assert($result === false && str_contains((string)$warning, "No such file or directory"));
+
+    # With no warning, it gives null.
+    assert(Core::runCapturingWarning(fn() => "ok", $warning) === "ok" && $warning === null);
+
+    # The previous error handler is put back afterwards, even if the callback throws.
+    $handlerBefore = set_error_handler(fn() => true);
+    restore_error_handler();
+    $throwingCallback = fn() => throw new \RuntimeException("stop");
+    SmokeTest::expectException(\RuntimeException::class, fn() => Core::runCapturingWarning($throwingCallback));
+    $handlerAfter = set_error_handler(fn() => true);
+    restore_error_handler();
+    assert($handlerAfter === $handlerBefore, "runCapturingWarning() didn't restore the previous error handler");
+});
+

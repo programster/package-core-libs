@@ -268,23 +268,13 @@ final class Filesystem
                 $path = dirname($path);
             }
 
-            # Capture the warning to put its reason in the exception, rather than letting it through. This uses a
-            # temporary error handler rather than @ and error_get_last(), as error_get_last() is empty if the
-            # application has its own error handler.
-            $error = 'unknown error';
-            set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
-                $error = $errorMessage;
-                return true;
-            });
+            # Capture the warning to put its reason in the exception, rather than letting it through.
+            $createDirectory = function () use ($dirPath, $permsInt, $recursive): bool {
+                return mkdir($dirPath, $permsInt, $recursive);
+            };
 
-            try
-            {
-                $created = mkdir($dirPath, $permsInt, $recursive);
-            }
-            finally
-            {
-                restore_error_handler();
-            }
+            $created = Core::runCapturingWarning($createDirectory, $error);
+            $error ??= 'unknown error';
 
             # The is_dir() check is in case another process created the directory at the same time.
             if (!$created && !is_dir($dirPath))
@@ -667,23 +657,12 @@ final class Filesystem
 
         # The files are only actually read and written into the zip when it is closed, so this is where most failures
         # show up (e.g. a file that can't be read, or the disk being full). This raises a warning as well as returning
-        # false. Capture the warning to put its reason in the exception, rather than letting it through. This uses a
-        # temporary error handler rather than @ and error_get_last(), as error_get_last() is empty if the
-        # application has its own error handler.
-        $error = null;
-        set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
-            $error = $errorMessage;
-            return true;
-        });
+        # false, so capture the warning to put its reason in the exception, rather than letting it through.
+        $closeZip = function () use ($zip): bool {
+            return $zip->close();
+        };
 
-        try
-        {
-            $closed = $zip->close();
-        }
-        finally
-        {
-            restore_error_handler();
-        }
+        $closed = Core::runCapturingWarning($closeZip, $error);
 
         if ($closed === false)
         {
@@ -1063,23 +1042,13 @@ final class Filesystem
             }
             else
             {
-                # Capture the warning to put its reason in the exception, rather than letting it through. This uses a
-                # temporary error handler rather than @ and error_get_last(), as error_get_last() is empty if the
-                # application has its own error handler.
-                $error = 'unknown error';
-                set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
-                    $error = $errorMessage;
-                    return true;
-                });
+                # Capture the warning to put its reason in the exception, rather than letting it through.
+                $fetchUrl = function () use ($url): string|false {
+                    return file_get_contents($url);
+                };
 
-                try
-                {
-                    $content = file_get_contents($url);
-                }
-                finally
-                {
-                    restore_error_handler();
-                }
+                $content = Core::runCapturingWarning($fetchUrl, $error);
+                $error ??= 'unknown error';
 
                 if ($content === false)
                 {

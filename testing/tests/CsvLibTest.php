@@ -665,3 +665,81 @@ $smoke->run("CSV reading methods close the file however they end", function () u
     SmokeTest::expectException(FilesystemException::class, fn() => CsvLib::csvWalk("{$dir}/nope.csv", fn() => null));
 });
 
+$smoke->run("CSV writing methods only replace the output once it is complete", function () use ($dir) {
+    $base = "{$dir}/csv-output";
+    mkdir($base);
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
+    $resetExisting = function (string $path): void {
+        file_put_contents($path, "old contents\n");
+        chmod($path, 0640);
+    };
+
+    # convertArrayToCsv(): a bad row part way through leaves an existing file exactly as it was.
+    $resetExisting("{$base}/array.csv");
+    $rows = [["a" => 1, "b" => 2], ["a" => 3, "c" => 4]];
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => CsvLib::convertArrayToCsv("{$base}/array.csv", $rows, true, addByteOrderMark: false),
+        "missing the expected key b"
+    );
+    assert(file_get_contents("{$base}/array.csv") === "old contents\n");
+
+    # When it works, an existing file keeps its permissions, and a new one gets the default for a new file.
+    CsvLib::convertArrayToCsv("{$base}/array.csv", [["a" => 1, "b" => null]], true, addByteOrderMark: false);
+    CsvLib::convertArrayToCsv("{$base}/new.csv", [["a" => 1]], true, addByteOrderMark: false);
+    clearstatcache();
+    assert(file_get_contents("{$base}/array.csv") === "a,b\n1,\n");
+    assert((fileperms("{$base}/array.csv") & 0777) === 0640);
+    assert((fileperms("{$base}/new.csv") & 0777) === (0666 & ~umask()));
+
+    # convertCsvToJson(): a value that can't be encoded (invalid UTF-8) leaves an existing file as it was.
+    $resetExisting("{$base}/out.json");
+    file_put_contents("{$base}/bad-utf8.csv", "name\nok\n\xFF\n");
+    SmokeTest::expectException(
+        \JsonException::class,
+        fn() => CsvLib::convertCsvToJson("{$base}/bad-utf8.csv", "{$base}/out.json", true)
+    );
+    assert(file_get_contents("{$base}/out.json") === "old contents\n");
+
+    # mergeFiles(): the output can be one of the files being merged. This used to empty it before it was read.
+    file_put_contents("{$base}/merge-a.csv", "h\n1\n");
+    file_put_contents("{$base}/merge-b.csv", "h\n2\n");
+    CsvLib::mergeFiles(["{$base}/merge-a.csv", "{$base}/merge-b.csv"], "{$base}/merge-a.csv", true);
+    assert(file_get_contents("{$base}/merge-a.csv") === "h\n1\n2\n");
+
+    # A file that can't be read part way through leaves an existing merged file as it was.
+    $resetExisting("{$base}/merged.csv");
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => CsvLib::mergeFiles(["{$base}/merge-b.csv", "{$base}/nope.csv"], "{$base}/merged.csv", true),
+        "Unable to read file for merging: {$base}/nope.csv"
+    );
+    assert(file_get_contents("{$base}/merged.csv") === "old contents\n");
+
+    # Nothing is left in the temporary directory, whether they worked or not.
+    assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
+
+    if (SmokeTest::canTestPermissions("CSV writing methods checking the output can be written first"))
+    {
+        # An output that can't be written is found before anything is done.
+        file_put_contents("{$base}/read-only.csv", "old\n");
+        chmod("{$base}/read-only.csv", 0444);
+        mkdir("{$base}/read-only-dir");
+        chmod("{$base}/read-only-dir", 0555);
+        $unwritable = [
+            fn() => CsvLib::convertArrayToCsv("{$base}/read-only.csv", [["a" => 1]], true),
+            fn() => CsvLib::mergeFiles(["{$base}/merge-b.csv"], "{$base}/read-only.csv", true),
+            fn() => CsvLib::convertCsvToJson("{$base}/merge-b.csv", "{$base}/read-only-dir/out.json", true),
+        ];
+
+        foreach ($unwritable as $call)
+        {
+            SmokeTest::expectException(BadFilePermissionsException::class, $call);
+        }
+
+        assert(file_get_contents("{$base}/read-only.csv") === "old\n");
+        assert(!file_exists("{$base}/read-only-dir/out.json"));
+        chmod("{$base}/read-only-dir", 0755);
+    }
+});
+

@@ -189,23 +189,13 @@ final class Network
         # Without a timeout, this would wait for PHP's default_socket_timeout, which is normally 60 seconds.
         $context = stream_context_create(['http' => ['timeout' => $timeout]]);
 
-        # Capture the warning to put its reason in the exception, rather than letting it through. This uses a temporary
-        # error handler rather than @ and error_get_last(), as error_get_last() is empty if the application has its
-        # own error handler.
-        $error = 'unknown error';
-        set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
-            $error = $errorMessage;
-            return true;
-        });
+        # Capture the warning to put its reason in the exception, rather than letting it through.
+        $fetchPublicIp = function () use ($context): string|false {
+            return file_get_contents('https://icanhazip.com/', false, $context);
+        };
 
-        try
-        {
-            $response = file_get_contents('https://icanhazip.com/', false, $context);
-        }
-        finally
-        {
-            restore_error_handler();
-        }
+        $response = Core::runCapturingWarning($fetchPublicIp, $error);
+        $error ??= 'unknown error';
 
         if ($response === false)
         {

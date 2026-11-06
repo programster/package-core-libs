@@ -614,12 +614,14 @@ final class ArrayLib
         # serialize() writes -0.0 and 0.0 differently, but they are === to each other, so make them the same first.
         if (is_array($set))
         {
-            array_walk_recursive($set, function (mixed &$value): void {
+            $normaliseNegativeZero = function (mixed &$value): void {
                 if ($value === 0.0)
                 {
                     $value = 0.0;
                 }
-            });
+            };
+
+            array_walk_recursive($set, $normaliseNegativeZero);
         }
         elseif ($set === 0.0)
         {

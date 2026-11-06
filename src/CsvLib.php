@@ -27,13 +27,17 @@ final class CsvLib
      * Converts a CSV file into a JSON file.
      * @param string $csvFilepath - location of the CSV file we wish to convert.
      * @param string $jsonFilepath - path to where we wish to store the result. If the file already
-     * exists, then it will be overwritten. If not then it will be created.
+     * exists, then it will be overwritten. If not then it will be created. The JSON is written to a
+     * temporary file first, and only copied here once complete, so if anything goes wrong, an
+     * existing file is left as it was.
      * @param bool $compressed - if true then this will have no line endings or padding, if false
      * then the outputted json will be much easier to read by humans.
      * @param string $delimiter - optionally specify a delimiter other than the default comma.
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      * @return void
+     * @throws BadFilePermissionsException - if the JSON file (or, for a new file, its directory)
+     * can't be written to.
      * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not
      * be written.
      * @throws \JsonException
@@ -60,90 +64,97 @@ final class CsvLib
             $lines[0] = substr($lines[0], strlen(self::BYTE_ORDER_MARK));
         }
 
-        $jsonFile = fopen($jsonFilepath, "w");
+        $writeJson = function ($jsonFile) use (
+            $lines,
+            $compressed,
+            $delimiter,
+            $enclosure,
+            $escape
+        ): void {
+            $headers = array();
+            $hasWrittenObject = false;
 
-        if ($jsonFile === false)
-        {
-            throw new FilesystemException("Failed to open {$jsonFilepath} for writing.");
-        }
-
-        $headers = array();
-        $hasWrittenObject = false;
-
-        if ($compressed)
-        {
-            fwrite($jsonFile, "[");
-        }
-        else
-        {
-            fwrite($jsonFile, "[" . PHP_EOL);
-        }
-
-
-        foreach ($lines as $lineIndex => $line)
-        {
-            $data = str_getcsv($line, $delimiter, $enclosure, $escape);
-
-            if ($lineIndex === 0)
+            if ($compressed)
             {
-                # this is the header line
-                $headers = $data;
-            }
-            elseif (self::isBlankRow($data))
-            {
-                // Skip empty lines (users may accidentally put one at the end
-                // and LibreOffice Calc won't strip this either).
+                self::writeToOutput($jsonFile, "[");
             }
             else
             {
-                $obj = new \stdClass();
+                self::writeToOutput($jsonFile, "[" . PHP_EOL);
+            }
 
-                foreach ($headers as $headerIndex => $header)
+
+            foreach ($lines as $lineIndex => $line)
+            {
+                $data = str_getcsv($line, $delimiter, $enclosure, $escape);
+
+                if ($lineIndex === 0)
                 {
-                    $obj->$header = $data[$headerIndex];
+                    # this is the header line
+                    $headers = $data;
                 }
-
-                if ($compressed)
+                elseif (self::isBlankRow($data))
                 {
-                    $jsonString = json_encode($obj, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                    // Skip empty lines (users may accidentally put one at the end
+                    // and LibreOffice Calc won't strip this either).
                 }
                 else
                 {
-                    $jsonString = json_encode($obj, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-                }
+                    $obj = new \stdClass();
 
-                if (!$compressed)
-                {
-                    $jsonStringLines = explode(PHP_EOL, $jsonString);
-
-                    foreach ($jsonStringLines as $jsonStringLineIndex => $line)
+                    foreach ($headers as $headerIndex => $header)
                     {
-                        $jsonStringLines[$jsonStringLineIndex] = "    " . $line;
+                        $obj->$header = $data[$headerIndex];
                     }
 
-                    $jsonString = implode(PHP_EOL, $jsonStringLines);
-                }
-
-                if ($hasWrittenObject)
-                {
                     if ($compressed)
                     {
-                        $jsonString = "," . $jsonString;
+                        $jsonString = json_encode($obj, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
                     }
                     else
                     {
-                        $jsonString = "," . PHP_EOL . $jsonString;
+                        $jsonString = json_encode(
+                            $obj,
+                            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                        );
                     }
 
+                    if (!$compressed)
+                    {
+                        $jsonStringLines = explode(PHP_EOL, $jsonString);
+
+                        foreach ($jsonStringLines as $jsonStringLineIndex => $line)
+                        {
+                            $jsonStringLines[$jsonStringLineIndex] = "    " . $line;
+                        }
+
+                        $jsonString = implode(PHP_EOL, $jsonStringLines);
+                    }
+
+                    if ($hasWrittenObject)
+                    {
+                        if ($compressed)
+                        {
+                            $jsonString = "," . $jsonString;
+                        }
+                        else
+                        {
+                            $jsonString = "," . PHP_EOL . $jsonString;
+                        }
+
+                    }
+
+                    self::writeToOutput($jsonFile, $jsonString);
+                    $hasWrittenObject = true;
                 }
-
-                fwrite($jsonFile, $jsonString);
-                $hasWrittenObject = true;
             }
-        }
 
-        fwrite($jsonFile, "]");
-        fclose($jsonFile);
+            self::writeToOutput($jsonFile, "]");
+        };
+
+        # Write to a temporary file first, so that a failure part way through (e.g. a value that can't be encoded)
+        # leaves an existing file as it was.
+        self::writeOutputFile($jsonFilepath, $writeJson);
     }
 
 
@@ -348,7 +359,9 @@ final class CsvLib
      * of writing one line at a time to the file rather than building a massive string and dumping
      * the entire string to the file.
      * @param string $filepath - the path to the file that we will write the csv to, creating if
-     * necessary.
+     * necessary. The CSV is written to a temporary file first, and only copied here once complete, so
+     * if anything goes wrong (e.g. a bad row), an existing file is left as it was. An existing file
+     * keeps its permissions and owner, and a new one gets the default permissions for a new file.
      * @param array $rows - a collection of associative name/value pairs for the data to fill the
      * csv file. The values will be filled in in the order of the keys in the first row.
      * @param bool $addHeader - specify whether we should put a header row in the CSV file. If true,
@@ -362,7 +375,8 @@ final class CsvLib
      * @throws EmptyArrayException - if there are no rows, or the first row has no columns.
      * @throws BadArgumentException - if the rows are not associative arrays, or don't all have the
      * same keys.
-     * @throws FilesystemException - if the file could not be opened for writing.
+     * @throws BadFilePermissionsException - if the file (or, for a new file, its directory) can't be written to.
+     * @throws FilesystemException - if the file could not be written.
      */
     public static function convertArrayToCsv(
         string $filepath,
@@ -374,7 +388,7 @@ final class CsvLib
         string $escape="",
     ): void
     {
-        # Check the data before opening the file, as opening it for writing empties any file already there.
+        # Check the data before doing anything else.
         if (count($rows) === 0)
         {
             throw new EmptyArrayException("Cannot create CSV file with no data.");
@@ -392,77 +406,56 @@ final class CsvLib
             throw new BadArgumentException("convertArrayToCsv expects a list of associative arrays.");
         }
 
-        $fileHandle = fopen($filepath, 'w');
-
-        if ($fileHandle === FALSE)
-        {
-            throw new FilesystemException("Failed to open {$filepath} for writing.");
-        }
-
-        if ($addByteOrderMark)
-        {
-            fwrite($fileHandle, self::BYTE_ORDER_MARK);
-        }
-
-        $keys = array_keys($firstRow);
-
-        if ($addHeader)
-        {
-            fputcsv(
-                stream: $fileHandle,
-                fields: $keys,
-                separator: $delimiter,
-                enclosure: $enclosure,
-                escape: $escape
-            );
-        }
-
-        foreach ($rows as $index => $row)
-        {
-            if (count($keys) != count($row))
+        $writeCsvRows = function ($fileHandle) use (
+            $rows,
+            $firstRow,
+            $addHeader,
+            $delimiter,
+            $enclosure,
+            $addByteOrderMark,
+            $escape
+        ): void {
+            if ($addByteOrderMark)
             {
-                $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) . 
-                       " is not the same as the number of values: " . count($row);
-
-                throw new BadArgumentException($msg);
+                self::writeToOutput($fileHandle, self::BYTE_ORDER_MARK);
             }
 
-            $rowOfValues = array();
+            $keys = array_keys($firstRow);
 
-            foreach ($keys as $key)
+            if ($addHeader)
             {
-                if (!isset($row[$key]))
-                {
-                    // key might be set, the value might just be null. Check for this.
-                    $keys = array_keys($row);
+                self::writeCsvRowToOutput($fileHandle, $keys, $delimiter, $enclosure, $escape);
+            }
 
-                    if (in_array($key, $keys) === FALSE)
+            foreach ($rows as $index => $row)
+            {
+                if (count($keys) != count($row))
+                {
+                    $msg = "Cannot convert array to CSV. Number of keys: " . count($keys) .
+                           " is not the same as the number of values: " . count($row);
+
+                    throw new BadArgumentException($msg);
+                }
+
+                $rowOfValues = array();
+
+                foreach ($keys as $key)
+                {
+                    # Can't use isset() here, as a key may be set with a null value, which is written as empty.
+                    if (!array_key_exists($key, $row))
                     {
                         throw new BadArgumentException("Row {$index} is missing the expected key {$key}.");
                     }
-                    else
-                    {
-                        $value = null;
-                    }
-                }
-                else
-                {
-                    $value = $row[$key];
+
+                    $rowOfValues[] = $row[$key];
                 }
 
-                $rowOfValues[] = $value;
+                self::writeCsvRowToOutput($fileHandle, $rowOfValues, $delimiter, $enclosure, $escape);
             }
+        };
 
-            fputcsv(
-                stream: $fileHandle,
-                fields: $rowOfValues,
-                separator: $delimiter,
-                enclosure: $enclosure,
-                escape: $escape,
-            );
-        }
-
-        fclose($fileHandle);
+        # Write to a temporary file first, so that a bad row part way through leaves an existing file as it was.
+        self::writeOutputFile($filepath, $writeCsvRows);
     }
 
 
@@ -1013,25 +1006,29 @@ final class CsvLib
             );
         }
 
-        $newFileName = tempnam(sys_get_temp_dir(), "");
+        # The diff is a new temporary file, which is returned. Suppress the warning, as we throw an exception instead.
+        $newFileName = @tempnam(sys_get_temp_dir(), "corelibs-diff-");
 
         if ($newFileName === false)
         {
             throw new FilesystemException("Failed to create a temporary file to store the diff in.");
         }
 
-        $newFileHandle = fopen($newFileName, "w");
+        $newFileHandle = false;
+        $fileHandle1 = false;
+        $fileHandle2 = false;
 
-        if (!$newFileHandle)
+        try
         {
-            throw new FilesystemException("Cannot create file to store diff in.");
-        }
+            $newFileHandle = @fopen($newFileName, "w");
+            $fileHandle1 = @fopen($filepath1, "r");
+            $fileHandle2 = @fopen($filepath2, "r");
 
-        $fileHandle1 = fopen($filepath1, "r");
-        $fileHandle2 = fopen($filepath2, "r");
+            if ($newFileHandle === false || $fileHandle1 === false || $fileHandle2 === false)
+            {
+                throw new FilesystemException("decimalDiff: Failed to open the CSV files, or the diff file.");
+            }
 
-        if ($fileHandle1 && $fileHandle2)
-        {
             # Skip any byte order marks, otherwise the first value would never match or be seen as a number.
             self::skipByteOrderMark($fileHandle1);
             self::skipByteOrderMark($fileHandle2);
@@ -1049,13 +1046,7 @@ final class CsvLib
                     $resultHeaderRow[$index] = ($header1 === $header2) ? $header1 : $header1 . "|" . $header2;
                 }
 
-                fputcsv(
-                    stream: $newFileHandle,
-                    fields: $resultHeaderRow,
-                    separator: $delimiter,
-                    enclosure: $enclosure,
-                    escape: $escape
-                );
+                self::writeCsvRowToOutput($newFileHandle, $resultHeaderRow, $delimiter, $enclosure, $escape);
             }
             elseif ($file1HasHeader)
             {
@@ -1097,22 +1088,39 @@ final class CsvLib
                     }
                 }
 
-                fputcsv(
-                    stream: $newFileHandle,
-                    fields: $resultArray,
-                    separator: $delimiter,
-                    enclosure: $enclosure,
-                    escape: $escape
-                );
+                self::writeCsvRowToOutput($newFileHandle, $resultArray, $delimiter, $enclosure, $escape);
             }
 
-            fclose($fileHandle1);
-            fclose($fileHandle2);
-            fclose($newFileHandle);
+            # Closing flushes anything still buffered, which can fail (e.g. if the disk is full).
+            $closed = fclose($newFileHandle);
+            $newFileHandle = false;
+
+            if (!$closed)
+            {
+                throw new FilesystemException("decimalDiff: Failed to finish writing the diff file.");
+            }
         }
-        else
+        catch (\Throwable $e)
         {
-            throw new FilesystemException("decimalDiff: Failed to open CSV file for processing.");
+            # Don't leave a half-written diff file behind.
+            if ($newFileHandle !== false)
+            {
+                fclose($newFileHandle);
+                $newFileHandle = false;
+            }
+
+            @unlink($newFileName);
+            throw $e;
+        }
+        finally
+        {
+            foreach ([$fileHandle1, $fileHandle2] as $handle)
+            {
+                if ($handle !== false)
+                {
+                    fclose($handle);
+                }
+            }
         }
 
         return $newFileName;
@@ -1243,11 +1251,13 @@ final class CsvLib
             {
                 # List a few in the message, for logs. getErrors() has all of them.
                 $maxErrorsListed = 10;
-                $listedErrors = array_map(
-                    fn(CsvCellError $error) => "{$error->filepath} row {$error->rowNumber}, column " .
-                        "{$error->columnNumber}: " . var_export($error->value, true),
-                    array_slice($errors, 0, $maxErrorsListed)
-                );
+
+                $describeError = function (CsvCellError $error): string {
+                    return "{$error->filepath} row {$error->rowNumber}, column {$error->columnNumber}: " .
+                        var_export($error->value, true);
+                };
+
+                $listedErrors = array_map($describeError, array_slice($errors, 0, $maxErrorsListed));
                 $message = "diffTolerance: the columns being compared must hold numbers in both files, but " .
                     count($errors) . " non-numeric value(s) were found:\n - " . implode("\n - ", $listedErrors);
 
@@ -1297,14 +1307,18 @@ final class CsvLib
      * both
      * @param array $filepaths - array of filepaths to csv files we wish to merge
      * @param string $mergedFilepath - where to write the merged file. This will overwrite any
-     * existing file if there is one there already.
+     * existing file if there is one there already. The merged file is written to a temporary file
+     * first, and only copied here once complete, so if anything goes wrong, an existing file is left
+     * as it was. This can be one of the files in $filepaths.
      * @param bool $hasHeaders - specify if the files have headers or not.
      * @param string $delimiter - optionally specify the delimiter being used in the files
      * @param string $enclosure - optionally specify the enclosure being used in the files
      * @param string $escape - optionally specify the escape sequence to use when passing to
      * fputcsv.
-     * @throws FilesystemException - if the merged file can't be opened for writing, or one of the
-     * files can't be read.
+     * @throws BadFilePermissionsException - if the merged file (or, for a new file, its directory)
+     * can't be written to.
+     * @throws FilesystemException - if one of the files can't be read, or the merged file can't be
+     * written.
      * @return void
      */
     public static function mergeFiles(
@@ -1316,71 +1330,53 @@ final class CsvLib
         string $escape = "",
     ): void
     {
-        $isFirstFile = true;
-        $outputFileHandle = fopen($mergedFilepath, "w");
+        $writeMergedFile = function ($outputFileHandle) use (
+            $filepaths,
+            $hasHeaders,
+            $delimiter,
+            $enclosure,
+            $escape
+        ): void {
+            $isFirstFile = true;
 
-        if ($outputFileHandle === false)
-        {
-            throw new FilesystemException("Unable to open the merged file for writing: {$mergedFilepath}");
-        }
-
-        foreach ($filepaths as $filepath)
-        {
-            $readHandle = fopen($filepath, "r");
-            $isFirstLine = true;
-
-            if ($readHandle === false)
+            foreach ($filepaths as $filepath)
             {
-                fclose($outputFileHandle);
-                throw new FilesystemException("Unable to read file for merging: {$filepath}");
-            }
+                # Suppress the warning, as we throw an exception instead.
+                $readHandle = @fopen($filepath, "r");
+                $isFirstLine = true;
 
-            # Skip every file's byte order mark, so that none end up in the middle of the merged file. If the first
-            # file had one, the merged file gets one at the start.
-            if (self::skipByteOrderMark($readHandle) && $isFirstFile)
-            {
-                fwrite($outputFileHandle, self::BYTE_ORDER_MARK);
-            }
-
-            while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure, $escape)) !== FALSE)
-            {
-                $copyLineAcross = false;
-
-                if ($isFirstLine)
+                if ($readHandle === false)
                 {
-                    if ($hasHeaders && $isFirstFile)
-                    {
-                        $copyLineAcross = true;
-                    }
-                    elseif ($hasHeaders === FALSE)
-                    {
-                        $copyLineAcross = true;
-                    }
+                    throw new FilesystemException("Unable to read file for merging: {$filepath}");
+                }
 
+                # Skip every file's byte order mark, so that none end up in the middle of the merged file. If the
+                # first file had one, the merged file gets one at the start.
+                if (self::skipByteOrderMark($readHandle) && $isFirstFile)
+                {
+                    self::writeToOutput($outputFileHandle, self::BYTE_ORDER_MARK);
+                }
+
+                while (($fields = fgetcsv($readHandle, 0, $delimiter, $enclosure, $escape)) !== FALSE)
+                {
+                    # Only the first file's header row is kept.
+                    $copyLineAcross = !$isFirstLine || !$hasHeaders || $isFirstFile;
                     $isFirstLine = false;
-                }
-                else
-                {
-                    $copyLineAcross = true;
+
+                    if ($copyLineAcross)
+                    {
+                        self::writeCsvRowToOutput($outputFileHandle, $fields, $delimiter, $enclosure, $escape);
+                    }
                 }
 
-                if ($copyLineAcross)
-                {
-                    fputcsv(
-                        stream: $outputFileHandle,
-                        fields: $fields,
-                        separator: $delimiter,
-                        enclosure: $enclosure,
-                        escape: $escape,
-                    );
-                }
+                $isFirstFile = false;
+                fclose($readHandle);
             }
+        };
 
-            $isFirstFile = false;
-            fclose($readHandle);
-        }
-
-        fclose($outputFileHandle);
+        # Write to a temporary file first, so that a file that can't be read part way through leaves an existing
+        # merged file as it was. This also means $mergedFilepath can be one of the files being merged.
+        self::writeOutputFile($mergedFilepath, $writeMergedFile);
     }
 
 
@@ -1421,6 +1417,126 @@ final class CsvLib
         }
 
         return $hasByteOrderMark;
+    }
+
+
+    /**
+     * Write an output file safely: everything is written to a temporary file in the system's
+     * temporary directory first, and only copied into $outputFilepath once $writer has finished.
+     * So if anything goes wrong part way through (including $writer throwing), an existing file is
+     * left as it was, and nothing half-written is left behind. An existing file keeps its
+     * permissions, owner and links (see Filesystem::replaceWithFile()), and a new one gets the
+     * default permissions for a new file.
+     * @param string $outputFilepath - the file to write.
+     * @param callable $writer - writes the contents, given the temporary file's handle, e.g.
+     * function ($handle): void { ... }.
+     * @return void
+     * @throws BadFilePermissionsException - if $outputFilepath (or, for a new file, its directory)
+     * can't be written to. This is checked before $writer is run.
+     * @throws FilesystemException - if the contents could not be written.
+     */
+    private static function writeOutputFile(string $outputFilepath, callable $writer): void
+    {
+        # Check the output can be written before doing any work.
+        if (file_exists($outputFilepath))
+        {
+            Filesystem::checkCanChangeFile($outputFilepath);
+        }
+        elseif (!is_writable(dirname($outputFilepath)))
+        {
+            throw new BadFilePermissionsException(
+                "{$outputFilepath} can't be created, as " . dirname($outputFilepath) . " can't be written to."
+            );
+        }
+
+        $tmpFilepath = Filesystem::createReplacementFile();
+        $tmpHandle = @fopen($tmpFilepath, "w");
+
+        if ($tmpHandle === false)
+        {
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to open a temporary file to write {$outputFilepath} to.");
+        }
+
+        try
+        {
+            $writer($tmpHandle);
+        }
+        catch (\Throwable $e)
+        {
+            # Nothing has been written to the output yet, so it is untouched, and the temporary file can go.
+            fclose($tmpHandle);
+            @unlink($tmpFilepath);
+            throw $e;
+        }
+
+        # Closing flushes anything still buffered, which can fail (e.g. if the disk is full).
+        if (!fclose($tmpHandle))
+        {
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to finish writing the contents of {$outputFilepath}.");
+        }
+
+        # Create a new output file first, so that it gets the default permissions for a new file,
+        # rather than the temporary file's 0600.
+        if (!file_exists($outputFilepath) && @touch($outputFilepath) === false)
+        {
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to create {$outputFilepath}.");
+        }
+
+        Filesystem::replaceWithFile($outputFilepath, $tmpFilepath);
+    }
+
+
+    /**
+     * Write a string to an output file, throwing if it fails, e.g. because the disk is full.
+     * @param resource $handle - the file handle to write to. PHP can't declare a resource type, so
+     * this is only documented here.
+     * @param string $data - the string to write.
+     * @return void
+     * @throws FilesystemException - if it could not be written.
+     */
+    private static function writeToOutput($handle, string $data): void
+    {
+        if (fwrite($handle, $data) === false)
+        {
+            throw new FilesystemException("Failed to write to the output file.");
+        }
+    }
+
+
+    /**
+     * Write a row to a CSV output file, throwing if it fails, e.g. because the disk is full.
+     * @param resource $handle - the file handle to write to. PHP can't declare a resource type, so
+     * this is only documented here.
+     * @param array $fields - the values in the row.
+     * @param string $delimiter - the delimiter to pass to fputcsv().
+     * @param string $enclosure - the enclosure to pass to fputcsv().
+     * @param string $escape - the escape character to pass to fputcsv().
+     * @return void
+     * @throws FilesystemException - if it could not be written.
+     */
+    private static function writeCsvRowToOutput(
+        $handle,
+        array $fields,
+        string $delimiter,
+        string $enclosure,
+        string $escape
+    ): void
+    {
+        $written = fputcsv(
+            stream: $handle,
+            fields: $fields,
+            separator: $delimiter,
+            enclosure: $enclosure,
+            escape: $escape,
+        );
+
+        if ($written === false)
+        {
+            throw new FilesystemException("Failed to write a row to the output file.");
+        }
     }
 
 
