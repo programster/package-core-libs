@@ -45,4 +45,10 @@ foreach ($failures as $failure)
     echo "  FAIL {$failure}\n";
 }
 
+# Report checks that couldn't run here, so that a run without root doesn't look like it checked everything.
+foreach (SmokeTest::getSkipped() as $skipped)
+{
+    echo "  SKIPPED {$skipped}\n";
+}
+
 exit(count($failures) === 0 ? 0 : 1);

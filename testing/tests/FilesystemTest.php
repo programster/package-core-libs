@@ -5,6 +5,7 @@
  */
 
 use Programster\CoreLibs\Exceptions\BadArgumentException;
+use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
@@ -64,6 +65,82 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
     Filesystem::convertFileToUtf8("{$dir}/u.txt", "Windows-1251");
     assert(file_get_contents("{$dir}/u.txt") === "Привет");
     assert(Filesystem::isValidUtf8File("{$dir}/u.txt", 3));
+
+    # convertFileToUtf8() changes the file in place: it keeps its permissions and links, works in a directory that
+    # can't be written to (for anyone but root), and leaves nothing in the temporary directory.
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
+    mkdir("{$dir}/utf8-dir");
+    file_put_contents("{$dir}/utf8-dir/w.txt", iconv("UTF-8", "WINDOWS-1251", "Привет"));
+    chmod("{$dir}/utf8-dir/w.txt", 0640);
+    $ownedByOtherUser = SmokeTest::giveToOtherUser("{$dir}/utf8-dir/w.txt", "convertFileToUtf8()");
+    link("{$dir}/utf8-dir/w.txt", "{$dir}/utf8-dir/w-link.txt");
+    chmod("{$dir}/utf8-dir", 0555);
+    Filesystem::convertFileToUtf8("{$dir}/utf8-dir/w.txt", "Windows-1251");
+    chmod("{$dir}/utf8-dir", 0755);
+    clearstatcache();
+    assert(file_get_contents("{$dir}/utf8-dir/w.txt") === "Привет");
+    assert(file_get_contents("{$dir}/utf8-dir/w-link.txt") === "Привет");
+    assert((fileperms("{$dir}/utf8-dir/w.txt") & 0777) === 0640);
+
+    if ($ownedByOtherUser)
+    {
+        SmokeTest::assertOwnedByOtherUser("{$dir}/utf8-dir/w.txt", "convertFileToUtf8()");
+    }
+    assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
+    assert(array_values(array_diff(scandir("{$dir}/utf8-dir"), [".", ".."])) === ["w-link.txt", "w.txt"]);
+
+    # A file that needs converting but can't be written is rejected, and left as it was. Root can write to any file,
+    # so this can only be checked when not running as root.
+    file_put_contents("{$dir}/utf8-dir/read-only.txt", "\xE6");
+    chmod("{$dir}/utf8-dir/read-only.txt", 0444);
+
+    if (!is_writable("{$dir}/utf8-dir/read-only.txt"))
+    {
+        SmokeTest::expectException(
+            BadFilePermissionsException::class,
+            fn() => Filesystem::convertFileToUtf8("{$dir}/utf8-dir/read-only.txt")
+        );
+        assert(file_get_contents("{$dir}/utf8-dir/read-only.txt") === "\xE6");
+    }
+});
+
+$smoke->run("replacing file contents in place", function () use ($dir) {
+    # createReplacementFile() makes an empty, private file in the system's temporary directory.
+    $tmpFilepath = Filesystem::createReplacementFile();
+    clearstatcache();
+    assert(dirname($tmpFilepath) === sys_get_temp_dir() && str_starts_with(basename($tmpFilepath), "corelibs-tmp-"));
+    assert(filesize($tmpFilepath) === 0 && (fileperms($tmpFilepath) & 0777) === 0600);
+
+    # replaceWithFile() copies it into the original, shortening it if needed, and removes the temporary file.
+    file_put_contents("{$dir}/replace.txt", "a long original line\n");
+    chmod("{$dir}/replace.txt", 0644);
+    $ownedByOtherUser = SmokeTest::giveToOtherUser("{$dir}/replace.txt", "replaceWithFile()");
+    file_put_contents($tmpFilepath, "short\n");
+    Filesystem::replaceWithFile("{$dir}/replace.txt", $tmpFilepath);
+    clearstatcache();
+    assert(file_get_contents("{$dir}/replace.txt") === "short\n" && (fileperms("{$dir}/replace.txt") & 0777) === 0644);
+    assert(!file_exists($tmpFilepath));
+
+    if ($ownedByOtherUser)
+    {
+        SmokeTest::assertOwnedByOtherUser("{$dir}/replace.txt", "replaceWithFile()");
+    }
+
+    # checkCanChangeFile() rejects a missing file, and (when not running as root) one that can't be written.
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => Filesystem::checkCanChangeFile("{$dir}/nope.txt")
+    );
+    Filesystem::checkCanChangeFile("{$dir}/replace.txt");
+    chmod("{$dir}/replace.txt", 0444);
+
+    if (!is_writable("{$dir}/replace.txt"))
+    {
+        SmokeTest::expectException(
+            BadFilePermissionsException::class,
+            fn() => Filesystem::checkCanChangeFile("{$dir}/replace.txt")
+        );
+    }
 });
 
 $smoke->run("downloadFile", function () use ($dir) {

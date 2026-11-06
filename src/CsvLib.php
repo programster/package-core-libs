@@ -452,7 +452,7 @@ final class CsvLib
      * nothing is changed. Blank lines at the end of the file are removed, unless $removeTrailingBlankLines is false.
      * This works row by row rather than reading everything into memory. The new contents are written to a temporary
      * file in the system's temporary directory, then copied back into the original, which keeps its permissions and
-     * owner (see replaceWithFile()). Only the file, not its directory, needs to be writable.
+     * owner (see Filesystem::replaceWithFile()). Only the file, not its directory, needs to be writable.
      * @param string $filepath - the path to the CSV file we are trimming
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma, e.g. ';'.
      * @param string $enclosure - optionally specify the enclosure if it isn't a double quote, e.g. "'".
@@ -474,7 +474,7 @@ final class CsvLib
         bool $removeTrailingBlankLines = true,
     ): void
     {
-        self::checkCanChangeFile($filepath);
+        Filesystem::checkCanChangeFile($filepath);
 
         # Blank lines in the middle of the file make it invalid, so check for them before changing anything.
         self::validateCsvFile($filepath, $delimiter, $enclosure, $escape);
@@ -494,7 +494,7 @@ final class CsvLib
         # leaves the original untouched.
         try
         {
-            $tmpFilepath = self::createReplacementFile();
+            $tmpFilepath = Filesystem::createReplacementFile();
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -538,7 +538,7 @@ final class CsvLib
 
         fclose($fileHandle);
         fclose($tmpFile);
-        self::replaceWithFile($filepath, $tmpFilepath);
+        Filesystem::replaceWithFile($filepath, $tmpFilepath);
 
         if ($removeTrailingBlankLines)
         {
@@ -554,10 +554,14 @@ final class CsvLib
      * This changes the file in place, without reading it all into memory, and doesn't change its permissions.
      * @param string $filepath - the path to the CSV file.
      * @return void
+     * @throws FileDoesNotExistException - if there is no file at $filepath.
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
      * @throws FilesystemException - if the file could not be opened, read, or shortened.
      */
     public static function removeTrailingBlankLines(string $filepath): void
     {
+        Filesystem::checkCanChangeFile($filepath);
+
         # Suppress the warning, as we throw an exception instead.
         $handle = @fopen($filepath, "r+");
 
@@ -637,8 +641,8 @@ final class CsvLib
 
     /**
      * Remove columns from a CSV file. The new contents are written to a temporary file in the system's temporary
-     * directory, then copied back into the original, which keeps its permissions and owner (see replaceWithFile()).
-     * Only the file, not its directory, needs to be writable.
+     * directory, then copied back into the original, which keeps its permissions and owner (see
+     * Filesystem::replaceWithFile()). Only the file, not its directory, needs to be writable.
      * @param string $filepath - the path of the CSV file we are modifying.
      * @param array $columnIndexes - array of integers specifying the column indexes to remove, starting at 1
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
@@ -660,7 +664,7 @@ final class CsvLib
         string $escape=""
     ): void
     {
-        self::checkCanChangeFile($filepath);
+        Filesystem::checkCanChangeFile($filepath);
 
         # Suppress the warning, as we throw an exception instead.
         $fileHandle = @fopen($filepath, "r");
@@ -684,7 +688,7 @@ final class CsvLib
         # through leaves the original untouched.
         try
         {
-            $tmpFilepath = self::createReplacementFile();
+            $tmpFilepath = Filesystem::createReplacementFile();
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -764,7 +768,7 @@ final class CsvLib
 
         fclose($fileHandle);
         fclose($tmpFile);
-        self::replaceWithFile($filepath, $tmpFilepath);
+        Filesystem::replaceWithFile($filepath, $tmpFilepath);
     }
 
 
@@ -774,8 +778,8 @@ final class CsvLib
      * copied across exactly as they were (including their quoting and line endings), as is any byte order mark.
      * The file is checked as described in the CsvFile constructor first, so it can't have blank lines in the middle.
      * The new contents are written to a temporary file in the system's temporary directory, then copied back into
-     * the original, which keeps its permissions and owner (see replaceWithFile()). Only the file, not its directory,
-     * needs to be writable.
+     * the original, which keeps its permissions and owner (see Filesystem::replaceWithFile()). Only the file, not its
+     * directory, needs to be writable.
      * @param string $filepath - the path of the CSV file we are modifying.
      * @param array $rowNumbers - the numbers of the rows to remove, e.g. [0, 4]. Any header row counts as a row.
      *                            Duplicates are allowed, and the order doesn't matter.
@@ -799,7 +803,7 @@ final class CsvLib
         string $escape = "",
     ): void
     {
-        self::checkCanChangeFile($filepath);
+        Filesystem::checkCanChangeFile($filepath);
 
         # Check the file first, so that the row numbers mean the same as in CsvFile::getRowCount(), and any blank lines
         # can only be at the end.
@@ -841,7 +845,7 @@ final class CsvLib
 
         try
         {
-            $tmpFilepath = self::createReplacementFile();
+            $tmpFilepath = Filesystem::createReplacementFile();
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -887,7 +891,7 @@ final class CsvLib
 
         fclose($fileHandle);
         fclose($tmpFile);
-        self::replaceWithFile($filepath, $tmpFilepath);
+        Filesystem::replaceWithFile($filepath, $tmpFilepath);
     }
 
 
@@ -1407,104 +1411,6 @@ final class CsvLib
         }
 
         return $handle;
-    }
-
-
-    /**
-     * Check that a file can be changed in place, before any work is done on it. Only the file itself needs to be
-     * readable and writable, not the directory it is in, as the new contents are written back into the same file.
-     * @param string $filepath - the path of the file that will be changed.
-     * @return void
-     * @throws FileDoesNotExistException - if there is no file at $filepath.
-     * @throws BadFilePermissionsException - if the file can't be both read and written.
-     */
-    private static function checkCanChangeFile(string $filepath): void
-    {
-        if (!is_file($filepath))
-        {
-            throw new FileDoesNotExistException("There is no file at {$filepath}.");
-        }
-
-        if (!is_readable($filepath) || !is_writable($filepath))
-        {
-            throw new BadFilePermissionsException("{$filepath} must be readable and writable for it to be changed.");
-        }
-    }
-
-
-    /**
-     * Create an empty temporary file to write a file's new contents to, before they are copied into the original
-     * with replaceWithFile(). This is always in the system's temporary directory, never next to the original, in
-     * case that directory is served to the public (e.g. by a web server). tempnam() creates it with 0600
-     * permissions, so other users can't read the data while it is there.
-     * @return string - the path of the temporary file.
-     * @throws FilesystemException - if the temporary file could not be created.
-     */
-    private static function createReplacementFile(): string
-    {
-        # Suppress the warning, as we throw an exception instead.
-        $tmpFilepath = @tempnam(sys_get_temp_dir(), "corelibs-csv-");
-
-        if ($tmpFilepath === false)
-        {
-            throw new FilesystemException("Failed to create a temporary file in " . sys_get_temp_dir() . ".");
-        }
-
-        return $tmpFilepath;
-    }
-
-
-    /**
-     * Copy the contents of a file made by createReplacementFile() into the original file, then delete it. The
-     * contents are written into the original file in place, rather than the temporary file being renamed over it,
-     * so the original keeps its permissions, owner, and any links to it, and only the file (not its directory)
-     * needs to be writable.
-     * This isn't atomic: if it fails part way through (e.g. the disk fills up), the original may be left
-     * half-written. The temporary file is kept in that case, and its path is given in the exception, so that the
-     * new contents aren't lost.
-     * @param string $filepath - the path of the file to replace the contents of.
-     * @param string $tmpFilepath - the path of the temporary file with the new contents. It must already be closed.
-     * @return void
-     * @throws FilesystemException - if the contents could not be copied across.
-     */
-    private static function replaceWithFile(string $filepath, string $tmpFilepath): void
-    {
-        # Suppress the warnings, as we throw an exception instead.
-        $source = @fopen($tmpFilepath, "r");
-        $target = @fopen($filepath, "r+");
-
-        if ($source === false || $target === false)
-        {
-            # Nothing has been written yet, so the original is untouched, and the temporary file isn't needed.
-            if ($source !== false)
-            {
-                fclose($source);
-            }
-
-            @unlink($tmpFilepath);
-            throw new FilesystemException("Failed to open {$filepath} to write its new contents to.");
-        }
-
-        $newSize = fstat($source)['size'];
-
-        # Write over the old contents first, then cut off whatever is left of them, so the file is only ever
-        # shortened once the new contents are all in place.
-        $succeeded = stream_copy_to_stream($source, $target) === $newSize
-            && ftruncate($target, $newSize)
-            && fflush($target);
-
-        fclose($source);
-        fclose($target);
-
-        if (!$succeeded)
-        {
-            throw new FilesystemException(
-                "Failed to write the new contents of {$filepath}, so it may be incomplete. The complete new contents " .
-                "are in {$tmpFilepath}."
-            );
-        }
-
-        @unlink($tmpFilepath);
     }
 
 

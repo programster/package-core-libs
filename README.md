@@ -1,6 +1,8 @@
 Core Libs
 ========
 
+[![Tests](https://github.com/programster/package-core-libs/actions/workflows/tests.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests.yml)
+
 This is a PHP package providing a set of static libraries that act to "extend" the standard library. 
 These are built primarily with a focus on rapid development and ease of understanding over 
 performance.
@@ -60,5 +62,12 @@ testing/run-all-php-versions.sh 8.3 8.5     # test only specific versions
 testing/run-all-php-versions.sh --rebuild   # rebuild the Docker images first, to get the latest PHP patch releases
 ```
 
-For each version, this lints every file and runs the tests. It exits with a non-zero code if anything fails. The Docker images are built the first time they are needed, and then reused.
-When a new version of PHP is released, add it to `SUPPORTED_VERSIONS` at the top of the script.
+For each version, this lints every file and runs the tests. It exits with a non-zero code if anything fails. The
+Docker images are built the first time they are needed, and then reused. When a new version of PHP is released, add
+it to `SUPPORTED_VERSIONS` at the top of the script.
+
+The same script runs on GitHub Actions (`.github/workflows/tests.yml`) for pushes to `master`, every tag, and pull
+requests into `master`, which is what the "Tests" badge at the top of this README shows. Pushes to other branches
+don't run it, but it can be run on any branch by hand, with "Run workflow" on the repository's Actions tab. As the
+containers run as root, the checks that need root (e.g. that rewriting a file keeps its owner) run there. When run
+without root, `main.php` lists those checks as skipped.

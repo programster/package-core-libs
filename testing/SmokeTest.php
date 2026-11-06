@@ -14,6 +14,12 @@ final class SmokeTest
     private array $m_failures = [];
     private array $m_warnings = [];
 
+    # The user and group ID that giveToOtherUser() gives files to. It doesn't need to exist.
+    public const OTHER_USER_ID = 12345;
+
+    # Checks that couldn't be run in this environment (e.g. ones that need root), so they can be reported.
+    private static array $s_skipped = [];
+
 
     public function __construct()
     {
@@ -111,7 +117,47 @@ final class SmokeTest
     }
 
 
+    /**
+     * Give a file to another user and group (OTHER_USER_ID), so that a test can check the library doesn't change a
+     * file's owner. Only root can do this, which the Docker test runs always are. Otherwise, this records the check
+     * as skipped, so that main.php can report it, rather than it passing without checking anything.
+     * @param string $filepath - the file to give to the other user.
+     * @param string $checkName - what the ownership check is for, to show if it is skipped.
+     * @return bool - true if the file now belongs to the other user and group, so the check can be run.
+     */
+    public static function giveToOtherUser(string $filepath, string $checkName): bool
+    {
+        # Suppress the warnings, as failing just means we aren't root.
+        $given = @chown($filepath, self::OTHER_USER_ID) && @chgrp($filepath, self::OTHER_USER_ID);
+        clearstatcache();
+
+        if (!$given)
+        {
+            self::$s_skipped[] = "{$checkName} keeps the file's owner (needs root, e.g. run-all-php-versions.sh)";
+        }
+
+        return $given;
+    }
+
+
+    /**
+     * Assert that a file belongs to the other user and group that giveToOtherUser() gave it to.
+     * @param string $filepath - the file to check.
+     * @param string $checkName - what the ownership check is for, to show if it fails.
+     * @return void
+     */
+    public static function assertOwnedByOtherUser(string $filepath, string $checkName): void
+    {
+        clearstatcache();
+        assert(
+            fileowner($filepath) === self::OTHER_USER_ID && filegroup($filepath) === self::OTHER_USER_ID,
+            "{$checkName} changed the file's owner"
+        );
+    }
+
+
     # Accessors
     public function getNumPassed(): int { return $this->m_numPassed; }
     public function getFailures(): array { return $this->m_failures; }
+    public static function getSkipped(): array { return array_values(array_unique(self::$s_skipped)); }
 }

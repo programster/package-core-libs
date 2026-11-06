@@ -349,7 +349,7 @@ $smoke->run("CSV methods", function () use ($dir) {
     clearstatcache();
     assert((fileperms("{$dir}/trailing.csv") & 0777) === 0640);
     SmokeTest::expectException(
-        FilesystemException::class,
+        FileDoesNotExistException::class,
         fn() => CsvLib::removeTrailingBlankLines("{$dir}/nope.csv")
     );
 
@@ -570,8 +570,9 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
         "trim" => fn(string $file) => CsvLib::trim($file),
         "removeColumns" => fn(string $file) => CsvLib::removeColumns($file, [1]),
         "removeRows" => fn(string $file) => CsvLib::removeRows($file, [0]),
+        "removeTrailingBlankLines" => fn(string $file) => CsvLib::removeTrailingBlankLines($file),
     ];
-    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-csv-*");
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
 
     # The directory isn't writable (for anyone but root), as only the file itself needs to be.
     mkdir("{$dir}/in-place");
@@ -579,8 +580,9 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
     foreach ($methods as $name => $method)
     {
         $file = "{$dir}/in-place/{$name}.csv";
-        file_put_contents($file, " a , b \n c , d \n");
+        file_put_contents($file, " a , b \n c , d \n\n");
         chmod($file, 0640);
+        $ownedByOtherUser = SmokeTest::giveToOtherUser($file, "{$name}()");
 
         # A hard link to the file sees the change too, which shows the file was changed in place rather than replaced.
         link($file, "{$file}.link");
@@ -589,8 +591,13 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
         chmod("{$dir}/in-place", 0755);
         clearstatcache();
         assert((fileperms($file) & 0777) === 0640, "{$name}() changed the file's permissions");
-        assert(file_get_contents($file) !== " a , b \n c , d \n", "{$name}() didn't change the file");
+        assert(file_get_contents($file) !== " a , b \n c , d \n\n", "{$name}() didn't change the file");
         assert(file_get_contents("{$file}.link") === file_get_contents($file), "{$name}() replaced the file");
+
+        if ($ownedByOtherUser)
+        {
+            SmokeTest::assertOwnedByOtherUser($file, "{$name}()");
+        }
     }
 
     # A failure part way through leaves the original as it was.
@@ -602,7 +609,7 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
     assert(file_get_contents("{$dir}/in-place/bad.csv") === "a,b\n\nc,d\n");
 
     # Nothing is left behind in the temporary directory, whether the change worked or not.
-    assert(glob(sys_get_temp_dir() . "/corelibs-csv-*") === $tempFilesBefore);
+    assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
 
     # A file that can't be written is rejected before any work is done. Root can write to any file, so this can only be
     # checked when not running as root.

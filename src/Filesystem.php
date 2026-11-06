@@ -1220,8 +1220,9 @@ final class Filesystem
      *  2. If the file starts with a UTF-16 or UTF-32 byte order mark (BOM), it is converted from that encoding, and the
      *     BOM is removed. This overrides $sourceEncoding.
      *  3. Otherwise, the file is converted from $sourceEncoding.
-     * The file is written to a temporary file first, and then swapped into place, so that a failure part way through
-     * can never leave the original file half-written.
+     * The converted contents are written to a temporary file in the system's temporary directory first, then copied
+     * back into the original, so the file keeps its permissions and owner, and only the file (not its directory) needs
+     * to be writable. See replaceWithFile() for what happens if that copy fails part way through.
      *
      * @param string $inputFilepath - the path to the file to convert.
      * @param string $sourceEncoding - the encoding the file is in, if it is not UTF-8 and has no BOM. This must be an
@@ -1230,7 +1231,8 @@ final class Filesystem
      * euro sign) or "SJIS" (Japanese). Note that mbstring does NOT support "Windows-1250".
      * @return void
      * @throws BadArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
-     * @throws BadFilePermissionsException - if input file cannot be read (but does exist).
+     * @throws BadFilePermissionsException - if the file exists but can't be read, or needs converting but can't be
+     *                                       written.
      * @throws FileDoesNotExistException - if input file does not exist.
      * @throws MissingExtensionException - if missing the mbstring extension which is required for this function.
      * @throws FilesystemException - if the file is not valid in the encoding it is being converted from, or anything
@@ -1312,41 +1314,130 @@ final class Filesystem
 
 
     /**
-     * Replace the contents of a file safely, by writing to a temporary file in the same directory and then swapping
-     * it into place, so that a failure part way through (e.g. the disk filling up) can never leave the file
-     * half-written. The file keeps its permissions.
-     * @param string $filepath - the path to the file to replace the contents of.
-     * @param string $contents - the new contents for the file.
+     * Check that a file can be changed in place (e.g. with replaceWithFile()), before any work is done on it. Only
+     * the file itself needs to be readable and writable, not the directory it is in, as the new contents are written
+     * back into the same file.
+     * @param string $filepath - the path of the file that will be changed.
      * @return void
-     * @throws FilesystemException - if the new contents could not be written, or the file could not be replaced.
+     * @throws FileDoesNotExistException - if there is no file at $filepath.
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
      */
-    private static function replaceFileContents(string $filepath, string $contents): void
+    public static function checkCanChangeFile(string $filepath): void
     {
-        # Create the temporary file in the same directory, so that the rename() below is a simple swap.
-        $tempFilepath = tempnam(dirname($filepath), '.' . basename($filepath) . '.');
+        if (!is_file($filepath))
+        {
+            throw new FileDoesNotExistException("There is no file at {$filepath}.");
+        }
 
-        if ($tempFilepath === false)
+        if (!is_readable($filepath) || !is_writable($filepath))
+        {
+            throw new BadFilePermissionsException("{$filepath} must be readable and writable for it to be changed.");
+        }
+    }
+
+
+    /**
+     * Create an empty temporary file to write a file's new contents to, before they are copied into the original
+     * with replaceWithFile(). This is useful for rewriting a file a piece at a time (e.g. row by row), without
+     * changing the original until the new contents are complete. This is always in the system's temporary
+     * directory, never next to the original, in case that directory is served to the public (e.g. by a web server).
+     * tempnam() creates it with 0600 permissions, so other users can't read the data while it is there.
+     * @return string - the path of the temporary file.
+     * @throws FilesystemException - if the temporary file could not be created.
+     */
+    public static function createReplacementFile(): string
+    {
+        # Suppress the warning, as we throw an exception instead.
+        $tmpFilepath = @tempnam(sys_get_temp_dir(), "corelibs-tmp-");
+
+        if ($tmpFilepath === false)
+        {
+            throw new FilesystemException("Failed to create a temporary file in " . sys_get_temp_dir() . ".");
+        }
+
+        return $tmpFilepath;
+    }
+
+
+    /**
+     * Copy the contents of a file made by createReplacementFile() into the original file, then delete it. The
+     * contents are written into the original file in place, rather than the temporary file being renamed over it,
+     * so the original keeps its permissions, owner, and any links to it, and only the file (not its directory)
+     * needs to be writable.
+     * This isn't atomic: if it fails part way through (e.g. the disk fills up), the original may be left
+     * half-written. The temporary file is kept in that case, and its path is given in the exception, so that the
+     * new contents aren't lost.
+     * @param string $filepath - the path of the file to replace the contents of.
+     * @param string $tmpFilepath - the path of the temporary file with the new contents. It must already be closed.
+     * @return void
+     * @throws FilesystemException - if the contents could not be copied across.
+     */
+    public static function replaceWithFile(string $filepath, string $tmpFilepath): void
+    {
+        # Suppress the warnings, as we throw an exception instead.
+        $source = @fopen($tmpFilepath, "r");
+        $target = @fopen($filepath, "r+");
+
+        if ($source === false || $target === false)
+        {
+            # Nothing has been written yet, so the original is untouched, and the temporary file isn't needed.
+            if ($source !== false)
+            {
+                fclose($source);
+            }
+
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to open {$filepath} to write its new contents to.");
+        }
+
+        $newSize = fstat($source)['size'];
+
+        # Write over the old contents first, then cut off whatever is left of them, so the file is only ever
+        # shortened once the new contents are all in place.
+        $succeeded = stream_copy_to_stream($source, $target) === $newSize
+            && ftruncate($target, $newSize)
+            && fflush($target);
+
+        fclose($source);
+        fclose($target);
+
+        if (!$succeeded)
         {
             throw new FilesystemException(
-                "Failed to create a temporary file to write the new contents of $filepath to."
+                "Failed to write the new contents of {$filepath}, so it may be incomplete. The complete new contents " .
+                "are in {$tmpFilepath}."
             );
         }
 
-        $bytesWritten = file_put_contents($tempFilepath, $contents);
+        @unlink($tmpFilepath);
+    }
 
-        # tempnam() creates the file with 0600 permissions, so copy across the original file's permissions.
-        $permissions = fileperms($filepath);
 
-        if ($bytesWritten !== strlen($contents) || $permissions === false || !chmod($tempFilepath, $permissions & 0777))
+    /**
+     * Replace the contents of a file. The new contents are written to a temporary file in the system's temporary
+     * directory first, then copied into the original with replaceWithFile(), so the file keeps its permissions,
+     * owner and any links to it, and only the file (not its directory) needs to be writable.
+     * @param string $filepath - the path to the file to replace the contents of.
+     * @param string $contents - the new contents for the file.
+     * @return void
+     * @throws FileDoesNotExistException - if there is no file at $filepath.
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
+     * @throws FilesystemException - if the new contents could not be written. See replaceWithFile() for what happens
+     *                               if this fails part way through copying them into the original.
+     */
+    private static function replaceFileContents(string $filepath, string $contents): void
+    {
+        self::checkCanChangeFile($filepath);
+        $tmpFilepath = self::createReplacementFile();
+
+        # Nothing has been copied into the original yet, so if this fails it is untouched, and the temporary file can
+        # go.
+        if (@file_put_contents($tmpFilepath, $contents) !== strlen($contents))
         {
-            unlink($tempFilepath);
-            throw new FilesystemException("Failed to write the new contents of $filepath to a temporary file.");
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to write the new contents of {$filepath} to a temporary file.");
         }
 
-        if (!rename($tempFilepath, $filepath))
-        {
-            unlink($tempFilepath);
-            throw new FilesystemException("Failed to replace $filepath with its new contents.");
-        }
+        self::replaceWithFile($filepath, $tmpFilepath);
     }
 }

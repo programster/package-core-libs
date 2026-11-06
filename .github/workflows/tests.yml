@@ -1,0 +1,43 @@
+# Runs lint and the tests on every supported version of PHP, using the same script as running them locally
+# (testing/run-all-php-versions.sh), which tests each version in its own Docker container, as root. Running as root
+# means the checks that need it (e.g. that rewriting a file keeps its owner) run here too, rather than being skipped.
+# The README's "Tests" badge shows the result of the latest run on the default branch.
+name: Tests
+
+on:
+    # Pushes to the main branch (not work-in-progress branches), and every tag, e.g. a new release.
+    push:
+        branches:
+            - master
+            - main
+        tags:
+            - "*"
+    # Pull requests into the main branch, so they are tested before being merged.
+    pull_request:
+        branches:
+            - master
+            - main
+    # Adds a "Run workflow" button on the Actions tab, to run the tests by hand on any branch.
+    workflow_dispatch:
+
+# The tests only need to read the code.
+permissions:
+    contents: read
+
+jobs:
+    tests:
+        name: Lint and tests on PHP 8.3, 8.4 and 8.5
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+
+        steps:
+            - name: Check out the code
+              uses: actions/checkout@v5
+
+            # The tests use vendor/autoload.php. The runner's own PHP is only used to run Composer, so skip the
+            # platform checks here: the real requirements (e.g. ext-sodium) are checked inside each test container.
+            - name: Install Composer dependencies
+              run: composer install --no-interaction --no-progress --prefer-dist --ignore-platform-reqs
+
+            - name: Run lint and the tests on every supported version of PHP
+              run: sh testing/run-all-php-versions.sh
