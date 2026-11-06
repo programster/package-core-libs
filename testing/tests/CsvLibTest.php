@@ -743,3 +743,34 @@ $smoke->run("CSV writing methods only replace the output once it is complete", f
     }
 });
 
+$smoke->run("convertCsvToJson", function () use ($dir) {
+    # A quoted value can contain a line break, and blank lines at the end are ignored.
+    file_put_contents("{$dir}/multi-line.csv", "h1,h2\n\"line1\nline2\",x\n\n");
+    CsvLib::convertCsvToJson("{$dir}/multi-line.csv", "{$dir}/multi-line.json", true);
+    assert(file_get_contents("{$dir}/multi-line.json") === '[{"h1":"line1\\nline2","h2":"x"}]');
+
+    # The readable form indents each object inside the array.
+    file_put_contents("{$dir}/pretty.csv", "h1\na\nb\n");
+    CsvLib::convertCsvToJson("{$dir}/pretty.csv", "{$dir}/pretty.json", false);
+    $expected = "[\n    {\n        \"h1\": \"a\"\n    },\n    {\n        \"h1\": \"b\"\n    }]";
+    assert(file_get_contents("{$dir}/pretty.json") === $expected);
+
+    # Just a header gives an empty array.
+    file_put_contents("{$dir}/header-only.csv", "h1,h2\n");
+    CsvLib::convertCsvToJson("{$dir}/header-only.csv", "{$dir}/header-only.json", true);
+    assert(file_get_contents("{$dir}/header-only.json") === "[]");
+
+    # A blank line in the middle makes the file invalid, and nothing is written.
+    file_put_contents("{$dir}/blank-middle.csv", "h1\na\n\nb\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::convertCsvToJson("{$dir}/blank-middle.csv", "{$dir}/blank-middle.json", true)
+    );
+    assert(!file_exists("{$dir}/blank-middle.json"));
+
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => CsvLib::convertCsvToJson("{$dir}/missing.csv", "{$dir}/missing.json", true)
+    );
+});
+

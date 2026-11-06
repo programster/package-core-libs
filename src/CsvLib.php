@@ -24,7 +24,13 @@ final class CsvLib
     private const BYTE_ORDER_MARK = "\xEF\xBB\xBF";
 
     /**
-     * Converts a CSV file into a JSON file.
+     * Converts a CSV file into a JSON file: an array with an object for each row of data, keyed by
+     * the header row (so the file must have one). Quoted values can contain line breaks. Blank lines
+     * at the end are ignored.
+     * This is written to handle very large CSV files: it reads one row at a time, and writes each
+     * row's JSON object to the file as it goes, rather than loading the whole CSV into memory and
+     * calling json_encode() on all of it at once (which could run the system out of memory). Only
+     * one row is held in memory at a time, whether or not $compressed is set.
      * @param string $csvFilepath - location of the CSV file we wish to convert.
      * @param string $jsonFilepath - path to where we wish to store the result. If the file already
      * exists, then it will be overwritten. If not then it will be created. The JSON is written to a
@@ -36,11 +42,14 @@ final class CsvLib
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
      * @return void
+     * @throws FileDoesNotExistException - if there is no file at $csvFilepath.
+     * @throws InvalidCsvException - if the CSV file isn't valid (see the CsvFile constructor), e.g.
+     * it has a blank line in the middle.
      * @throws BadFilePermissionsException - if the JSON file (or, for a new file, its directory)
      * can't be written to.
      * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not
      * be written.
-     * @throws \JsonException
+     * @throws \JsonException - if a value can't be encoded as JSON (e.g. it isn't valid UTF-8).
      */
     public static function convertCsvToJson(
         string $csvFilepath,
@@ -51,105 +60,61 @@ final class CsvLib
         string $escape = "",
     ): void
     {
-        $lines = file($csvFilepath);
+        # Check the file first, so a blank line in the middle (which makes it invalid) is an error, rather than skipped.
+        self::validateCsvFile($csvFilepath, $delimiter, $enclosure, $escape);
 
-        if ($lines === false)
-        {
-            throw new FilesystemException("Failed to read CSV file: {$csvFilepath}");
-        }
+        $writeJson = function ($jsonFile) use ($csvFilepath, $compressed, $delimiter, $enclosure, $escape): void {
+            # Suppress the warning, as we throw an exception instead.
+            $csvHandle = @fopen($csvFilepath, "r");
 
-        # Remove a byte order mark, so that it doesn't become part of the first header's name.
-        if (count($lines) > 0 && str_starts_with($lines[0], self::BYTE_ORDER_MARK))
-        {
-            $lines[0] = substr($lines[0], strlen(self::BYTE_ORDER_MARK));
-        }
-
-        $writeJson = function ($jsonFile) use (
-            $lines,
-            $compressed,
-            $delimiter,
-            $enclosure,
-            $escape
-        ): void {
-            $headers = array();
-            $hasWrittenObject = false;
-
-            if ($compressed)
+            if ($csvHandle === false)
             {
-                self::writeToOutput($jsonFile, "[");
-            }
-            else
-            {
-                self::writeToOutput($jsonFile, "[" . PHP_EOL);
+                throw new FilesystemException("Failed to open CSV file for reading: {$csvFilepath}");
             }
 
+            $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR | ($compressed ? 0 : JSON_PRETTY_PRINT);
+            $separator = $compressed ? "," : "," . PHP_EOL;
 
-            foreach ($lines as $lineIndex => $line)
+            try
             {
-                $data = str_getcsv($line, $delimiter, $enclosure, $escape);
+                # Remove a byte order mark, so that it doesn't become part of the first header's name.
+                self::skipByteOrderMark($csvHandle);
+                $headers = fgetcsv($csvHandle, 0, $delimiter, $enclosure, $escape);
+                $hasWrittenObject = false;
+                self::writeToOutput($jsonFile, $compressed ? "[" : "[" . PHP_EOL);
 
-                if ($lineIndex === 0)
+                # Read with fgetcsv(), so a quoted value can contain line breaks. Blank lines can only be at the end,
+                # as the file has been validated, so are skipped.
+                while ($headers !== false && ($row = fgetcsv($csvHandle, 0, $delimiter, $enclosure, $escape)) !== false)
                 {
-                    # this is the header line
-                    $headers = $data;
-                }
-                elseif (self::isBlankRow($data))
-                {
-                    // Skip empty lines (users may accidentally put one at the end
-                    // and LibreOffice Calc won't strip this either).
-                }
-                else
-                {
-                    $obj = new \stdClass();
-
-                    foreach ($headers as $headerIndex => $header)
+                    if (!self::isBlankRow($row))
                     {
-                        $obj->$header = $data[$headerIndex];
-                    }
+                        $object = new \stdClass();
 
-                    if ($compressed)
-                    {
-                        $jsonString = json_encode($obj, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-                    }
-                    else
-                    {
-                        $jsonString = json_encode(
-                            $obj,
-                            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
-                        );
-                    }
-
-                    if (!$compressed)
-                    {
-                        $jsonStringLines = explode(PHP_EOL, $jsonString);
-
-                        foreach ($jsonStringLines as $jsonStringLineIndex => $line)
+                        foreach ($headers as $headerIndex => $header)
                         {
-                            $jsonStringLines[$jsonStringLineIndex] = "    " . $line;
+                            $object->$header = $row[$headerIndex];
                         }
 
-                        $jsonString = implode(PHP_EOL, $jsonStringLines);
-                    }
+                        $jsonString = json_encode($object, $jsonFlags);
 
-                    if ($hasWrittenObject)
-                    {
-                        if ($compressed)
+                        if (!$compressed)
                         {
-                            $jsonString = "," . $jsonString;
-                        }
-                        else
-                        {
-                            $jsonString = "," . PHP_EOL . $jsonString;
+                            # Indent each object by four spaces, as it is inside the array.
+                            $jsonString = "    " . str_replace(PHP_EOL, PHP_EOL . "    ", $jsonString);
                         }
 
+                        self::writeToOutput($jsonFile, ($hasWrittenObject ? $separator : "") . $jsonString);
+                        $hasWrittenObject = true;
                     }
-
-                    self::writeToOutput($jsonFile, $jsonString);
-                    $hasWrittenObject = true;
                 }
+
+                self::writeToOutput($jsonFile, "]");
             }
-
-            self::writeToOutput($jsonFile, "]");
+            finally
+            {
+                fclose($csvHandle);
+            }
         };
 
         # Write to a temporary file first, so that a failure part way through (e.g. a value that can't be encoded)
