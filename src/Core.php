@@ -94,10 +94,27 @@ final class Core
 
         $numRunning = self::getNumProcRunning($namingPrefix);
 
-        # This raises a warning as well as returning false on failure, so suppress it and include it in the exception.
-        if (@cli_set_process_title($namingPrefix . $numRunning) === false)
+        # This raises a warning as well as returning false on failure. Capture the warning to put its reason in the
+        # exception, rather than letting it through. This uses a temporary error handler rather than @ and
+        # error_get_last(), as error_get_last() is empty if the application has its own error handler.
+        $error = 'unknown error';
+
+        set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
+            $error = $errorMessage;
+            return true;
+        });
+
+        try
         {
-            $error = error_get_last()['message'] ?? 'unknown error';
+            $titleSet = cli_set_process_title($namingPrefix . $numRunning);
+        }
+        finally
+        {
+            restore_error_handler();
+        }
+
+        if ($titleSet === false)
+        {
             throw new CliTitleNotSetException("Failed to set the process title: {$error}");
         }
     }

@@ -233,6 +233,22 @@ $smoke->run("downloadFile", function () use ($dir) {
     }
 });
 
+$smoke->run("downloadFile without curl", function () {
+    # The fallback for when curl isn't available can only be reached by running a separate PHP with curl turned off.
+    # The test runner has its own error handler (as many applications do), so this also checks that the reason is in
+    # the message, rather than "unknown error".
+    $code = 'require ' . var_export(__DIR__ . '/../../vendor/autoload.php', true) . '; ' .
+        'set_error_handler(fn(int $number, string $message) => true); ' .
+        'try { Programster\\CoreLibs\\Filesystem::downloadFile("http://127.0.0.1:1/x"); echo "downloaded"; } ' .
+        'catch (Exception $e) { echo get_class($e), ": ", $e->getMessage(); }';
+    $output = (string)shell_exec(
+        escapeshellarg(PHP_BINARY) . " -d disable_functions=curl_version -r " . escapeshellarg($code) . " 2>&1"
+    );
+    $expected = FilesystemException::class . ": Failed to download http://127.0.0.1:1/x: file_get_contents(";
+    assert(str_starts_with($output, $expected), "downloadFile() without curl gave: {$output}");
+    assert(str_contains($output, "Connection refused"), "downloadFile() without curl gave: {$output}");
+});
+
 $smoke->run("zipDir / unzip", function () use ($dir) {
     mkdir("{$dir}/ziptest/sub", 0777, true);
     mkdir("{$dir}/ziptest/empty/nested-empty", 0777, true);
@@ -685,6 +701,23 @@ $smoke->run("tmpDir", function () use ($dir) {
         );
         assert(scandir("{$dir}/read-only-tmp") === [".", ".."]);
         chmod("{$dir}/read-only-tmp", 0755);
+    }
+});
+
+$smoke->run("zipDir error messages", function () use ($dir) {
+    if (SmokeTest::canTestPermissions("zipDir() giving the reason when a file can't be read"))
+    {
+        # A file that can't be read makes close() fail. The reason is PHP's own warning, even though the test runner
+        # has its own error handler, which leaves error_get_last() empty.
+        mkdir("{$dir}/zip-unreadable");
+        file_put_contents("{$dir}/zip-unreadable/secret.txt", "secret");
+        chmod("{$dir}/zip-unreadable/secret.txt", 0000);
+        SmokeTest::expectException(
+            FilesystemException::class,
+            fn() => Filesystem::zipDir("{$dir}/zip-unreadable", "{$dir}/unreadable.zip"),
+            "Failed to write the zip file {$dir}/unreadable.zip: ZipArchive::close(): Can't open file"
+        );
+        chmod("{$dir}/zip-unreadable/secret.txt", 0644);
     }
 });
 

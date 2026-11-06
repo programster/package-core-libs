@@ -667,11 +667,29 @@ final class Filesystem
 
         # The files are only actually read and written into the zip when it is closed, so this is where most failures
         # show up (e.g. a file that can't be read, or the disk being full). This raises a warning as well as returning
-        # false, so suppress it and include the reason in the exception instead.
-        if (@$zip->close() === false)
+        # false. Capture the warning to put its reason in the exception, rather than letting it through. This uses a
+        # temporary error handler rather than @ and error_get_last(), as error_get_last() is empty if the
+        # application has its own error handler.
+        $error = null;
+        set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
+            $error = $errorMessage;
+            return true;
+        });
+
+        try
         {
-            $error = error_get_last()['message'] ?? $zip->getStatusString();
-            throw new FilesystemException("Failed to write the zip file {$dest}: {$error}");
+            $closed = $zip->close();
+        }
+        finally
+        {
+            restore_error_handler();
+        }
+
+        if ($closed === false)
+        {
+            # ZipArchive's own status says what went wrong too, if for some reason there was no warning.
+            $reason = $error ?? $zip->getStatusString();
+            throw new FilesystemException("Failed to write the zip file {$dest}: {$reason}");
         }
 
         if ($deleteOnComplete)
@@ -1045,12 +1063,26 @@ final class Filesystem
             }
             else
             {
-                # Suppress the warning, as we throw an exception instead.
-                $content = @file_get_contents($url);
+                # Capture the warning to put its reason in the exception, rather than letting it through. This uses a
+                # temporary error handler rather than @ and error_get_last(), as error_get_last() is empty if the
+                # application has its own error handler.
+                $error = 'unknown error';
+                set_error_handler(function (int $errorNumber, string $errorMessage) use (&$error): bool {
+                    $error = $errorMessage;
+                    return true;
+                });
+
+                try
+                {
+                    $content = file_get_contents($url);
+                }
+                finally
+                {
+                    restore_error_handler();
+                }
 
                 if ($content === false)
                 {
-                    $error = error_get_last()['message'] ?? 'unknown error';
                     throw new FilesystemException("Failed to download {$url}: {$error}");
                 }
 
