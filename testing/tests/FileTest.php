@@ -217,3 +217,86 @@ $smoke->run("File rename and move", function () use ($dir) {
     assert($csvFile->getFilepath() === "{$base}/sub/renamed.csv");
     assert($csvFile->toArray() === [["a" => "1", "b" => "2"]]);
 });
+
+$smoke->run("File moves never replacing a file created during the move", function () use ($dir) {
+    # A file that appears at the new path after moveTo()'s checks (as if made by another process) must not be
+    # replaced. That can't be timed from here, so call the methods that do the final step with it already there.
+    $base = "{$dir}/move-race";
+    mkdir($base);
+    file_put_contents("{$base}/mine.txt", "mine");
+    file_put_contents("{$base}/theirs.txt", "theirs");
+    $moveFile = new ReflectionMethod(File::class, "moveFile");
+
+    SmokeTest::expectException(
+        FileAlreadyExistsException::class,
+        fn() => $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/theirs.txt", false),
+        "as something was created there while it was being moved"
+    );
+
+    assert(file_get_contents("{$base}/theirs.txt") === "theirs" && file_get_contents("{$base}/mine.txt") === "mine");
+
+    # A broken symlink counts as something being there too.
+    symlink("{$base}/missing", "{$base}/broken-link");
+    SmokeTest::expectException(
+        FileAlreadyExistsException::class,
+        fn() => $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/broken-link", false)
+    );
+    assert(is_link("{$base}/broken-link") && file_get_contents("{$base}/mine.txt") === "mine");
+
+    # When nothing is there, it moves.
+    $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/moved.txt", false);
+    assert(file_get_contents("{$base}/moved.txt") === "mine" && !file_exists("{$base}/mine.txt"));
+
+    # Moving to another filesystem goes through a temporary name in the new directory, which is removed again
+    # whether it works or not. /dev/shm is usually a separate filesystem, so check there if so.
+    if (is_dir("/dev/shm") && stat("/dev/shm")['dev'] !== stat($base)['dev'])
+    {
+        $otherFilesystem = "/dev/shm/corelibs-move-race-" . getmypid();
+        mkdir($otherFilesystem);
+
+        try
+        {
+            file_put_contents("{$otherFilesystem}/theirs.txt", "theirs");
+
+            SmokeTest::expectException(
+                FileAlreadyExistsException::class,
+                fn() => $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", false)
+            );
+
+            assert(file_get_contents("{$otherFilesystem}/theirs.txt") === "theirs");
+            assert(file_get_contents("{$base}/moved.txt") === "mine");
+            $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/moved.txt", false);
+            assert(file_get_contents("{$otherFilesystem}/moved.txt") === "mine" && !file_exists("{$base}/moved.txt"));
+            assert(glob("{$otherFilesystem}/.corelibs-move-*") === []);
+            $moveFile->invoke(null, "{$otherFilesystem}/moved.txt", "{$base}/moved.txt", false);
+
+            # The copy keeps the permissions and modification time, and replacing works across filesystems too.
+            chmod("{$base}/moved.txt", 0640);
+            touch("{$base}/moved.txt", 1000000000);
+            $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", true);
+            assert(file_get_contents("{$otherFilesystem}/theirs.txt") === "mine" && !file_exists("{$base}/moved.txt"));
+            assert((fileperms("{$otherFilesystem}/theirs.txt") & 0777) === 0640);
+            assert(filemtime("{$otherFilesystem}/theirs.txt") === 1000000000);
+            assert(glob("{$otherFilesystem}/.corelibs-move-*") === []);
+            $moveFile->invoke(null, "{$otherFilesystem}/theirs.txt", "{$base}/moved.txt", false);
+        }
+        finally
+        {
+            Filesystem::deleteDir($otherFilesystem);
+        }
+    }
+
+    # The same goes for a relative symlink moved into another directory, which is recreated rather than renamed.
+    mkdir("{$base}/other");
+    symlink("moved.txt", "{$base}/link");
+    file_put_contents("{$base}/other/link", "theirs");
+    $moveRelativeSymlink = new ReflectionMethod(File::class, "moveRelativeSymlink");
+
+    SmokeTest::expectException(
+        FileAlreadyExistsException::class,
+        fn() => $moveRelativeSymlink->invoke(null, "{$base}/link", "{$base}/other/link", "moved.txt", false)
+    );
+
+    assert(file_get_contents("{$base}/other/link") === "theirs" && is_link("{$base}/link"));
+});
+

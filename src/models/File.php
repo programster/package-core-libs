@@ -173,8 +173,9 @@ class File
      *  - replace a path that is the same file as this one under another name, i.e. a symlink to
      *    this file, a file this symlink points to, or a hard link. E.g. renaming a symlink over the
      *    file it points to would replace the file with a link to itself, losing its data.
-     * Checking and then renaming isn't atomic, so if another process creates a file at the new path
-     * in between, rename() will still replace it.
+     * Without $overwriteExistingFile, a file another process creates at the new path after the
+     * checks is never replaced, and this throws instead. A move to another filesystem copies the
+     * file first, and only deletes the original once the copy is in place (see moveFile()).
      * @param string $targetPath - the new path for the file.
      * @param bool $overwriteExistingFile - whether to replace a file or symlink that already exists
      * at $targetPath.
@@ -226,10 +227,9 @@ class File
                 # Moving it as it is would leave it pointing somewhere else, so recreate it with its target adjusted.
                 self::moveRelativeSymlink($currentPath, $newPath, $linkTarget, $somethingExists);
             }
-            elseif (!@rename($currentPath, $newPath))
+            else
             {
-                # Suppress the warning, as we throw an exception instead.
-                throw new FilesystemException("Failed to move {$this->m_filepath} to {$newPath}.");
+                self::moveFile($currentPath, $newPath, $overwriteExistingFile);
             }
         }
 
@@ -246,6 +246,8 @@ class File
      * @param bool $replaceExisting - whether something at $newPath (already checked to be a file or
      * symlink that may be replaced) should be removed first.
      * @return void
+     * @throws FileAlreadyExistsException - if something was created at $newPath by another process
+     * after it was checked, without $replaceExisting.
      * @throws FilesystemException - if the new symlink could not be created, or the old one could
      * not be removed (in which case the new one is removed again, so nothing has changed).
      */
@@ -265,8 +267,16 @@ class File
             throw new FilesystemException("Failed to replace {$newPath} with a symlink to {$newLinkTarget}.");
         }
 
+        # symlink() fails if anything is at $newPath, so something that appeared there since the checks isn't replaced.
         if (!@symlink($newLinkTarget, $newPath))
         {
+            if (file_exists($newPath) || is_link($newPath))
+            {
+                throw new FileAlreadyExistsException(
+                    "Can't move {$currentPath} to {$newPath}, as something was created there while it was being moved."
+                );
+            }
+
             throw new FilesystemException("Failed to create a symlink at {$newPath} to {$newLinkTarget}.");
         }
 
@@ -276,6 +286,158 @@ class File
             @unlink($newPath);
             throw new FilesystemException("Failed to remove the old symlink at {$currentPath}.");
         }
+    }
+
+
+    /**
+     * Move a file (or a symlink, as itself) to a new path.
+     * On the same filesystem, this renames it. Without $replace, it uses link() then unlink() rather
+     * than rename(), as link() fails if anything (even a broken symlink) is at the new path, so
+     * something another process creates there after it was checked is never replaced.
+     * On another filesystem, it is copied to a hidden, randomly named file in the new directory
+     * (e.g. ".corelibs-move-1a2b3c4d5e6f7a8b"), with its permissions and modification time, and its
+     * owner and group when running as root. That is then put in place the same way, and only once it
+     * is there is the original deleted. So if anything goes wrong part way through, the original is
+     * still there, and only the copy needs removing.
+     * Where hard links aren't allowed (e.g. on a FAT filesystem, or for a file another user owns,
+     * with fs.protected_hardlinks), this falls back to rename(), which is only safe from that if
+     * nothing appears at the new path in the moment between the checks and the move.
+     * @param string $currentPath - the file to move.
+     * @param string $newPath - where to move it.
+     * @param bool $replace - whether to replace a file or symlink at $newPath.
+     * @return void
+     * @throws FileAlreadyExistsException - without $replace, if something is at $newPath.
+     * @throws FilesystemException - if the file couldn't be moved. The original is left where it was
+     * if this happens, and any copy is removed.
+     */
+    private static function moveFile(string $currentPath, string $newPath, bool $replace): void
+    {
+        if (Filesystem::isOnSameFilesystem(dirname($currentPath), dirname($newPath)))
+        {
+            self::placeFile($currentPath, $newPath, $replace, $currentPath);
+        }
+        else
+        {
+            $copyPath = self::copyToTemporaryFile($currentPath, dirname($newPath));
+
+            try
+            {
+                self::placeFile($copyPath, $newPath, $replace, $currentPath);
+            }
+            catch (FilesystemException | FileAlreadyExistsException $e)
+            {
+                @unlink($copyPath);
+                throw $e;
+            }
+
+            # Only now that the copy is in place is the original deleted.
+            if (!@unlink($currentPath))
+            {
+                # Don't leave it in both places.
+                @unlink($newPath);
+
+                throw new FilesystemException(
+                    "Failed to move {$currentPath} to {$newPath}, as the original couldn't be deleted."
+                );
+            }
+        }
+    }
+
+
+    /**
+     * Rename a file to a new path on the same filesystem, for moveFile().
+     * @param string $fromPath - the file to rename.
+     * @param string $newPath - where to rename it to.
+     * @param bool $replace - whether to replace something at $newPath.
+     * @param string $originalPath - the path being moved, for the error messages.
+     * @return void
+     * @throws FileAlreadyExistsException - without $replace, if something is at $newPath.
+     * @throws FilesystemException - if it couldn't be renamed. $fromPath is left as it was.
+     */
+    private static function placeFile(string $fromPath, string $newPath, bool $replace, string $originalPath): void
+    {
+        # Suppress the warnings, as we throw exceptions instead.
+        if ($replace)
+        {
+            if (!@rename($fromPath, $newPath))
+            {
+                throw new FilesystemException("Failed to move {$originalPath} to {$newPath}.");
+            }
+        }
+        elseif (@link($fromPath, $newPath))
+        {
+            if (!@unlink($fromPath))
+            {
+                # Don't leave it under two names.
+                @unlink($newPath);
+
+                throw new FilesystemException(
+                    "Failed to move {$originalPath} to {$newPath}, as the old name couldn't be removed."
+                );
+            }
+        }
+        elseif (file_exists($newPath) || is_link($newPath))
+        {
+            throw new FileAlreadyExistsException(
+                "Can't move {$originalPath} to {$newPath}, as something was created there while it was being moved."
+            );
+        }
+        elseif (!@rename($fromPath, $newPath))
+        {
+            # Hard links aren't allowed here, so rename() is all that's left, and that failed too.
+            throw new FilesystemException("Failed to move {$originalPath} to {$newPath}.");
+        }
+    }
+
+
+    /**
+     * Copy a file to a new, hidden, randomly named file in a directory, for moveFile(), keeping its
+     * permissions and modification time, and its owner and group when running as root. A symlink is
+     * copied as a symlink with the same target.
+     * @param string $path - the file to copy.
+     * @param string $directory - the directory to copy it into.
+     * @return string - the path of the copy.
+     * @throws FilesystemException - if it couldn't be copied. Any partial copy is removed.
+     */
+    private static function copyToTemporaryFile(string $path, string $directory): string
+    {
+        try
+        {
+            $copyPath = "{$directory}/.corelibs-move-" . bin2hex(random_bytes(8));
+        }
+        catch (\Random\RandomException $e)
+        {
+            throw new FilesystemException("Failed to make a temporary name to move {$path} with.", 0, $e);
+        }
+
+        # Suppress the warnings, as we throw an exception instead.
+        if (is_link($path))
+        {
+            $target = @readlink($path);
+            $copied = ($target !== false) && @symlink($target, $copyPath);
+        }
+        else
+        {
+            $details = stat($path);
+
+            $copied = @copy($path, $copyPath)
+                && @chmod($copyPath, $details['mode'] & 07777)
+                && @touch($copyPath, $details['mtime']);
+
+            # Only root can give a file to another user, so otherwise it belongs to whoever is running this.
+            if ($copied && function_exists('posix_geteuid') && posix_geteuid() === 0)
+            {
+                $copied = @chown($copyPath, $details['uid']) && @chgrp($copyPath, $details['gid']);
+            }
+        }
+
+        if (!$copied)
+        {
+            @unlink($copyPath);
+            throw new FilesystemException("Failed to copy {$path} to {$directory}.");
+        }
+
+        return $copyPath;
     }
 
 
