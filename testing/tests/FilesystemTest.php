@@ -4,12 +4,15 @@
  * Smoke tests for Filesystem. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
+use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
+use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
 use Programster\CoreLibs\Filesystem;
+use Programster\CoreLibs\Models\FileDeletionProblem;
 use Programster\CoreLibs\Network;
 use Programster\CoreLibs\Testing\SmokeTest;
 
@@ -240,3 +243,277 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
         fn() => Filesystem::zipDir("{$dir}/ziptest", "/nonexistent-dir/test.zip", false)
     );
 });
+
+$smoke->run("deleteDir / emptyDir check everything first", function () use ($dir) {
+    # A successful delete removes everything, including nested directories. A symlink is removed without touching what
+    # it points to.
+    $base = "{$dir}/delete-test";
+    mkdir("{$base}/a/b", 0777, true);
+    file_put_contents("{$base}/a/b/c.txt", "c");
+    file_put_contents("{$base}/keep-target.txt", "kept");
+    mkdir("{$dir}/delete-outside");
+    file_put_contents("{$dir}/delete-outside/x.txt", "x");
+    symlink("{$dir}/delete-outside", "{$base}/a/outside-link");
+    Filesystem::emptyDir("{$base}/a");
+    assert(is_dir("{$base}/a") && scandir("{$base}/a") === [".", ".."]);
+    assert(file_get_contents("{$dir}/delete-outside/x.txt") === "x");
+    Filesystem::deleteDir($base);
+    assert(!file_exists($base));
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::deleteDir($base));
+
+    # Symlinks inside are deleted without following them, whether they point to a file, a directory, a read-only
+    # directory (which mustn't block the delete), or nothing.
+    $base = "{$dir}/delete-links";
+    mkdir("{$base}/sub", 0777, true);
+    mkdir("{$dir}/delete-outside/locked");
+    file_put_contents("{$dir}/delete-outside/file.txt", "kept");
+    file_put_contents("{$dir}/delete-outside/locked/inner.txt", "kept");
+    chmod("{$dir}/delete-outside/locked", 0555);
+    symlink("{$dir}/delete-outside/file.txt", "{$base}/file-link");
+    symlink("{$dir}/delete-outside", "{$base}/sub/dir-link");
+    symlink("{$dir}/delete-outside/locked", "{$base}/locked-link");
+    symlink("{$dir}/nowhere", "{$base}/broken-link");
+    Filesystem::deleteDir($base);
+    assert(!file_exists($base) && !is_link("{$base}/broken-link"));
+    assert(file_get_contents("{$dir}/delete-outside/file.txt") === "kept");
+    assert(file_get_contents("{$dir}/delete-outside/x.txt") === "x");
+    assert(file_get_contents("{$dir}/delete-outside/locked/inner.txt") === "kept");
+    chmod("{$dir}/delete-outside/locked", 0755);
+
+    # Given a symlink as the directory itself, deleteDir() refuses (unless following symlinks), with or without a
+    # trailing slash.
+    symlink("{$dir}/delete-outside", "{$dir}/delete-top-link");
+
+    foreach (["{$dir}/delete-top-link", "{$dir}/delete-top-link/"] as $linkPath)
+    {
+        SmokeTest::expectException(
+            BadArgumentException::class,
+            fn() => Filesystem::deleteDir($linkPath),
+            "as it is a symlink"
+        );
+    }
+
+    assert(file_get_contents("{$dir}/delete-outside/file.txt") === "kept" && is_link("{$dir}/delete-top-link"));
+
+    # emptyDir() given a symlink empties the directory it points to, leaving the link and the directory in place. A
+    # symlink inside it is removed without following it, unless followSymlinks is set.
+    mkdir("{$dir}/empty-target");
+    mkdir("{$dir}/empty-elsewhere");
+    file_put_contents("{$dir}/empty-target/a.txt", "a");
+    file_put_contents("{$dir}/empty-elsewhere/e.txt", "e");
+    symlink("{$dir}/empty-elsewhere", "{$dir}/empty-target/inner-link");
+    symlink("{$dir}/empty-target", "{$dir}/empty-link");
+    Filesystem::emptyDir("{$dir}/empty-link");
+    assert(is_link("{$dir}/empty-link") && scandir("{$dir}/empty-target") === [".", ".."]);
+    assert(file_get_contents("{$dir}/empty-elsewhere/e.txt") === "e");
+
+    symlink("{$dir}/empty-elsewhere", "{$dir}/empty-target/inner-link");
+    Filesystem::emptyDir("{$dir}/empty-link/", followSymlinks: true);
+    assert(is_link("{$dir}/empty-link") && scandir("{$dir}/empty-target") === [".", ".."]);
+    assert(!file_exists("{$dir}/empty-elsewhere"));
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::emptyDir($base));
+
+    if (SmokeTest::canTestPermissions("deleteDir() / emptyDir() refusing to partly delete"))
+    {
+        # Something that can't be deleted makes the whole delete fail up front, so nothing at all is deleted.
+        $base = "{$dir}/delete-locked";
+        mkdir("{$base}/sub/locked", 0777, true);
+        mkdir("{$base}/sub/unreadable");
+        file_put_contents("{$base}/first.txt", "1");
+        file_put_contents("{$base}/sub/second.txt", "2");
+        file_put_contents("{$base}/sub/locked/inner.txt", "3");
+        file_put_contents("{$base}/sub/unreadable/hidden.txt", "4");
+        chmod("{$base}/sub/locked", 0555);
+        chmod("{$base}/sub/unreadable", 0000);
+        # getProblems() says what can't be deleted, which directory causes it, and why. The message is kept short.
+        $expectedProblems = [
+            ["{$base}/sub/locked/inner.txt", "{$base}/sub/locked", FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE],
+            ["{$base}/sub/unreadable", "{$base}/sub/unreadable", FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE],
+        ];
+
+        foreach (["deleteDir", "emptyDir"] as $method)
+        {
+            $problems = null;
+
+            try
+            {
+                Filesystem::$method($base);
+            }
+            catch (DirectoryNotDeletableException $e)
+            {
+                $problems = array_map(
+                    fn(FileDeletionProblem $problem) => [$problem->path, $problem->directory, $problem->reason],
+                    $e->getProblems()
+                );
+                assert(str_contains($e->getMessage(), "as 2 thing(s) in it can't be deleted (e.g. {$base}/sub/"));
+                assert(str_contains($e->getMessage(), "Call getProblems() on this exception for the full list."));
+            }
+
+            # scandir() order isn't guaranteed, so compare them sorted.
+            sort($problems);
+            assert($problems === $expectedProblems, "{$method}() reported the wrong problems");
+        }
+
+        # It still extends BadFilePermissionsException, so existing catch blocks still work.
+        SmokeTest::expectException(BadFilePermissionsException::class, fn() => Filesystem::deleteDir($base));
+
+        chmod("{$base}/sub/unreadable", 0755);
+        assert(file_get_contents("{$base}/first.txt") === "1" && file_get_contents("{$base}/sub/second.txt") === "2");
+        assert(file_get_contents("{$base}/sub/locked/inner.txt") === "3");
+        assert(file_get_contents("{$base}/sub/unreadable/hidden.txt") === "4");
+
+        # Large numbers of problems stop being counted at 100.
+        mkdir("{$base}/many");
+
+        for ($i = 0; $i < 120; $i++)
+        {
+            touch("{$base}/many/{$i}.txt");
+        }
+
+        chmod("{$base}/many", 0555);
+        $manyProblems = [];
+
+        try
+        {
+            Filesystem::emptyDir("{$base}/many");
+        }
+        catch (DirectoryNotDeletableException $e)
+        {
+            $manyProblems = $e->getProblems();
+            assert(str_contains($e->getMessage(), "as 100 or more (stopped counting at 100) things in it"));
+        }
+
+        assert(count($manyProblems) === 100);
+        chmod("{$base}/many", 0755);
+
+        # The 100 limit also holds when the 100th problem is a subdirectory that can't be listed either, which would
+        # otherwise add one more for it.
+        mkdir("{$base}/edge/zz", 0777, true);
+        touch("{$base}/edge/zz/x");
+
+        for ($i = 0; $i < 99; $i++)
+        {
+            touch(sprintf("%s/edge/%02d.txt", $base, $i));
+        }
+
+        chmod("{$base}/edge/zz", 0000);
+        chmod("{$base}/edge", 0555);
+        $edgeProblems = [];
+
+        try
+        {
+            Filesystem::emptyDir("{$base}/edge");
+        }
+        catch (DirectoryNotDeletableException $e)
+        {
+            $edgeProblems = $e->getProblems();
+        }
+
+        assert(count($edgeProblems) === 100);
+        chmod("{$base}/edge", 0755);
+        chmod("{$base}/edge/zz", 0755);
+
+        # Once it can all be deleted, it is.
+        chmod("{$base}/sub/locked", 0755);
+        Filesystem::deleteDir($base);
+        assert(!file_exists($base));
+
+        # deleteDir() also needs to be able to remove the directory itself from its parent. emptyDir() doesn't.
+        mkdir("{$dir}/delete-parent/child", 0777, true);
+        file_put_contents("{$dir}/delete-parent/child/file.txt", "f");
+        chmod("{$dir}/delete-parent", 0555);
+        SmokeTest::expectException(
+            DirectoryNotDeletableException::class,
+            fn() => Filesystem::deleteDir("{$dir}/delete-parent/child"),
+            "(e.g. {$dir}/delete-parent/child, as {$dir}/delete-parent can't be written to)"
+        );
+        assert(file_get_contents("{$dir}/delete-parent/child/file.txt") === "f");
+        Filesystem::emptyDir("{$dir}/delete-parent/child");
+        assert(scandir("{$dir}/delete-parent/child") === [".", ".."]);
+        chmod("{$dir}/delete-parent", 0755);
+    }
+});
+
+$smoke->run("deleteDir with followSymlinks", function () use ($dir) {
+    # The "up" links below point at $dir (the tests' own temporary directory), never at "/", so that if following
+    # them were ever broken, the worst it could delete is the test directory.
+    $base = "{$dir}/follow";
+    mkdir("{$base}/start/sub", 0777, true);
+    mkdir("{$base}/outside-dir/nested", 0777, true);
+    mkdir("{$base}/loop-a");
+    mkdir("{$base}/loop-b");
+    file_put_contents("{$base}/outside-dir/nested/deep.txt", "deep");
+    file_put_contents("{$base}/outside-file.txt", "file");
+    file_put_contents("{$base}/linked-from-outside.txt", "linked");
+    file_put_contents("{$base}/start/sub/inside.txt", "inside");
+
+    # Links inside: to a directory, to a file, a second link to the same directory, a broken one, one to something
+    # inside the tree, and ones pointing "up" to directories containing them.
+    symlink("{$base}/outside-dir", "{$base}/start/dir-link");
+    symlink("{$base}/outside-dir", "{$base}/start/sub/same-dir-link");
+    symlink("{$base}/outside-file.txt", "{$base}/start/file-link");
+    symlink("{$base}/nowhere", "{$base}/start/broken-link");
+    symlink("{$base}/start/sub/inside.txt", "{$base}/start/inside-link");
+    symlink("..", "{$base}/start/sub/up-link");
+    symlink($dir, "{$base}/start/far-up-link");
+
+    # A link inside a followed directory, to a file elsewhere, which is followed too.
+    symlink("{$base}/linked-from-outside.txt", "{$base}/outside-dir/nested/onward-link");
+
+    # Directories whose links point at each other, which mustn't loop.
+    symlink("{$base}/loop-b", "{$base}/loop-a/to-b");
+    symlink("{$base}/loop-a", "{$base}/loop-b/to-a");
+    symlink("{$base}/loop-a", "{$base}/start/loop-link");
+
+    Filesystem::deleteDir("{$base}/start", followSymlinks: true);
+    $leftInBase = array_values(array_diff(scandir($base), [".", ".."]));
+
+    # Everything reached by following links is gone. Only $base and the test directory, which the "up" links point
+    # to, are left (with nothing else in $base).
+    assert($leftInBase === [], "followSymlinks left behind: " . implode(", ", $leftInBase));
+    assert(is_dir($base) && is_dir($dir));
+
+    # Given a symlink to a directory, the directory and the link are both deleted.
+    mkdir("{$base}/real/sub", 0777, true);
+    file_put_contents("{$base}/real/sub/a.txt", "a");
+    symlink("{$base}/real", "{$base}/link-to-real");
+    Filesystem::deleteDir("{$base}/link-to-real/", followSymlinks: true);
+    assert(!file_exists("{$base}/real") && !is_link("{$base}/link-to-real"));
+
+    # A symlink that points "up" to a directory containing it can't be deleted this way, and nothing is touched.
+    mkdir("{$base}/container/inner", 0777, true);
+    symlink("{$base}/container", "{$base}/container/inner/up");
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => Filesystem::deleteDir("{$base}/container/inner/up", followSymlinks: true),
+        "which contains the link itself"
+    );
+    assert(is_link("{$base}/container/inner/up") && is_dir("{$base}/container/inner"));
+
+    # Without followSymlinks, a symlink is still refused, and the message mentions the option.
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => Filesystem::deleteDir("{$base}/container/inner/up"),
+        'set $followSymlinks to true to delete both'
+    );
+
+    if (SmokeTest::canTestPermissions("deleteDir() with followSymlinks checking what it follows"))
+    {
+        # Something reached by following a link that can't be deleted stops the whole delete, before anything goes.
+        mkdir("{$base}/locked-parent/target", 0777, true);
+        mkdir("{$base}/start2");
+        file_put_contents("{$base}/start2/keep.txt", "keep");
+        file_put_contents("{$base}/locked-parent/target/t.txt", "t");
+        symlink("{$base}/locked-parent/target", "{$base}/start2/link");
+        chmod("{$base}/locked-parent", 0555);
+        SmokeTest::expectException(
+            DirectoryNotDeletableException::class,
+            fn() => Filesystem::deleteDir("{$base}/start2", followSymlinks: true),
+            "(e.g. {$base}/locked-parent/target, as {$base}/locked-parent can't be written to)"
+        );
+        assert(file_get_contents("{$base}/start2/keep.txt") === "keep");
+        assert(file_get_contents("{$base}/locked-parent/target/t.txt") === "t");
+        chmod("{$base}/locked-parent", 0755);
+    }
+});
+

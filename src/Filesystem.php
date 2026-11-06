@@ -8,6 +8,10 @@ namespace Programster\CoreLibs;
 
 
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;
+use Programster\CoreLibs\Enums\FileDeletionOperationEnum;
+use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
+use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
+use Programster\CoreLibs\Models\FileDeletionProblem;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
@@ -21,6 +25,7 @@ use ZipArchive;
 
 final class Filesystem
 {
+    private const MAX_DELETION_PROBLEMS = 100;
     private static array $s_fileLocks = [];
 
 
@@ -246,60 +251,121 @@ final class Filesystem
     /**
      * Deletes a directory even if it is not already empty. This resolves the
      *  issue with trying to use unlink on a non-empty dir.
-     * Symlinks inside the directory are removed without touching what they point to. However, if $dir is itself a
-     * symlink, this throws rather than guessing whether the link or the folder it points to should be deleted. To
-     * remove just the link, use unlink().
+     * By default, symlinks are never followed: a symlink inside the directory is removed without touching what it
+     * points to, and if $dir is itself a symlink, this throws rather than guessing whether the link or the folder it
+     * points to should be deleted. (To remove just the link, use unlink().)
+     * With $followSymlinks, symlinks are followed instead, and what they point to is deleted as well as the links: if
+     * $dir is a symlink, the directory it points to is deleted, and then the link. A symlink inside to a directory has
+     * that directory deleted (following the symlinks in it too) before the link, and one to a file has the file deleted
+     * before the link. To avoid loops and deleting more than intended, a symlink that points "up" to a directory that
+     * contains it (e.g. ".." or "/") is never followed, and only the link is removed, and nothing is deleted twice,
+     * however many symlinks lead to it.
+     * Everything is checked before anything is deleted (see emptyDir()), so if anything can't be deleted, nothing is.
+     * This includes anything that would be deleted by following symlinks.
      * @param string $dir - the path to the directory you wish to delete
+     * @param bool $followSymlinks - whether to follow symlinks, and delete what they point to as well as the links.
+     *                               Defaults to false.
      * @return void
-     * @throws BadArgumentException - if $dir is a symlink.
+     * @throws BadArgumentException - if $dir is a symlink and $followSymlinks is false, or $dir is a symlink to a
+     *                                directory that contains it (so following it would delete the link's own parent).
      * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
+     * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted, including $dir
+     *                                         itself (e.g. because its parent directory can't be written to). Its
+     *                                         getProblems() says what, and why. Nothing is deleted if this happens.
+     *                                         This extends BadFilePermissionsException.
+     * @throws FilesystemException - if deleting something still failed part way through, despite the checks (see
+     *                               emptyDir()).
      */
-    public static function deleteDir(string $dir): void
+    public static function deleteDir(string $dir, bool $followSymlinks = false): void
     {
+        # Remove any trailing slash first, as is_link() is false for "link/" (it checks what it points to).
+        $dirPath = rtrim($dir, '/');
+        $isSymlink = is_link($dirPath);
+
         # Without this, deleting through a symlink would empty the real folder it points to, and then fail to remove
-        # the link. Remove any trailing slash first, as is_link() is false for "link/" (it checks what it points to).
-        if (is_link(rtrim($dir, '/')))
+        # the link.
+        if ($isSymlink && !$followSymlinks)
         {
             throw new BadArgumentException(
-                "Cannot delete {$dir}, as it is a symlink. Use unlink() to remove the link itself, or call this with " .
-                "the path of the folder it points to, to delete that."
+                "Cannot delete {$dir}, as it is a symlink. Use unlink() to remove the link itself, call this with " .
+                "the path of the folder it points to, to delete that, or set \$followSymlinks to true to delete both."
             );
         }
 
-        Filesystem::emptyDir($dir);
-        rmdir($dir);
-    }
-
-
-    /**
-     * Deletes all files from a directory, but leaves the directory in place.
-     * @param string $dir - the path to the directory one wishes to empty.
-     * @return void
-     * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
-     */
-    public static function emptyDir(string $dir): void
-    {
         if (!is_dir($dir))
         {
             throw new FileDoesNotExistException("There is no directory at {$dir}.");
         }
 
-        $objects = scandir($dir);
+        $realDir = realpath($dir);
+        $plan = array();
+        $problems = array();
 
-        foreach ($objects as $object)
+        # Everything that will be deleted, by real path, so nothing is planned twice, and loops are impossible.
+        $planned = [$realDir => true];
+
+        if ($isSymlink)
         {
-            if ($object != "." && $object != "..")
+            if (self::isWithinDirectory(realpath(dirname($dirPath)), $realDir))
             {
-                if (filetype($dir . "/" . $object) == "dir")
-                {
-                    self::deleteDir($dir . "/" . $object);
-                }
-                else
-                {
-                    unlink($dir . "/" . $object);
-                }
+                throw new BadArgumentException(
+                    "Cannot delete {$dir}, as it is a symlink to {$realDir}, which contains the link itself, so " .
+                    "following it would delete the link's own parent directory."
+                );
             }
+
+            self::planDirectoryContents($realDir, $realDir, true, $plan, $problems, $planned);
+            self::planDeletion(FileDeletionOperationEnum::RMDIR, $realDir, $plan, $problems);
+            self::planDeletion(FileDeletionOperationEnum::UNLINK, $dirPath, $plan, $problems);
         }
+        else
+        {
+            self::planDirectoryContents($dirPath, $realDir, $followSymlinks, $plan, $problems, $planned);
+            self::planDeletion(FileDeletionOperationEnum::RMDIR, $dirPath, $plan, $problems);
+        }
+
+        self::throwIfDeletionProblems($dir, $problems);
+        self::runDeletionPlan($dir, $plan);
+    }
+
+
+    /**
+     * Deletes all files from a directory, but leaves the directory in place.
+     * If $dir is a symlink to a directory, the contents of the directory it points to are deleted, and both the link
+     * and that directory are left in place. Symlinks inside the directory are handled as in deleteDir(): by default
+     * they are removed without touching what they point to, and with $followSymlinks, what they point to is deleted
+     * as well (never following one that points "up" to a directory containing it, or deleting anything twice).
+     * Everything is checked before anything is deleted, so if anything can't be deleted, nothing is. A directory's
+     * contents can only be deleted if it can be listed and written to, and in a "sticky" directory such as /tmp, only
+     * things the current user owns (or that are in a directory they own) can be deleted. Some causes of failure can't
+     * be seen beforehand, though, such as an immutable file, a read-only filesystem, or another process changing the
+     * directory while it is being deleted. If one of those happens, this throws a FilesystemException part way through,
+     * and some of the contents will already have been deleted.
+     * @param string $dir - the path to the directory one wishes to empty, or a symlink to it.
+     * @param bool $followSymlinks - whether to follow symlinks inside the directory, and delete what they point to as
+     *                               well as the links. Defaults to false.
+     * @return void
+     * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
+     * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted. Its getProblems()
+     *                                         says what, and why (stopping at 100). Nothing is deleted if this
+     *                                         happens. This extends BadFilePermissionsException.
+     * @throws FilesystemException - if deleting something still failed part way through, despite the checks.
+     */
+    public static function emptyDir(string $dir, bool $followSymlinks = false): void
+    {
+        # is_dir() follows symlinks, so a symlink to a directory is emptied too, which is what it was asked to do.
+        if (!is_dir($dir))
+        {
+            throw new FileDoesNotExistException("There is no directory at {$dir}.");
+        }
+
+        $realDir = realpath($dir);
+        $plan = array();
+        $problems = array();
+        $planned = [$realDir => true];
+        self::planDirectoryContents($realDir, $realDir, $followSymlinks, $plan, $problems, $planned);
+        self::throwIfDeletionProblems($dir, $problems);
+        self::runDeletionPlan($dir, $plan);
     }
 
 
@@ -1309,6 +1375,261 @@ final class Filesystem
 
             $converted = mb_convert_encoding($content, 'UTF-8', $encoding);
             self::replaceFileContents($inputFilepath, $converted);
+        }
+    }
+
+
+    /**
+     * Add everything in a directory to a deletion plan, in an order that can be deleted (each directory's contents
+     * before the directory itself), going into subdirectories, and checking that each thing can be deleted. See
+     * deleteDir() for how symlinks are handled. Stops once there are 100 problems, as the plan won't be used then.
+     * @param string $dir - the directory whose contents to plan the deletion of.
+     * @param string $realDir - the real path of $dir (with symlinks resolved), used to spot symlinks pointing "up".
+     * @param bool $followSymlinks - whether to follow symlinks, deleting what they point to as well as the links.
+     * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs, which this adds to.
+     * @param array $problems - the list of FileDeletionProblem objects found so far, which this adds to.
+     * @param array $planned - real paths => true, for everything already in the plan, which this adds to.
+     * @return void
+     */
+    private static function planDirectoryContents(
+        string $dir,
+        string $realDir,
+        bool $followSymlinks,
+        array &$plan,
+        array &$problems,
+        array &$planned
+    ): void
+    {
+        # Check the count before every addition, and before going into each subdirectory, so the list never goes over
+        # MAX_DELETION_PROBLEMS, and nothing more is looked at once it is full.
+        if (count($problems) < self::MAX_DELETION_PROBLEMS)
+        {
+            # A directory has to be listed (readable) and opened (executable) to find and delete what's in it.
+            $entries = (is_readable($dir) && is_executable($dir)) ? @scandir($dir) : false;
+
+            if ($entries === false)
+            {
+                $problems[] = new FileDeletionProblem($dir, $dir, FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE);
+            }
+            else
+            {
+                $entries = array_values(array_diff($entries, ['.', '..']));
+
+                for ($i = 0; $i < count($entries) && count($problems) < self::MAX_DELETION_PROBLEMS; $i++)
+                {
+                    $path = "{$dir}/{$entries[$i]}";
+
+                    if (is_link($path))
+                    {
+                        # realpath() follows the link, and is false if it is broken.
+                        $target = $followSymlinks ? realpath($path) : false;
+
+                        # Only remove the link itself if not following links, it is broken, what it points to is
+                        # already being deleted, or it points "up" to a directory that contains it (which would
+                        # otherwise loop, or delete the directories the link is in).
+                        $followLink = $target !== false
+                            && !isset($planned[$target])
+                            && !(is_dir($target) && self::isWithinDirectory($realDir, $target));
+
+                        if ($followLink)
+                        {
+                            $planned[$target] = true;
+
+                            if (is_dir($target))
+                            {
+                                self::planDirectoryContents($target, $target, true, $plan, $problems, $planned);
+                                self::planDeletion(FileDeletionOperationEnum::RMDIR, $target, $plan, $problems);
+                            }
+                            else
+                            {
+                                self::planDeletion(FileDeletionOperationEnum::UNLINK, $target, $plan, $problems);
+                            }
+                        }
+
+                        self::planDeletion(FileDeletionOperationEnum::UNLINK, $path, $plan, $problems);
+                    }
+                    else
+                    {
+                        # When following links, a symlink may already have led to this, in which case it's planned.
+                        $realPath = $followSymlinks ? realpath($path) : "{$realDir}/{$entries[$i]}";
+
+                        if (!isset($planned[$realPath]))
+                        {
+                            $planned[$realPath] = true;
+
+                            if (is_dir($path))
+                            {
+                                self::planDirectoryContents(
+                                    $path,
+                                    $realPath,
+                                    $followSymlinks,
+                                    $plan,
+                                    $problems,
+                                    $planned
+                                );
+                                self::planDeletion(FileDeletionOperationEnum::RMDIR, $path, $plan, $problems);
+                            }
+                            else
+                            {
+                                self::planDeletion(FileDeletionOperationEnum::UNLINK, $path, $plan, $problems);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+    /**
+     * Add one thing to a deletion plan, after checking it can be deleted from its directory.
+     * @param FileDeletionOperationEnum $operation - UNLINK for a file or symlink, or RMDIR for a directory (once it
+     *                                              is empty).
+     * @param string $path - the thing to delete.
+     * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs, which this adds to.
+     * @param array $problems - the list of FileDeletionProblem objects found so far, which this adds to.
+     * @return void
+     */
+    private static function planDeletion(
+        FileDeletionOperationEnum $operation,
+        string $path,
+        array &$plan,
+        array &$problems
+    ): void
+    {
+        # Stop adding problems once the list is full, as a directory's own check comes after its contents', so could
+        # otherwise take the list over the limit.
+        if (count($problems) < self::MAX_DELETION_PROBLEMS)
+        {
+            self::findDeletionProblem(dirname($path), $path, $problems);
+        }
+
+        $plan[] = [$operation, $path];
+    }
+
+
+    /**
+     * Throw a DirectoryNotDeletableException if anything was found that can't be deleted.
+     * @param string $dir - the directory being deleted or emptied, for the message.
+     * @param array $problems - the FileDeletionProblem objects found.
+     * @return void
+     * @throws DirectoryNotDeletableException - if there are any problems.
+     */
+    private static function throwIfDeletionProblems(string $dir, array $problems): void
+    {
+        $maxProblems = self::MAX_DELETION_PROBLEMS;
+
+        if (count($problems) > 0)
+        {
+            # Keep the message short, giving the first problem as an example. getProblems() has them all.
+            $countText = (count($problems) >= $maxProblems)
+                ? "{$maxProblems} or more (stopped counting at {$maxProblems}) things"
+                : count($problems) . " thing(s)";
+
+            throw new DirectoryNotDeletableException(
+                "Can't delete {$dir}, as {$countText} in it can't be deleted (e.g. " .
+                self::describeDeletionProblem($problems[0]) . "), so nothing was deleted. Call getProblems() on " .
+                "this exception for the full list.",
+                $problems
+            );
+        }
+    }
+
+
+    /**
+     * Carry out a deletion plan made by planDirectoryContents() and planDeletion(), in order.
+     * @param string $dir - the directory being deleted or emptied, for the message.
+     * @param array $plan - a list of [FileDeletionOperationEnum, path] pairs.
+     * @return void
+     * @throws FilesystemException - if something still couldn't be deleted. Some of the plan will already have been
+     *                               carried out if this happens.
+     */
+    private static function runDeletionPlan(string $dir, array $plan): void
+    {
+        foreach ($plan as [$operation, $path])
+        {
+            # Suppress the warnings, as we throw an exception instead.
+            # match() throws an UnhandledMatchError for a case it doesn't handle, rather than guessing.
+            $deleted = match ($operation)
+            {
+                FileDeletionOperationEnum::UNLINK => @unlink($path),
+                FileDeletionOperationEnum::RMDIR => @rmdir($path),
+            };
+
+            if (!$deleted)
+            {
+                throw new FilesystemException(
+                    "Failed to delete {$path}, despite checking it could be (e.g. it is immutable, or on a read-only " .
+                    "filesystem), so some of {$dir} may already have been deleted."
+                );
+            }
+        }
+    }
+
+
+    /**
+     * Check whether a path is a directory, or is inside it, by their real paths.
+     * @param string $path - the real path to check.
+     * @param string $directory - the real path of the directory.
+     * @return bool - true if $path is $directory, or anywhere inside it.
+     */
+    private static function isWithinDirectory(string $path, string $directory): bool
+    {
+        # Compare with a trailing slash, so that e.g. /a/bc doesn't count as being inside /a/b. This also handles "/".
+        return $path === $directory || str_starts_with($path . "/", rtrim($directory, "/") . "/");
+    }
+
+
+    /**
+     * Describe why something can't be deleted, for an exception message.
+     * @param FileDeletionProblem $problem - the problem to describe.
+     * @return string - the description, e.g. "/x/a.txt, as /x can't be written to".
+     */
+    private static function describeDeletionProblem(FileDeletionProblem $problem): string
+    {
+        return match ($problem->reason)
+        {
+            FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE => "{$problem->path} can't be listed",
+            FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE =>
+                "{$problem->path}, as {$problem->directory} can't be written to",
+            FileDeletionProblemEnum::NOT_OWNED_IN_STICKY_DIRECTORY =>
+                "{$problem->path}, as {$problem->directory} is a sticky directory, and it isn't ours",
+        };
+    }
+
+
+    /**
+     * Add a FileDeletionProblem to $problems if something can't be deleted from its directory. Deleting something
+     * needs its directory to be writable and executable, and in a "sticky" directory (e.g. /tmp), it also needs the
+     * current user to own it or the directory (or be root).
+     * @param string $parentDir - the directory that $path is in.
+     * @param string $path - the thing that would be deleted.
+     * @param array $problems - the list of FileDeletionProblem objects found so far, which this adds to.
+     * @return void
+     */
+    private static function findDeletionProblem(string $parentDir, string $path, array &$problems): void
+    {
+        if (!is_writable($parentDir) || !is_executable($parentDir))
+        {
+            $problems[] = new FileDeletionProblem($path, $parentDir, FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE);
+        }
+        elseif ((fileperms($parentDir) & 01000) !== 0 && function_exists('posix_geteuid'))
+        {
+            # In a sticky directory, only the owner of a file, the owner of the directory, or root can delete it.
+            # Without the posix extension the current user can't be found, so this is left for the delete to find.
+            $userId = posix_geteuid();
+            $stats = @lstat($path);
+            $ownerId = ($stats !== false) ? $stats['uid'] : null;
+            $ownsEnough = $userId === 0 || $ownerId === $userId || fileowner($parentDir) === $userId;
+
+            if (!$ownsEnough)
+            {
+                $problems[] = new FileDeletionProblem(
+                    $path,
+                    $parentDir,
+                    FileDeletionProblemEnum::NOT_OWNED_IN_STICKY_DIRECTORY
+                );
+            }
         }
     }
 

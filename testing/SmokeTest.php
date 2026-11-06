@@ -133,10 +133,44 @@ final class SmokeTest
 
         if (!$given)
         {
-            self::$s_skipped[] = "{$checkName} keeps the file's owner (needs root, e.g. run-all-php-versions.sh)";
+            self::$s_skipped[] = "{$checkName} keeps the file's owner (needs root, so is covered by the root run in " .
+                "run-all-php-versions.sh)";
         }
 
         return $given;
+    }
+
+
+    /**
+     * Check whether permission checks can be tested, which needs a normal user, as root can read, write and delete
+     * anything regardless of permissions. If running as root (e.g. the first Docker test run), this records the check
+     * as skipped, so that main.php can report it. run-in-container.sh also runs the tests as a normal user, so
+     * these checks still run in Docker.
+     * @param string $checkName - what the permission check is for, to show if it is skipped.
+     * @return bool - true if not running as root, so the check can be run.
+     */
+    public static function canTestPermissions(string $checkName): bool
+    {
+        # Without the posix extension, a read-only file that is still writable means we are root.
+        if (function_exists('posix_geteuid'))
+        {
+            $isRoot = posix_geteuid() === 0;
+        }
+        else
+        {
+            $probe = tempnam(sys_get_temp_dir(), "corelibs-root-check-");
+            chmod($probe, 0444);
+            $isRoot = is_writable($probe);
+            unlink($probe);
+        }
+
+        if ($isRoot)
+        {
+            self::$s_skipped[] = "{$checkName} (needs a normal user, as root ignores permissions, so is covered by the " .
+                "normal-user run in run-all-php-versions.sh)";
+        }
+
+        return !$isRoot;
     }
 
 

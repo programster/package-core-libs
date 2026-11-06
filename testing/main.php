@@ -35,9 +35,20 @@ foreach ($testFiles as $testFile)
     require $testFile;
 }
 
-# Clean up, then report.
-Filesystem::deleteDir($dir);
+# Clean up, then report. A test that fails part way through can leave files it made read-only, so a failed clean-up is
+# reported as a failure, rather than stopping the results being shown.
 $failures = $smoke->getFailures();
+
+try
+{
+    Filesystem::deleteDir($dir);
+}
+catch (\Throwable $e)
+{
+    $failures[] = "clean-up: couldn't delete {$dir}, probably because a test above failed part way through: " .
+        get_class($e) . ": " . $e->getMessage();
+}
+
 printf("PHP %s: %d passed, %d failed\n", PHP_VERSION, $smoke->getNumPassed(), count($failures));
 
 foreach ($failures as $failure)

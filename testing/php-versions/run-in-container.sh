@@ -22,8 +22,15 @@ done
 echo "lint failures: ${numLintFailures}"
 [ "$numLintFailures" -eq 0 ] || failed=1
 
-echo "=== tests"
+echo "=== tests (as root)"
 php -d zend.assertions=1 -d assert.exception=1 /app/testing/main.php || failed=1
+
+# Run them again as a normal user, as root ignores file permissions, so the checks of how the library handles files
+# it isn't allowed to change (e.g. deleteDir() on a read-only folder) can only run without root. Each run reports
+# the checks it had to skip, which the other run covers.
+echo "=== tests (as a normal user)"
+setpriv --reuid=nobody --regid=nogroup --clear-groups \
+    php -d zend.assertions=1 -d assert.exception=1 /app/testing/main.php || failed=1
 
 echo "=== password from piped input"
 password=$(echo "piped-secret" | php -r 'require "/app/vendor/autoload.php"; echo Programster\CoreLibs\CliLib::getPasswordFromUserInput();')
