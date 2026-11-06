@@ -359,9 +359,10 @@ final class CsvLib
      * of writing one line at a time to the file rather than building a massive string and dumping
      * the entire string to the file.
      * @param string $filepath - the path to the file that we will write the csv to, creating if
-     * necessary. The CSV is written to a temporary file first, and only copied here once complete, so
-     * if anything goes wrong (e.g. a bad row), an existing file is left as it was. An existing file
-     * keeps its permissions and owner, and a new one gets the default permissions for a new file.
+     * necessary. The CSV is written to a temporary file first, and only copied here once complete,
+     * so if anything goes wrong (e.g. a bad row), an existing file is left as it was. An existing
+     * file keeps its permissions and owner, and a new one gets the default permissions for a new
+     * file.
      * @param array $rows - a collection of associative name/value pairs for the data to fill the
      * csv file. The values will be filled in in the order of the keys in the first row.
      * @param bool $addHeader - specify whether we should put a header row in the CSV file. If true,
@@ -375,7 +376,8 @@ final class CsvLib
      * @throws EmptyArrayException - if there are no rows, or the first row has no columns.
      * @throws BadArgumentException - if the rows are not associative arrays, or don't all have the
      * same keys.
-     * @throws BadFilePermissionsException - if the file (or, for a new file, its directory) can't be written to.
+     * @throws BadFilePermissionsException - if the file (or, for a new file, its directory) can't
+     * be written to.
      * @throws FilesystemException - if the file could not be written.
      */
     public static function convertArrayToCsv(
@@ -1308,8 +1310,8 @@ final class CsvLib
      * @param array $filepaths - array of filepaths to csv files we wish to merge
      * @param string $mergedFilepath - where to write the merged file. This will overwrite any
      * existing file if there is one there already. The merged file is written to a temporary file
-     * first, and only copied here once complete, so if anything goes wrong, an existing file is left
-     * as it was. This can be one of the files in $filepaths.
+     * first, and only copied here once complete, so if anything goes wrong, an existing file is
+     * left as it was. This can be one of the files in $filepaths.
      * @param bool $hasHeaders - specify if the files have headers or not.
      * @param string $delimiter - optionally specify the delimiter being used in the files
      * @param string $enclosure - optionally specify the enclosure being used in the files
@@ -1422,8 +1424,8 @@ final class CsvLib
 
     /**
      * Write an output file safely: everything is written to a temporary file in the system's
-     * temporary directory first, and only copied into $outputFilepath once $writer has finished.
-     * So if anything goes wrong part way through (including $writer throwing), an existing file is
+     * temporary directory first, and only copied into $outputFilepath once $writer has finished. So
+     * if anything goes wrong part way through (including $writer throwing), an existing file is
      * left as it was, and nothing half-written is left behind. An existing file keeps its
      * permissions, owner and links (see Filesystem::replaceWithFile()), and a new one gets the
      * default permissions for a new file.

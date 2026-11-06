@@ -12,11 +12,14 @@ namespace Programster\CoreLibs\Models;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
+use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 
 class File
 {
+    use SymlinkPathsTrait;
+
     # Updated when the file is renamed or moved.
     protected string $m_filepath;
 
@@ -45,15 +48,15 @@ class File
      * "../bob.txt") is relative to the file's current directory, rather than the current working
      * directory, so that a plain name works the same way. The directory it is moved to must already
      * exist. To move the file without renaming it, use move(). If this file is a symlink, the link
-     * itself is renamed, not the file it points to. A symlink with a relative target can't be
-     * moved into a different directory this way (see move()), but can still be renamed in place.
+     * itself is renamed, not the file it points to. A symlink with a relative target that is moved
+     * into a different directory is recreated with its target adjusted, which can change its owner
+     * (see move()).
      * @param string $newPath - the new name or path for the file. It must not end with a "/".
      * @param bool $overwriteExistingFile - whether to replace a file (or symlink) that already
      * exists at $newPath. Defaults to false. A directory is never replaced.
      * @return void
-     * @throws BadArgumentException - if $newPath is empty, or ends with a "/", or this file is a
-     * symlink with a relative target and $newPath is in a different directory.
-     * @throws FileDoesNotExistException - if the directory $newPath is in doesn't exist.
+     * @throws BadArgumentException - if $newPath is empty, or ends with a "/".
+     * @throws DirectoryDoesNotExistException - if the directory $newPath is in doesn't exist.
      * @throws FileAlreadyExistsException - if there is a directory at $newPath, there is a file
      * there and $overwriteExistingFile is false, or it is the same file as this one (see moveTo()).
      * Nothing is changed if this happens.
@@ -74,13 +77,12 @@ class File
 
         if (!is_dir($targetDirectory))
         {
-            throw new FileDoesNotExistException(
+            throw new DirectoryDoesNotExistException(
                 "rename: Can't rename {$this->m_filepath} to {$targetPath}, as there is no directory at " .
                 "{$targetDirectory}."
             );
         }
 
-        $this->checkSymlinkCanMoveTo($targetDirectory);
         $this->moveTo($targetPath, $overwriteExistingFile);
     }
 
@@ -89,9 +91,17 @@ class File
      * Move the file into another directory, keeping its name. A relative path is relative to the
      * file's current directory, rather than the current working directory, in the same way as
      * rename(). If this file is a symlink, the link itself is moved, not the file it points to. A
-     * symlink with a relative target (e.g. "data.txt" rather than "/srv/data.txt") can't be moved
-     * into a different directory, as its target is relative to where the link is, so moving it would
-     * break it (or point it at something else). A symlink with an absolute target can be moved.
+     * symlink's relative target (e.g. "data.txt" rather than "/srv/data.txt") is relative to where
+     * the link is, so moving it as it is would leave it pointing somewhere else. So a symlink with
+     * a relative target is recreated in the new directory instead, with its target worked out again
+     * from there (e.g. "data.txt" becomes "../data.txt" when moved into a subdirectory), and the
+     * old link is removed. It stays relative, and points at the same place as before (even if that
+     * no longer exists). The recreated symlink is owned by whoever runs this, and their group,
+     * rather than the original's owner and group. A symlink's owner rarely matters, as its
+     * permissions are ignored, but it does in a sticky directory (e.g. /tmp), where only its owner
+     * (or the directory's) can delete or rename it, and in a sticky, world-writable directory with
+     * Linux's protected_symlinks setting (on by default), where it is only followed by its owner
+     * (or the directory's).
      * @param string $directory - the path to the directory to move the file into.
      * @param bool $createIfNotExists - whether to create the directory (and any parent directories)
      * if it doesn't exist. Defaults to false, in which case it must already exist.
@@ -99,10 +109,9 @@ class File
      * name that already exists in the directory. Defaults to false. A directory is never replaced.
      * @return void
      * @throws BadArgumentException - if $directory is empty, or is something other than a directory
-     * (e.g. a file), or this file is a symlink with a relative target. Nothing is created or moved if
-     * this happens.
-     * @throws FileDoesNotExistException - if the directory doesn't exist, and $createIfNotExists is
-     * false.
+     * (e.g. a file).
+     * @throws DirectoryDoesNotExistException - if the directory doesn't exist, and
+     * $createIfNotExists is false.
      * @throws FileAlreadyExistsException - if the directory has a directory with this file's name
      * in it, it has a file with this name and $overwriteExistingFile is false, or that file is the
      * same file as this one (see moveTo()). The file isn't moved if this happens.
@@ -118,9 +127,6 @@ class File
 
         $targetDirectory = $this->resolvePath($directory);
 
-        # Check this before creating the directory, so a refused move doesn't leave an empty one behind.
-        $this->checkSymlinkCanMoveTo($targetDirectory);
-
         if (!is_dir($targetDirectory))
         {
             if (file_exists($targetDirectory))
@@ -135,7 +141,7 @@ class File
             }
             else
             {
-                throw new FileDoesNotExistException(
+                throw new DirectoryDoesNotExistException(
                     "move: Can't move {$this->m_filepath} into {$targetDirectory}, as there is no directory there. " .
                     "Set \$createIfNotExists to true to create it."
                 );
@@ -143,38 +149,6 @@ class File
         }
 
         $this->moveTo(rtrim($targetDirectory, "/") . "/" . basename($this->m_filepath), $overwriteExistingFile);
-    }
-
-
-    /**
-     * Check that this file can be moved into $targetDirectory without breaking it. A symlink with a
-     * relative target (e.g. "data.txt", or "../shared/data.txt") is resolved from the directory the
-     * link is in, so moving it into a different directory would leave it pointing at the wrong place.
-     * @param string $targetDirectory - the directory the file would be moved into. It doesn't have to
-     * exist yet.
-     * @return void
-     * @throws BadArgumentException - if this file is a symlink with a relative target, and
-     * $targetDirectory is a different directory from the one it is in now.
-     */
-    private function checkSymlinkCanMoveTo(string $targetDirectory): void
-    {
-        if (is_link($this->m_filepath))
-        {
-            $linkTarget = readlink($this->m_filepath);
-            $currentDirectory = realpath(dirname($this->m_filepath));
-
-            # A directory that doesn't exist yet can't be the one the link is in now.
-            $isSameDirectory = realpath($targetDirectory) === $currentDirectory;
-
-            if ($linkTarget !== false && !str_starts_with($linkTarget, "/") && !$isSameDirectory)
-            {
-                throw new BadArgumentException(
-                    "Can't move {$this->m_filepath} into {$targetDirectory}, as it is a symlink to the relative " .
-                    "path \"{$linkTarget}\", which would then point somewhere else. Recreate the link in the new " .
-                    "directory instead, or make its target an absolute path."
-                );
-            }
-        }
     }
 
 
@@ -244,14 +218,64 @@ class File
                 );
             }
 
-            # Suppress the warning, as we throw an exception instead.
-            if (!@rename($currentPath, $newPath))
+            $linkTarget = is_link($currentPath) ? readlink($currentPath) : false;
+            $isRelativeLink = $linkTarget !== false && !str_starts_with($linkTarget, "/");
+
+            if ($isRelativeLink && dirname($newPath) !== dirname($currentPath))
             {
+                # Moving it as it is would leave it pointing somewhere else, so recreate it with its target adjusted.
+                self::moveRelativeSymlink($currentPath, $newPath, $linkTarget, $somethingExists);
+            }
+            elseif (!@rename($currentPath, $newPath))
+            {
+                # Suppress the warning, as we throw an exception instead.
                 throw new FilesystemException("Failed to move {$this->m_filepath} to {$newPath}.");
             }
         }
 
         $this->m_filepath = $newPath;
+    }
+
+
+    /**
+     * Move a symlink with a relative target into a different directory, by creating a new symlink
+     * there whose relative target points at the same place, and then removing the old one.
+     * @param string $currentPath - the symlink, with its directory's real path.
+     * @param string $newPath - where the new symlink goes, with its directory's real path.
+     * @param string $linkTarget - the old symlink's relative target, e.g. "../shared/data.txt".
+     * @param bool $replaceExisting - whether something at $newPath (already checked to be a file or
+     * symlink that may be replaced) should be removed first.
+     * @return void
+     * @throws FilesystemException - if the new symlink could not be created, or the old one could
+     * not be removed (in which case the new one is removed again, so nothing has changed).
+     */
+    private static function moveRelativeSymlink(
+        string $currentPath,
+        string $newPath,
+        string $linkTarget,
+        bool $replaceExisting
+    ): void
+    {
+        $absoluteTarget = self::resolveLinkTarget(dirname($currentPath), $linkTarget);
+        $newLinkTarget = self::relativePathBetween(dirname($newPath), $absoluteTarget);
+
+        # Suppress the warnings, as we throw exceptions instead.
+        if ($replaceExisting && !@unlink($newPath))
+        {
+            throw new FilesystemException("Failed to replace {$newPath} with a symlink to {$newLinkTarget}.");
+        }
+
+        if (!@symlink($newLinkTarget, $newPath))
+        {
+            throw new FilesystemException("Failed to create a symlink at {$newPath} to {$newLinkTarget}.");
+        }
+
+        if (!@unlink($currentPath))
+        {
+            # Don't leave two links behind.
+            @unlink($newPath);
+            throw new FilesystemException("Failed to remove the old symlink at {$currentPath}.");
+        }
     }
 
 

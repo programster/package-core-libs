@@ -58,7 +58,11 @@ do
         fi
     fi
 
-    if ! docker run --rm -v "$repoDir":/src:ro "$image" sh /src/testing/php-versions/run-in-container.sh
+    # The 1 MB tmpfs is a small filesystem for testing what happens when there isn't enough free space.
+    if ! docker run --rm -v "$repoDir":/src:ro \
+        --tmpfs /mnt/corelibs-small:size=1m,mode=1777 \
+        -e CORELIBS_TEST_SMALL_FILESYSTEM=/mnt/corelibs-small \
+        "$image" sh /src/testing/php-versions/run-in-container.sh
     then
         failedVersions="$failedVersions $version"
     fi

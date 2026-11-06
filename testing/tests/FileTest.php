@@ -5,8 +5,10 @@
  */
 
 use Programster\CoreLibs\Exceptions\BadArgumentException;
+use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
+use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Models\CsvFile;
 use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Testing\SmokeTest;
@@ -42,7 +44,7 @@ $smoke->run("File rename and move", function () use ($dir) {
     file_put_contents("{$base}/sub/taken.txt", "other");
     SmokeTest::expectException(FileAlreadyExistsException::class, fn() => $file->rename("taken.txt"));
     assert(file_get_contents("{$base}/sub/taken.txt") === "other" && is_file("{$base}/sub/e.txt"));
-    SmokeTest::expectException(FileDoesNotExistException::class, fn() => $file->rename("nope/f.txt"));
+    SmokeTest::expectException(DirectoryDoesNotExistException::class, fn() => $file->rename("nope/f.txt"));
     SmokeTest::expectException(BadArgumentException::class, fn() => $file->rename("other/"));
     SmokeTest::expectException(BadArgumentException::class, fn() => $file->rename(""));
     assert($file->getFilepath() === "{$base}/sub/e.txt");
@@ -51,7 +53,7 @@ $smoke->run("File rename and move", function () use ($dir) {
     $file->move("..");
     assert($file->getFilepath() === "{$base}/e.txt" && is_file("{$base}/e.txt"));
     SmokeTest::expectException(
-        FileDoesNotExistException::class,
+        DirectoryDoesNotExistException::class,
         fn() => $file->move("{$base}/new/deeper"),
         "Set \$createIfNotExists to true"
     );
@@ -123,35 +125,85 @@ $smoke->run("File rename and move", function () use ($dir) {
     assert(!is_link("{$base}/real.txt") && file_get_contents("{$base}/real.txt") === "precious");
     assert(is_link("{$base}/to-real") && file_get_contents("{$base}/hard.txt") === "precious");
 
-    # A symlink with a relative target can be renamed in place, but not moved into another directory, as it would then
-    # point somewhere else. Nothing is moved or created if it is refused.
-    mkdir("{$base}/links");
-    mkdir("{$base}/links/elsewhere");
+    # A symlink with a relative target is recreated when moved to another directory, with its target worked out
+    # again from there, so it stays relative and still points at the same place.
+    mkdir("{$base}/links/deeper/still", 0777, true);
+    mkdir("{$base}/shared");
     file_put_contents("{$base}/links/target.txt", "target");
+    file_put_contents("{$base}/shared/data.txt", "shared");
     symlink("target.txt", "{$base}/links/relative-link");
     $relativeLink = new File("{$base}/links/relative-link");
-    $relativeRefusals = [
-        function () use ($relativeLink) { $relativeLink->move("elsewhere"); },
-        function () use ($relativeLink) { $relativeLink->move("not-yet-created", true); },
-        function () use ($relativeLink) { $relativeLink->rename("elsewhere/renamed-link"); },
-    ];
+    $relativeLink->move("deeper/still");
+    assert($relativeLink->getFilepath() === "{$base}/links/deeper/still/relative-link");
+    assert(readlink("{$base}/links/deeper/still/relative-link") === "../../target.txt");
+    assert(file_get_contents("{$base}/links/deeper/still/relative-link") === "target");
+    assert(!is_link("{$base}/links/relative-link"));
 
-    foreach ($relativeRefusals as $refusal)
-    {
-        SmokeTest::expectException(BadArgumentException::class, $refusal, 'symlink to the relative path "target.txt"');
-    }
-
-    assert(!file_exists("{$base}/links/not-yet-created"));
-    assert(file_get_contents("{$base}/links/relative-link") === "target");
-    $relativeLink->rename("renamed-link");
+    # Moving it back up, and renaming it into another directory, work the same way.
+    $relativeLink->rename("../../renamed-link");
     assert(readlink("{$base}/links/renamed-link") === "target.txt");
-    assert(file_get_contents("{$base}/links/renamed-link") === "target");
 
-    # A symlink with an absolute target still points to the same place wherever it goes, so it can be moved.
+    # A target that goes up and across ("../shared/data.txt") is worked out the same way.
+    symlink("../shared/data.txt", "{$base}/links/across-link");
+    (new File("{$base}/links/across-link"))->move("deeper");
+    assert(readlink("{$base}/links/deeper/across-link") === "../../shared/data.txt");
+    assert(file_get_contents("{$base}/links/deeper/across-link") === "shared");
+
+    # A target that goes through another symlink and then up ("sub/../x.txt", where sub is a symlink elsewhere) is
+    # followed the way the system follows it: up from wherever sub leads, not from sub's own directory.
+    mkdir("{$base}/other/inner", 0777, true);
+    file_put_contents("{$base}/other/x.txt", "the real target");
+    file_put_contents("{$base}/links/x.txt", "the wrong file");
+    symlink("{$base}/other/inner", "{$base}/links/sub");
+    symlink("sub/../x.txt", "{$base}/links/tricky-link");
+    (new File("{$base}/links/tricky-link"))->move("deeper");
+    assert(file_get_contents("{$base}/links/deeper/tricky-link") === "the real target");
+
+    # A link whose target has gone since its File was created stays broken in the same way: it still points at the
+    # same (missing) place. (A File can't be created for a link that is already broken, as it must exist.)
+    file_put_contents("{$base}/links/soon-gone.txt", "gone");
+    symlink("soon-gone.txt", "{$base}/links/broken-link");
+    $brokenLink = new File("{$base}/links/broken-link");
+    unlink("{$base}/links/soon-gone.txt");
+    $brokenLink->move("deeper");
+    assert(readlink("{$base}/links/deeper/broken-link") === "../soon-gone.txt");
+
+    # Overwriting a file in the way replaces it with the recreated link.
+    symlink("target.txt", "{$base}/links/overwrite-link");
+    file_put_contents("{$base}/links/deeper/overwrite-link", "in the way");
+    SmokeTest::expectException(
+        FileAlreadyExistsException::class,
+        function () use ($base) { (new File("{$base}/links/overwrite-link"))->move("deeper"); }
+    );
+    (new File("{$base}/links/overwrite-link"))->move("deeper", false, true);
+    assert(readlink("{$base}/links/deeper/overwrite-link") === "../target.txt");
+
+    # Renaming a relative link within its own directory keeps its target as it is.
+    $renamedLink = new File("{$base}/links/renamed-link");
+    $renamedLink->rename("renamed-again");
+    assert(readlink("{$base}/links/renamed-again") === "target.txt");
+
+    # A symlink with an absolute target still points to the same place wherever it goes, so it is moved as it is.
     symlink("{$base}/links/target.txt", "{$base}/links/absolute-link");
-    $absoluteLink = new File("{$base}/links/absolute-link");
-    $absoluteLink->move("elsewhere");
-    assert(file_get_contents("{$base}/links/elsewhere/absolute-link") === "target");
+    (new File("{$base}/links/absolute-link"))->move("deeper");
+    assert(readlink("{$base}/links/deeper/absolute-link") === "{$base}/links/target.txt");
+
+    # Filesystem::moveFile() does the same as File::rename(), but a relative path is relative to the working directory.
+    file_put_contents("{$base}/shortcut.txt", "shortcut");
+    Filesystem::moveFile("{$base}/shortcut.txt", "{$base}/sub/shortcut-moved.txt");
+    assert(file_get_contents("{$base}/sub/shortcut-moved.txt") === "shortcut" && !file_exists("{$base}/shortcut.txt"));
+    $workingDirectory = getcwd();
+    chdir("{$base}/sub");
+    Filesystem::moveFile("shortcut-moved.txt", "../shortcut-back.txt");
+    chdir($workingDirectory);
+    assert(file_get_contents("{$base}/shortcut-back.txt") === "shortcut");
+    file_put_contents("{$base}/sub/in-the-way.txt", "in the way");
+    SmokeTest::expectException(
+        FileAlreadyExistsException::class,
+        function () use ($base) { Filesystem::moveFile("{$base}/shortcut-back.txt", "{$base}/sub/in-the-way.txt"); }
+    );
+    Filesystem::moveFile("{$base}/shortcut-back.txt", "{$base}/sub/in-the-way.txt", true);
+    assert(file_get_contents("{$base}/sub/in-the-way.txt") === "shortcut");
 
     # Only existing files can be used.
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => new File("{$base}/nope.txt"));

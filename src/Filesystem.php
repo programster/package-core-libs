@@ -15,11 +15,14 @@ use Programster\CoreLibs\Models\FileDeletionProblem;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
+use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\MissingExtensionException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
+use Programster\CoreLibs\Models\Directory;
+use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use ZipArchive;
 
@@ -30,73 +33,89 @@ final class Filesystem
 
 
     /**
-     * Retrieves a list of all the directories within the specified directory It does not include
-     * the .. directory (dot directories) This will NOT return any files
+     * Retrieves a list of all the directories within the specified directory. It does not include
+     * the dot directories (. and ..), and does not return any files.
+     * A symlink to a directory is listed as a directory. With $recursive, it is only gone into if
+     * $followSymlinks is true, and even then, never if it points back up to a directory it is inside
+     * (e.g. ".."), which would otherwise go round in circles.
      * @param string $path - the path to the directory that we want to search.
      * @param bool $recursive - whether to recursively loop through the directories to find more.
      * @param bool $includePath - set to true to include the full path to the dir, not just the dir
-     * name.
-     * @return array<string> - list of directories within the specified path.
-     * @throws FileDoesNotExistException - if there is no directory at $path.
-     * @throws FilesystemException - if the directory (or, if $recursive, one of its subdirectories)
-     * can't be opened, e.g. because it can't be read.
+     * name. Directories found by following a symlink are given under the symlink's path.
+     * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
+     * Defaults to false.
+     * @return array<string> - list of directories within the specified path, in no particular order.
+     * @throws DirectoryDoesNotExistException - if there is no directory at $path.
+     * @throws FilesystemException - if the directory (or, if $recursive, one of the subdirectories
+     * gone into) can't be opened, e.g. because it can't be read.
      */
     public static function getDirectories(
         string $path,
         bool $recursive = false,
-        bool $includePath = true
+        bool $includePath = true,
+        bool $followSymlinks = false
     ): array
     {
-        $directories = array();
-        $fpath     = realpath($path);
-
         # Throw rather than returning an empty list (with a warning), so that a missing or unreadable directory
         # can't be mistaken for an empty one.
         if (!is_dir($path))
         {
-            throw new FileDoesNotExistException("There is no directory at {$path}.");
+            throw new DirectoryDoesNotExistException("There is no directory at {$path}.");
         }
 
-        # Suppress the warning, as we throw an exception instead.
-        $handle    = @opendir($path);
+        $realPath = realpath($path);
+        $directories = array();
 
-        if ($handle === false)
-        {
-            throw new FilesystemException("Failed to open the directory {$path}, e.g. because it can't be read.");
-        }
+        # The directories still to look in, each with the real paths of the directories it is inside in this
+        # listing, so that a symlink back up to one of them isn't gone into.
+        $toList = [[$realPath, [$realPath]]];
 
-        while (false !== ($filename = readdir($handle)))
+        while (count($toList) > 0)
         {
-            if (strcmp($filename, "..") != 0 &&
-                strcmp($filename, ".") != 0)
+            [$directory, $ancestors] = array_shift($toList);
+
+            foreach (self::readDirectoryEntries($directory) as $entry)
             {
-                if (is_dir($fpath . "/" . $filename))
+                $entryPath = "{$directory}/{$entry}";
+
+                if (is_dir($entryPath))
                 {
-                    if ($includePath)
-                    {
-                        $directories[] = $fpath . "/" . $filename;
-                    }
-                    else
-                    {
-                        $directories[] = $filename;
-                    }
+                    $directories[] = $includePath ? $entryPath : $entry;
 
-                    if ($recursive)
+                    if (self::shouldGoInto($entryPath, $recursive, $followSymlinks, $ancestors))
                     {
-                        $subFilepath = $fpath . "/" . $filename;
-
-                        $subFiles = self::getDirectories($subFilepath,
-                                                         $recursive,
-                                                         $includePath);
-
-                        $directories = array_merge($directories, $subFiles);
+                        $toList[] = [$entryPath, array_merge($ancestors, [realpath($entryPath)])];
                     }
                 }
             }
         }
 
-        closedir($handle);
         return $directories;
+    }
+
+
+    /**
+     * An alias for getDirectories(), for those who look for "list" (as with ls) rather than "get".
+     * See getDirectories() for how it works.
+     * @param string $path - the path to the directory that we want to search.
+     * @param bool $recursive - whether to recursively loop through the directories to find more.
+     * @param bool $includePath - set to true to include the full path to the dir, not just the dir
+     * name.
+     * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
+     * Defaults to false.
+     * @return array<string> - list of directories within the specified path, in no particular order.
+     * @throws DirectoryDoesNotExistException - if there is no directory at $path.
+     * @throws FilesystemException - if the directory (or, if $recursive, one of the subdirectories
+     * gone into) can't be opened, e.g. because it can't be read.
+     */
+    public static function listDirectories(
+        string $path,
+        bool $recursive = false,
+        bool $includePath = true,
+        bool $followSymlinks = false
+    ): array
+    {
+        return self::getDirectories($path, $recursive, $includePath, $followSymlinks);
     }
 
 
@@ -106,98 +125,109 @@ final class Filesystem
      *   $directory = new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::CURRENT_AS_SELF);
      *   $iterator = new RecursiveIteratorIterator($directory, RecursiveIteratorIterator::CHILD_FIRST);
      *
+     * A symlink to a directory is treated as a directory. With $recursive, it is only gone into if
+     * $followSymlinks is true, and even then, never if it points back up to a directory it is inside
+     * (e.g. ".."), which would otherwise go round in circles.
      * @param string $dir - the path to the directory you wish to find the contents of.
      * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
      * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
-     * instead of just 'text.txt'
-     * @param bool $onlyFiles - whether we include the directory itself in the returned list
+     * instead of just 'text.txt'. Entries found by following a symlink are given under the symlink's
+     * path.
+     * @param bool $onlyFiles - whether to leave the directories themselves out of the returned list
      * @param bool $includeHiddenFilesAndFolders - if false, then this will not include hidden files
      * and folders (those starting with '.')
-     * @return array - the names of all the files/folders within the directory.
-     * @throws FileDoesNotExistException - if there is no directory at $dir.
-     * @throws FilesystemException - if the directory (or, if $recursive, one of its subdirectories)
-     * can't be opened, e.g. because it can't be read.
+     * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
+     * Defaults to false.
+     * @return array - the names of all the files/folders within the directory, in no particular order.
+     * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
+     * @throws FilesystemException - if the directory (or, if $recursive, one of the subdirectories
+     * gone into) can't be opened, e.g. because it can't be read.
      */
     public static function getDirContents(
         string $dir,
         bool $recursive   = true,
         bool $includePath = true,
         bool $onlyFiles   = true,
-        bool $includeHiddenFilesAndFolders = true
+        bool $includeHiddenFilesAndFolders = true,
+        bool $followSymlinks = false
     ): array
     {
-        $fileNames = array();
-        $fpath     = realpath($dir);
-
         # Throw rather than returning an empty list (with a warning), so that a missing or unreadable directory
         # can't be mistaken for an empty one.
         if (!is_dir($dir))
         {
-            throw new FileDoesNotExistException("There is no directory at {$dir}.");
+            throw new DirectoryDoesNotExistException("There is no directory at {$dir}.");
         }
 
-        # Suppress the warning, as we throw an exception instead.
-        $handle    = @opendir($dir);
+        $realPath = realpath($dir);
+        $fileNames = array();
 
-        if ($handle === false)
+        # The directories still to look in, each with the real paths of the directories it is inside in this
+        # listing, so that a symlink back up to one of them isn't gone into.
+        $toList = [[$realPath, [$realPath]]];
+
+        while (count($toList) > 0)
         {
-            throw new FilesystemException("Failed to open the directory {$dir}, e.g. because it can't be read.");
-        }
+            [$directory, $ancestors] = array_shift($toList);
 
-        while (false !== ($fileName = readdir($handle)))
-        {
-            if ($includeHiddenFilesAndFolders === false && StringLib::startsWith($fileName, "."))
+            foreach (self::readDirectoryEntries($directory) as $entry)
             {
-                continue;
-            }
-
-            if (strcmp($fileName, "..") != 0 && strcmp($fileName, ".") != 0)
-            {
-                if (is_dir($fpath . "/" . $fileName))
+                if ($includeHiddenFilesAndFolders || !str_starts_with($entry, "."))
                 {
-                    if (!$onlyFiles)
+                    $entryPath = "{$directory}/{$entry}";
+                    $isDirectory = is_dir($entryPath);
+
+                    if (!$isDirectory || !$onlyFiles)
                     {
-                        if ($includePath)
-                        {
-                            $fileNames[] = $fpath . "/" . $fileName;
-                        }
-                        else
-                        {
-                            $fileNames[] = $fileName;
-                        }
+                        $fileNames[] = $includePath ? $entryPath : $entry;
                     }
 
-                    if ($recursive)
+                    if ($isDirectory && self::shouldGoInto($entryPath, $recursive, $followSymlinks, $ancestors))
                     {
-                        $subFilePath = $fpath . "/" . $fileName;
-
-                        $subFiles = self::getDirContents(
-                            $subFilePath,
-                            $recursive,
-                            $includePath,
-                            $onlyFiles,
-                            $includeHiddenFilesAndFolders
-                        );
-
-                        $fileNames = array_merge($fileNames, $subFiles);
-                    }
-                }
-                else
-                {
-                    if ($includePath)
-                    {
-                        $fileNames[] = $fpath . "/" . $fileName;
-                    }
-                    else
-                    {
-                        $fileNames[] = $fileName;
+                        $toList[] = [$entryPath, array_merge($ancestors, [realpath($entryPath)])];
                     }
                 }
             }
         }
 
-        closedir($handle);
         return $fileNames;
+    }
+
+
+    /**
+     * An alias for getDirContents(), for those who look for "list" (as with ls) rather than "get".
+     * See getDirContents() for how it works.
+     * @param string $dir - the path to the directory you wish to find the contents of.
+     * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
+     * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
+     * instead of just 'text.txt'.
+     * @param bool $onlyFiles - whether to leave the directories themselves out of the returned list
+     * @param bool $includeHiddenFilesAndFolders - if false, then this will not include hidden files
+     * and folders (those starting with '.')
+     * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
+     * Defaults to false.
+     * @return array - the names of all the files/folders within the directory, in no particular order.
+     * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
+     * @throws FilesystemException - if the directory (or, if $recursive, one of the subdirectories
+     * gone into) can't be opened, e.g. because it can't be read.
+     */
+    public static function listDirContents(
+        string $dir,
+        bool $recursive   = true,
+        bool $includePath = true,
+        bool $onlyFiles   = true,
+        bool $includeHiddenFilesAndFolders = true,
+        bool $followSymlinks = false
+    ): array
+    {
+        return self::getDirContents(
+            $dir,
+            $recursive,
+            $includePath,
+            $onlyFiles,
+            $includeHiddenFilesAndFolders,
+            $followSymlinks
+        );
     }
 
 
@@ -299,6 +329,65 @@ final class Filesystem
 
 
     /**
+     * Move (or rename) a directory and everything in it, updating the symlinks inside it so that
+     * they keep pointing at the same things. This is a shortcut for Directory::rename(), which
+     * explains what is checked and how the symlinks are updated. Unlike Directory, a relative path
+     * here is relative to the current working directory, as with PHP's own functions.
+     * @param string $source - the directory to move.
+     * @param string $destination - the path it should have afterwards. Its parent must already
+     * exist, and nothing may already exist at it.
+     * @param bool $overrideUmask - when moving to a different filesystem, where everything has to
+     * be copied: whether to give the copies exactly the original permissions, rather than reducing
+     * them by the umask (and stopping the move if that can't be done). On the same filesystem,
+     * nothing is copied, so permissions are always kept exactly and this has no effect. Defaults to
+     * false.
+     * @return void
+     * @throws BadArgumentException - if $source is a symlink, or $destination is empty or inside
+     * $source.
+     * @throws DirectoryDoesNotExistException - if there is no directory at $source, or
+     * $destination's parent doesn't exist.
+     * @throws FileAlreadyExistsException - if something already exists at $destination.
+     * @throws BadFilePermissionsException - if anything would stop the move or the symlink updates.
+     * Nothing is moved if this happens.
+     * @throws FilesystemException - if the move or copy failed, or the original couldn't be deleted
+     * after a copy to a different filesystem.
+     */
+    public static function moveDir(string $source, string $destination, bool $overrideUmask = false): void
+    {
+        $absoluteDestination = str_starts_with($destination, "/") ? $destination : getcwd() . "/" . $destination;
+        $directory = new Directory($source);
+        $directory->rename($absoluteDestination, $overrideUmask);
+    }
+
+
+    /**
+     * Move (or rename) a file. This is a shortcut for File::rename(), which explains what is
+     * checked: a directory is never replaced, a file is only replaced with $overwriteExistingFile,
+     * and a symlink is moved as the link itself (a relative one is recreated so that it still
+     * points at the same place). Unlike File, a relative path here is relative to the current
+     * working directory, as with PHP's own functions.
+     * @param string $source - the file to move.
+     * @param string $destination - the path it should have afterwards. The directory it is in must
+     * already exist.
+     * @param bool $overwriteExistingFile - whether to replace a file (or symlink) that already
+     * exists at $destination. Defaults to false. A directory is never replaced.
+     * @return void
+     * @throws BadArgumentException - if $destination is empty, or ends with a "/".
+     * @throws FileDoesNotExistException - if there is no file at $source.
+     * @throws DirectoryDoesNotExistException - if $destination's directory doesn't exist.
+     * @throws FileAlreadyExistsException - if there is a directory at $destination, there is a file
+     * there and $overwriteExistingFile is false, or it is the same file as $source.
+     * @throws FilesystemException - if the file could not be moved.
+     */
+    public static function moveFile(string $source, string $destination, bool $overwriteExistingFile = false): void
+    {
+        $absoluteDestination = str_starts_with($destination, "/") ? $destination : getcwd() . "/" . $destination;
+        $file = new File($source);
+        $file->rename($absoluteDestination, $overwriteExistingFile);
+    }
+
+
+    /**
      * Deletes a directory even if it is not already empty. This resolves the
      *  issue with trying to use unlink on a non-empty dir.
      * By default, symlinks are never followed: a symlink inside the directory is removed without
@@ -320,7 +409,7 @@ final class Filesystem
      * @throws BadArgumentException - if $dir is a symlink and $followSymlinks is false, or $dir is
      * a symlink to a directory that contains it (so following it would delete the link's own
      * parent).
-     * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
+     * @throws DirectoryDoesNotExistException - if a directory does not exist at the path specified.
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted,
      * including $dir itself (e.g. because its parent directory can't be written to). Its
      * getProblems() says what, and why. Nothing is deleted if this happens. This extends
@@ -346,7 +435,7 @@ final class Filesystem
 
         if (!is_dir($dir))
         {
-            throw new FileDoesNotExistException("There is no directory at {$dir}.");
+            throw new DirectoryDoesNotExistException("There is no directory at {$dir}.");
         }
 
         $realDir = realpath($dir);
@@ -399,7 +488,7 @@ final class Filesystem
      * @param bool $followSymlinks - whether to follow symlinks inside the directory, and delete
      * what they point to as well as the links. Defaults to false.
      * @return void
-     * @throws FileDoesNotExistException - if a directory does not exist at the path specified.
+     * @throws DirectoryDoesNotExistException - if a directory does not exist at the path specified.
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted.
      * Its getProblems() says what, and why (stopping at 100). Nothing is deleted if this happens.
      * This extends BadFilePermissionsException.
@@ -411,7 +500,7 @@ final class Filesystem
         # is_dir() follows symlinks, so a symlink to a directory is emptied too, which is what it was asked to do.
         if (!is_dir($dir))
         {
-            throw new FileDoesNotExistException("There is no directory at {$dir}.");
+            throw new DirectoryDoesNotExistException("There is no directory at {$dir}.");
         }
 
         $realDir = realpath($dir);
@@ -588,7 +677,7 @@ final class Filesystem
      * deleted, and the folder it points to (and the files in it) are kept.
      * @return void
      * @throws FileAlreadyExistsException - if there is already a file at $dest.
-     * @throws FileDoesNotExistException - if there is no folder at $sourceFolder.
+     * @throws DirectoryDoesNotExistException - if there is no folder at $sourceFolder.
      * @throws MissingExtensionException - if the zip extension isn't installed.
      * @throws FilesystemException - if the zip file could not be created or written.
      */
@@ -601,7 +690,7 @@ final class Filesystem
 
         if (!is_dir($sourceFolder))
         {
-            throw new FileDoesNotExistException("Cannot zip {$sourceFolder}, as there is no folder there.");
+            throw new DirectoryDoesNotExistException("Cannot zip {$sourceFolder}, as there is no folder there.");
         }
 
         if (file_exists($dest))
@@ -700,7 +789,6 @@ final class Filesystem
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed
      * files after they have been zipped.
      * @return void
-     * @throws FileDoesNotExistException
      * @throws MissingExtensionException
      * @throws FilesystemException - if the zip file could not be opened or extracted.
      */
@@ -1498,6 +1586,59 @@ final class Filesystem
         }
 
         @unlink($tmpFilepath);
+    }
+
+
+    /**
+     * Read the names of the entries in a directory, apart from "." and "..".
+     * @param string $directory - the directory to read.
+     * @return array<string> - the names, in the order the system gives them.
+     * @throws FilesystemException - if the directory can't be opened.
+     */
+    private static function readDirectoryEntries(string $directory): array
+    {
+        # Suppress the warning, as we throw an exception instead.
+        $handle = @opendir($directory);
+
+        if ($handle === false)
+        {
+            throw new FilesystemException("Failed to open the directory {$directory}, e.g. because it can't be read.");
+        }
+
+        $entries = array();
+
+        while (($entry = readdir($handle)) !== false)
+        {
+            if ($entry !== "." && $entry !== "..")
+            {
+                $entries[] = $entry;
+            }
+        }
+
+        closedir($handle);
+        return $entries;
+    }
+
+
+    /**
+     * Decide whether a recursive listing should go into a directory it has found.
+     * @param string $entryPath - the directory found (which may be a symlink to one).
+     * @param bool $recursive - whether the listing is recursive at all.
+     * @param bool $followSymlinks - whether to go into symlinks to directories.
+     * @param array $ancestors - the real paths of the directories the listing is already inside.
+     * @return bool - true to go into it.
+     */
+    private static function shouldGoInto(
+        string $entryPath,
+        bool $recursive,
+        bool $followSymlinks,
+        array $ancestors
+    ): bool
+    {
+        # A symlink back up to a directory the listing is already inside would go round in circles.
+        return $recursive
+            && (!is_link($entryPath) || $followSymlinks)
+            && !in_array(realpath($entryPath), $ancestors, true);
     }
 
 

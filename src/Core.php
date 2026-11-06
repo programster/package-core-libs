@@ -681,11 +681,10 @@ final class Core
      * Run a callback, capturing any warning (or notice, or deprecation) it raises, rather than
      * letting it through. This is for wrapping PHP functions that report why they failed with a
      * warning as well as returning false (e.g. mkdir() or file_get_contents()), so that the reason
-     * can go in an exception instead.
-     * This uses a temporary error handler, which is always removed again afterwards. That works
-     * whether or not the application has its own error handler, unlike @ and error_get_last(), as
-     * error_get_last() is empty when the application has one. The application's own handler doesn't
-     * see the warning, just as with @.
+     * can go in an exception instead. This uses a temporary error handler, which is always removed
+     * again afterwards. That works whether or not the application has its own error handler, unlike
+     * @ and error_get_last(), as error_get_last() is empty when the application has one. The
+     * application's own handler doesn't see the warning, just as with @.
      * @param callable $callback - the code to run, e.g. function () use ($path): bool { return
      * mkdir($path); }.
      * @param string|null $warning - set to the message of the last warning raised, or null if there

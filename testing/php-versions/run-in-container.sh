@@ -28,6 +28,17 @@ php -d zend.assertions=1 -d assert.exception=1 /app/testing/main.php || failed=1
 # Run them again as a normal user, as root ignores file permissions, so the checks of how the library handles files
 # it isn't allowed to change (e.g. deleteDir() on a read-only folder) can only run without root. Each run reports
 # the checks it had to skip, which the other run covers.
+# Files the normal user doesn't own, or whose group they aren't in, which only root can create. The folders holding
+# them belong to the normal user, so the tests can try to move them, and check the move is refused.
+fixtures=/tmp/corelibs-fixtures
+mkdir -p "$fixtures/other-owner" "$fixtures/other-group"
+echo "owned by root" > "$fixtures/other-owner/root-owned.txt"
+echo "group 12345" > "$fixtures/other-group/other-group.txt"
+chown nobody:nogroup "$fixtures" "$fixtures/other-owner" "$fixtures/other-group" \
+    "$fixtures/other-group/other-group.txt"
+chgrp 12345 "$fixtures/other-group/other-group.txt"
+export CORELIBS_TEST_FIXTURES="$fixtures"
+
 echo "=== tests (as a normal user)"
 setpriv --reuid=nobody --regid=nogroup --clear-groups \
     php -d zend.assertions=1 -d assert.exception=1 /app/testing/main.php || failed=1

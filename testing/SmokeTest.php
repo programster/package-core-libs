@@ -145,6 +145,19 @@ final class SmokeTest
 
 
     /**
+     * Record a check as skipped, because something it needs isn't available here (e.g. something only the Docker test
+     * runs set up), so that main.php can report it, rather than it passing without checking anything.
+     * @param string $checkName - what the check is for.
+     * @param string $reason - what it needs, e.g. "needs the Docker test runs".
+     * @return void
+     */
+    public static function skip(string $checkName, string $reason): void
+    {
+        self::$s_skipped[] = "{$checkName} ({$reason})";
+    }
+
+
+    /**
      * Check whether permission checks can be tested, which needs a normal user, as root can read,
      * write and delete anything regardless of permissions. If running as root (e.g. the first
      * Docker test run), this records the check as skipped, so that main.php can report it.

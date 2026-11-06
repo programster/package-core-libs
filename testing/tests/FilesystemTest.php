@@ -8,6 +8,7 @@ use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
+use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
@@ -42,11 +43,17 @@ $smoke->run("directories and files", function () use ($dir) {
     file_put_contents("{$dir}/sub/deep/f.txt", "abc\nxyz\n");
     Filesystem::getDirectories($dir, true);
     Filesystem::getDirContents($dir);
-    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::getDirectories("{$dir}/nope"));
-    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::getDirContents("{$dir}/nope"));
+    SmokeTest::expectException(
+        DirectoryDoesNotExistException::class,
+        fn() => Filesystem::getDirectories("{$dir}/nope")
+    );
+    SmokeTest::expectException(
+        DirectoryDoesNotExistException::class,
+        fn() => Filesystem::getDirContents("{$dir}/nope")
+    );
     # A file isn't a directory either.
     SmokeTest::expectException(
-        FileDoesNotExistException::class,
+        DirectoryDoesNotExistException::class,
         fn() => Filesystem::getDirContents("{$dir}/sub/deep/f.txt")
     );
     assert(Filesystem::getDirSize("{$dir}/sub") > 0);
@@ -314,7 +321,7 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
     assert(file_get_contents("{$dir}/delete-outside/x.txt") === "x");
     Filesystem::deleteDir($base);
     assert(!file_exists($base));
-    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::deleteDir($base));
+    SmokeTest::expectException(DirectoryDoesNotExistException::class, fn() => Filesystem::deleteDir($base));
 
     # Symlinks inside are deleted without following them, whether they point to a file, a directory, a read-only
     # directory (which mustn't block the delete), or nothing.
@@ -366,7 +373,7 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
     Filesystem::emptyDir("{$dir}/empty-link/", followSymlinks: true);
     assert(is_link("{$dir}/empty-link") && scandir("{$dir}/empty-target") === [".", ".."]);
     assert(!file_exists("{$dir}/empty-elsewhere"));
-    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::emptyDir($base));
+    SmokeTest::expectException(DirectoryDoesNotExistException::class, fn() => Filesystem::emptyDir($base));
 
     if (SmokeTest::canTestPermissions("deleteDir() / emptyDir() refusing to partly delete"))
     {
@@ -719,5 +726,68 @@ $smoke->run("zipDir error messages", function () use ($dir) {
         );
         chmod("{$dir}/zip-unreadable/secret.txt", 0644);
     }
+});
+
+$smoke->run("getDirectories / getDirContents and symlinks", function () use ($dir) {
+    $base = "{$dir}/listing";
+    mkdir("{$base}/inside/a", 0777, true);
+    mkdir("{$base}/inside/b");
+    mkdir("{$base}/elsewhere");
+    file_put_contents("{$base}/inside/a/a.txt", "a");
+    file_put_contents("{$base}/elsewhere/e.txt", "e");
+    $root = "{$base}/inside";
+
+    # A link back up to a directory being listed, a link to a directory elsewhere, and two links between sibling
+    # directories, pointing at each other.
+    symlink("..", "{$root}/a/up");
+    symlink("{$base}/elsewhere", "{$root}/elsewhere-link");
+    symlink("../b", "{$root}/a/to-b");
+    symlink("../a", "{$root}/b/to-a");
+
+    # By default, symlinks to directories are listed, but not gone into.
+    $directories = Filesystem::getDirectories($root, true);
+    sort($directories);
+    $expected = [
+        "{$root}/a",
+        "{$root}/a/to-b",
+        "{$root}/a/up",
+        "{$root}/b",
+        "{$root}/b/to-a",
+        "{$root}/elsewhere-link",
+    ];
+    assert($directories === $expected, "getDirectories() gave: " . implode(", ", $directories));
+    assert(Filesystem::getDirContents($root) === ["{$root}/a/a.txt"]);
+
+    # With $followSymlinks, they are gone into (with the contents given under the link's path), but a link back up
+    # to a directory already being listed isn't, so it can't go round in circles.
+    $files = Filesystem::getDirContents($root, followSymlinks: true);
+    sort($files);
+    $expectedFiles = [
+        "{$root}/a/a.txt",
+        "{$root}/b/to-a/a.txt",
+        "{$root}/elsewhere-link/e.txt",
+    ];
+    assert($files === $expectedFiles, "getDirContents() following symlinks gave: " . implode(", ", $files));
+    # listDirectories() and listDirContents() are aliases for getDirectories() and getDirContents().
+    $listed = Filesystem::listDirectories($root, true);
+    sort($listed);
+    assert($listed === $directories);
+    $listedFiles = Filesystem::listDirContents($root, followSymlinks: true);
+    sort($listedFiles);
+    assert($listedFiles === $files);
+
+    # A link back up is still listed, as it is a directory, but nothing inside it is.
+    $followedDirectories = Filesystem::getDirectories($root, true, true, true);
+    assert(in_array("{$root}/a/to-b/to-a", $followedDirectories, true));
+    assert(!in_array("{$root}/a/to-b/to-a/to-b", $followedDirectories, true));
+    assert(!in_array("{$root}/a/up/inside", $followedDirectories, true));
+
+    # Names only, and hidden entries left out, still work.
+    file_put_contents("{$root}/.hidden", "h");
+    assert(Filesystem::getDirContents($root, false, false, true, false) === []);
+    assert(Filesystem::getDirContents($root, false, false) === [".hidden"]);
+
+    # The links point back into the test directory, so remove them, as other tests list $dir.
+    Filesystem::deleteDir($base);
 });
 

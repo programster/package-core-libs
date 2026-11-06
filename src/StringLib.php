@@ -197,8 +197,8 @@ final class StringLib
     /**
      * Replaces the given string's <br> tags with newlines for text fields. This handles every way
      * of writing the tag, in any case: <br>, <br/>, <br />, <BR>, and ones with attributes such as
-     * <br class="x">. A line break straight after a tag (as PHP's nl2br() writes) is treated as part
-     * of it, so "a<br />\nb" gives one newline rather than two.
+     * <br class="x">. A line break straight after a tag (as PHP's nl2br() writes) is treated as
+     * part of it, so "a<br />\nb" gives one newline rather than two.
      * @param string $input - the input string
      * @return string - the output string that has been converted.
      */
