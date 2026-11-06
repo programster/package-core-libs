@@ -177,7 +177,8 @@ final class CsvLib
         string $escape = "",
     ): array
     {
-        $file = fopen($filepath, 'r');
+        # Suppress the warning, as we throw an exception instead.
+        $file = @fopen($filepath, 'r');
 
         if ($file === false)
         {
@@ -189,47 +190,54 @@ final class CsvLib
         $output = array();
         $firstRow = true;
 
-        while ($row = fgetcsv($file, 0, $delimiter, $enclosure, $escape))
+        # Close the file however this ends, including when a row throws an exception.
+        try
         {
-            // Skip empty lines (users may accidentally put one at the end
-            // and LibreOffice Calc won't strip this either).
-            if (self::isBlankRow($row))
+            while ($row = fgetcsv($file, 0, $delimiter, $enclosure, $escape))
             {
-                continue;
-            }
-
-            if ($firstRow)
-            {
-                $firstRow = false;
-
-                if ($hasHeader)
+                // Skip empty lines (users may accidentally put one at the end
+                // and LibreOffice Calc won't strip this either).
+                if (self::isBlankRow($row))
                 {
-                    if ($keys === null)
-                    {
-                        $keys = $row;
-                    }
-
                     continue;
                 }
-            }
 
-            if ($keys !== null)
-            {
-                if (count($keys) !== count($row))
+                if ($firstRow)
                 {
-                    $msg = "Cannot convert CSV to array. Number of keys: " . count($keys) .
-                           " is not the same as the number of values: " . count($row);
-                    throw new InvalidCsvException($msg);
+                    $firstRow = false;
+
+                    if ($hasHeader)
+                    {
+                        if ($keys === null)
+                        {
+                            $keys = $row;
+                        }
+
+                        continue;
+                    }
                 }
-                $output[] = array_combine($keys, $row);
-            }
-            else
-            {
-                $output[] = $row;
+
+                if ($keys !== null)
+                {
+                    if (count($keys) !== count($row))
+                    {
+                        $msg = "Cannot convert CSV to array. Number of keys: " . count($keys) .
+                               " is not the same as the number of values: " . count($row);
+                        throw new InvalidCsvException($msg);
+                    }
+                    $output[] = array_combine($keys, $row);
+                }
+                else
+                {
+                    $output[] = $row;
+                }
             }
         }
+        finally
+        {
+            fclose($file);
+        }
 
-        fclose($file);
         return $output;
     }
 
@@ -267,7 +275,8 @@ final class CsvLib
         string $escape = ""
     ): void
     {
-        $fileHandle = fopen($filepath, 'r');
+        # Suppress the warning, as we throw an exception instead.
+        $fileHandle = @fopen($filepath, 'r');
 
         if ($fileHandle === false)
         {
@@ -279,52 +288,58 @@ final class CsvLib
         $firstRow = true;
         $rowIndex = -1;
 
-        while ($row = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape))
+        # Close the file however this ends, including when the callback throws an exception.
+        try
         {
-            $rowIndex++;
-
-            // Skip empty lines (users may accidentally put one at the end
-            // and LibreOffice Calc won't strip this either).
-            if (self::isBlankRow($row))
+            while ($row = fgetcsv($fileHandle, 0, $delimiter, $enclosure, $escape))
             {
-                continue;
-            }
+                $rowIndex++;
 
-            if ($firstRow)
-            {
-                $firstRow = false;
-
-                if ($hasHeaders)
+                // Skip empty lines (users may accidentally put one at the end
+                // and LibreOffice Calc won't strip this either).
+                if (self::isBlankRow($row))
                 {
-                    if ($headers === null)
-                    {
-                        $headers = $row;
-                    }
-
                     continue;
                 }
-            }
 
-            if ($headers !== null)
-            {
-                if (count($headers) != count($row))
+                if ($firstRow)
                 {
-                    $msg = "csvWalk: Cannot convert CSV row to array. Number of keys: " . count($headers) .
-                           " is not the same as the number of values: " . count($row);
-                    throw new InvalidCsvException($msg);
+                    $firstRow = false;
+
+                    if ($hasHeaders)
+                    {
+                        if ($headers === null)
+                        {
+                            $headers = $row;
+                        }
+
+                        continue;
+                    }
                 }
 
-                $arrayToRunCallbackOn = array_combine($headers, $row);
-            }
-            else
-            {
-                $arrayToRunCallbackOn = $row;
-            }
+                if ($headers !== null)
+                {
+                    if (count($headers) != count($row))
+                    {
+                        $msg = "csvWalk: Cannot convert CSV row to array. Number of keys: " . count($headers) .
+                               " is not the same as the number of values: " . count($row);
+                        throw new InvalidCsvException($msg);
+                    }
 
-            $callback($arrayToRunCallbackOn, $rowIndex);
+                    $arrayToRunCallbackOn = array_combine($headers, $row);
+                }
+                else
+                {
+                    $arrayToRunCallbackOn = $row;
+                }
+
+                $callback($arrayToRunCallbackOn, $rowIndex);
+            }
         }
-
-        fclose($fileHandle);
+        finally
+        {
+            fclose($fileHandle);
+        }
     }
 
 

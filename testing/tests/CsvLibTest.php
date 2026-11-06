@@ -630,3 +630,38 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => CsvLib::trim("{$dir}/in-place/nope.csv"));
 });
 
+$smoke->run("CSV reading methods close the file however they end", function () use ($dir) {
+    # get_resources() lists every open stream, so the count is the same before and after if the file was closed.
+    $openStreams = fn() => count(get_resources('stream'));
+    file_put_contents("{$dir}/close-good.csv", "a,b\n1,2\n3,4\n");
+    file_put_contents("{$dir}/close-bad.csv", "a,b\n1,2\n3,4,5\n");
+    $throwingCallback = function (array $row, int $rowIndex) { throw new \RuntimeException("callback failed"); };
+    $cases = [
+        "convertCsvToArray() finishing" => fn() => CsvLib::convertCsvToArray("{$dir}/close-good.csv", true),
+        "convertCsvToArray() on a bad row" => fn() => CsvLib::convertCsvToArray("{$dir}/close-bad.csv", true),
+        "csvWalk() finishing" => fn() => CsvLib::csvWalk("{$dir}/close-good.csv", fn(array $row) => null),
+        "csvWalk() on a bad row" => fn() => CsvLib::csvWalk("{$dir}/close-bad.csv", fn(array $row) => null),
+        "csvWalk() when the callback throws" => fn() => CsvLib::csvWalk("{$dir}/close-good.csv", $throwingCallback),
+    ];
+
+    foreach ($cases as $name => $case)
+    {
+        $before = $openStreams();
+
+        try
+        {
+            $case();
+        }
+        catch (InvalidCsvException | \RuntimeException $e)
+        {
+            # Expected for the bad rows and the throwing callback. Only whether the file was closed matters here.
+        }
+
+        assert($openStreams() === $before, "{$name} left the file open");
+    }
+
+    # A missing file still throws FilesystemException, without a PHP warning (which the test runner would report).
+    SmokeTest::expectException(FilesystemException::class, fn() => CsvLib::convertCsvToArray("{$dir}/nope.csv", true));
+    SmokeTest::expectException(FilesystemException::class, fn() => CsvLib::csvWalk("{$dir}/nope.csv", fn() => null));
+});
+
