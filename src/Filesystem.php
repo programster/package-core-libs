@@ -1203,16 +1203,31 @@ final class Filesystem
 
 
     /**
-     * Download a file from the provided URL This will use curl if it is available, if not it will
-     * fall back to using file_get_contents. An HTTP error response (a status of 400 or above, such
-     * as 404 Not Found) counts as a failed download, rather than downloading the error page.
-     * @param string $url - the URL of the file to download.
+     * Download a file from the provided URL into a temporary file. This will use curl if it is
+     * available, and if not, PHP's own HTTP support. Either way, the file is streamed to disk, rather
+     * than held in memory. An HTTP error response (a status of 400 or above, such as 404 Not Found)
+     * counts as a failed download, rather than downloading the error page.
+     * Only http:// and https:// URLs are allowed, including any redirects, so this can't be used to
+     * read local files (e.g. "file:///etc/passwd" or "/etc/passwd").
+     * WARNING: if the URL comes from a user, check its host first. This can still reach anything the
+     * server can, including services that are only meant to be reachable from inside the network
+     * (e.g. http://127.0.0.1/, or a cloud provider's metadata service at http://169.254.169.254/).
+     * @param string $url - the http:// or https:// URL of the file to download.
      * @return string - the full filepath to the downloaded file on the server.
+     * @throws BadArgumentException - if $url isn't an http:// or https:// URL.
      * @throws FilesystemException - if the temporary file could not be created/written to, or the
-     * download failed. The temporary file is removed if this happens.
+     * download failed (including a redirect to anything other than http:// or https://). The
+     * temporary file is removed if this happens.
      */
     public static function downloadFile(string $url): string
     {
+        $scheme = strtolower((string)parse_url($url, PHP_URL_SCHEME));
+
+        if (!in_array($scheme, ["http", "https"], true))
+        {
+            throw new BadArgumentException("downloadFile: {$url} isn't an http:// or https:// URL.");
+        }
+
         $downloadedFilepath = tempnam(sys_get_temp_dir(), "");
 
         if ($downloadedFilepath === false)
@@ -1237,6 +1252,10 @@ final class Filesystem
                 curl_setopt($ch, CURLOPT_FILE, $fp);
                 curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 
+                # Only allow web URLs, including where a redirect goes, so a redirect can't point at a local file.
+                curl_setopt($ch, CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+                curl_setopt($ch, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+
                 # Without this, curl treats an HTTP error such as a 404 as a success, and "downloads" the error page.
                 # This also matches the file_get_contents() fallback below, which fails on these.
                 curl_setopt($ch, CURLOPT_FAILONERROR, true);
@@ -1252,20 +1271,32 @@ final class Filesystem
             }
             else
             {
-                # Capture the warning to put its reason in the exception, rather than letting it through.
-                $fetchUrl = function () use ($url): string|false {
-                    return file_get_contents($url);
+                # PHP's HTTP wrapper only follows redirects to other http:// and https:// URLs. Capture the warning to
+                # put its reason in the exception, rather than letting it through.
+                $openUrl = function () use ($url) {
+                    return fopen($url, "r");
                 };
 
-                $content = Core::runCapturingWarning($fetchUrl, $error);
-                $error ??= 'unknown error';
+                $source = Core::runCapturingWarning($openUrl, $error);
 
-                if ($content === false)
+                if ($source === false)
                 {
+                    $error ??= 'unknown error';
                     throw new FilesystemException("Failed to download {$url}: {$error}");
                 }
 
-                if (file_put_contents($downloadedFilepath, $content) === false)
+                $destination = fopen($downloadedFilepath, "w");
+
+                # Stream it to the file, rather than reading it all into memory first.
+                $copied = ($destination !== false) && stream_copy_to_stream($source, $destination) !== false;
+                fclose($source);
+
+                if ($destination !== false)
+                {
+                    fclose($destination);
+                }
+
+                if (!$copied)
                 {
                     throw new FilesystemException("Failed to write the downloaded content to {$downloadedFilepath}.");
                 }

@@ -6,6 +6,8 @@
 
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\NetworkException;
+use Programster\CoreLibs\Core;
+use Programster\CoreLibs\Exceptions\NoWebRequestException;
 use Programster\CoreLibs\Network;
 use Programster\CoreLibs\Testing\FakeHttpsStream;
 use Programster\CoreLibs\Testing\SmokeTest;
@@ -76,5 +78,50 @@ $smoke->run("sendTcpRequest", function () {
     else
     {
         echo "(skipping sendTcpRequest, as the pcntl extension isn't installed)\n";
+    }
+});
+
+$smoke->run("getCurrentUrl() / isHttps()", function () {
+    $originalServer = $_SERVER;
+
+    try
+    {
+        # Outside a web request (as here, from the CLI), there is no current page, so it throws rather than returning
+        # half a URL with warnings.
+        unset($_SERVER['REQUEST_URI'], $_SERVER['HTTPS']);
+        SmokeTest::expectException(NoWebRequestException::class, fn() => Core::getCurrentUrl("blog.programster.org"));
+        assert(Network::isHttps() === false);
+
+        # The host is what was given (tidied up), never the request's own, so a spoofed Host header has no effect.
+        $_SERVER['HTTP_HOST'] = "evil.example.com";
+        $_SERVER['SERVER_NAME'] = "evil.example.com";
+        $_SERVER['REQUEST_URI'] = "/some-page?id=1";
+        assert(Core::getCurrentUrl("blog.programster.org") === "https://blog.programster.org/some-page?id=1");
+        assert(Core::getCurrentUrl("  blog.programster.org//  ") === "https://blog.programster.org/some-page?id=1");
+        assert(Core::getCurrentUrl("localhost:8080") === "https://localhost:8080/some-page?id=1");
+
+        # A request line with the URL in full only has its path and query used.
+        $_SERVER['REQUEST_URI'] = "http://evil.example.com/other?x=2";
+        assert(Core::getCurrentUrl("blog.programster.org") === "https://blog.programster.org/other?x=2");
+        $_SERVER['REQUEST_URI'] = "/some-page?id=1";
+
+        # HTTPS is forced by default, as behind a proxy the web server only sees HTTP. Without forcing it, the web
+        # server's HTTPS setting is used, which IIS sets to "off" for plain HTTP.
+        assert(Core::getCurrentUrl("blog.programster.org", false) === "http://blog.programster.org/some-page?id=1");
+        $_SERVER['HTTPS'] = "off";
+        assert(Network::isHttps() === false);
+        assert(Core::getCurrentUrl("blog.programster.org", false) === "http://blog.programster.org/some-page?id=1");
+        $_SERVER['HTTPS'] = "on";
+        assert(Network::isHttps() === true);
+        assert(Core::getCurrentUrl("blog.programster.org", false) === "https://blog.programster.org/some-page?id=1");
+
+        foreach (["", "https://blog.programster.org", "blog.programster.org/page", "bad host", "host:abc"] as $bad)
+        {
+            SmokeTest::expectException(BadArgumentException::class, fn() => Core::getCurrentUrl($bad), "isn't a valid");
+        }
+    }
+    finally
+    {
+        $_SERVER = $originalServer;
     }
 });

@@ -109,24 +109,18 @@ final class Network
 
 
     /**
-     * Calculates the hostname including the starting http:// or https:// at the beginning. This is
-     * useful for linking items by relative source and getting around htaccess URL rewrites.
-     * @return string  - The URL e.g. 'http://www.technostu.com'
+     * Check whether the current web request was made over HTTPS, from the web server's HTTPS
+     * setting. Web servers set it to a non-empty value (usually "on") for HTTPS, and leave it unset
+     * for plain HTTP, apart from IIS, which sets it to "off".
+     * Behind a proxy or load balancer that handles HTTPS, the web server only sees plain HTTP, so
+     * this is false unless the web server is set up to report it. (The X-Forwarded-Proto header
+     * isn't used, as the client can set it.)
+     * @return bool - true if it was made over HTTPS, and false if not, or there is no web request.
      */
-    public static function getHostname(): string
+    public static function isHttps(): bool
     {
-        $hostname = $_SERVER['HTTP_HOST'];
-
-        if (isset($_SERVER['HTTPS']))
-        {
-            $hostname = 'https://' . $hostname;
-        }
-        else
-        {
-            $hostname = 'http://' . $hostname;
-        }
-
-        return $hostname;
+        $serverHttps = strtolower((string)($_SERVER["HTTPS"] ?? ""));
+        return $serverHttps !== "" && $serverHttps !== "off";
     }
 
 

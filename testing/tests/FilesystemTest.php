@@ -193,11 +193,22 @@ $smoke->run("replacing file contents in place", function () use ($dir) {
 });
 
 $smoke->run("downloadFile", function () use ($dir) {
-    assert(filesize(Filesystem::downloadFile("file:///etc/hostname")) > 0);
+    # Only web URLs are allowed, so it can't be used to read local files.
+    $localUrls = ["file:///etc/hostname", "/etc/hostname", "ftp://127.0.0.1/x", "php://filter/resource=/etc/hostname"];
+
+    foreach ($localUrls as $url)
+    {
+        SmokeTest::expectException(
+            BadArgumentException::class,
+            fn() => Filesystem::downloadFile($url),
+            "isn't an http"
+        );
+    }
 
     # Serve a directory with PHP's built-in web server, so that HTTP can be tested without the internet.
     mkdir("{$dir}/www");
     file_put_contents("{$dir}/www/ok.txt", "downloaded content");
+    file_put_contents("{$dir}/www/to-local-file.php", '<?php header("Location: file:///etc/hostname");');
     $portFinder = stream_socket_server("tcp://127.0.0.1:0");
     $port = (int) substr(strrchr(stream_socket_get_name($portFinder, false), ":"), 1);
     fclose($portFinder);
@@ -218,6 +229,12 @@ $smoke->run("downloadFile", function () use ($dir) {
 
         $tempFilesBefore = glob(sys_get_temp_dir() . "/*");
         assert(file_get_contents(Filesystem::downloadFile("http://127.0.0.1:{$port}/ok.txt")) === "downloaded content");
+
+        # Nor can a redirect point it at a local file.
+        SmokeTest::expectException(
+            FilesystemException::class,
+            fn() => Filesystem::downloadFile("http://127.0.0.1:{$port}/to-local-file.php")
+        );
 
         # An HTTP error must fail, rather than "downloading" the error page.
         SmokeTest::expectException(
@@ -251,7 +268,7 @@ $smoke->run("downloadFile without curl", function () {
     $output = (string)shell_exec(
         escapeshellarg(PHP_BINARY) . " -d disable_functions=curl_version -r " . escapeshellarg($code) . " 2>&1"
     );
-    $expected = FilesystemException::class . ": Failed to download http://127.0.0.1:1/x: file_get_contents(";
+    $expected = FilesystemException::class . ": Failed to download http://127.0.0.1:1/x: fopen(";
     assert(str_starts_with($output, $expected), "downloadFile() without curl gave: {$output}");
     assert(str_contains($output, "Connection refused"), "downloadFile() without curl gave: {$output}");
 });
