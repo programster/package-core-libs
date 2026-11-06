@@ -957,3 +957,43 @@ $smoke->run("isOnSameFilesystem", function () use ($dir) {
     );
 });
 
+$smoke->run("fileperms", function () use ($dir) {
+    $base = "{$dir}/fileperms";
+    mkdir($base);
+    file_put_contents("{$base}/file.txt", "x");
+    chmod("{$base}/file.txt", 0640);
+    assert(Filesystem::fileperms("{$base}/file.txt") === "-rw-r-----");
+    mkdir("{$base}/dir");
+    chmod("{$base}/dir", 0750);
+    assert(Filesystem::fileperms("{$base}/dir") === "drwxr-x---");
+    assert(Filesystem::fileperms("/dev/null") === "crw-rw-rw-");
+
+    # The setuid, setgid and sticky bits replace the matching "x", in capitals when the "x" isn't set.
+    chmod("{$base}/file.txt", 06755);
+    assert(Filesystem::fileperms("{$base}/file.txt") === "-rwsr-sr-x");
+    chmod("{$base}/file.txt", 06644);
+    assert(Filesystem::fileperms("{$base}/file.txt") === "-rwSr-Sr--");
+    chmod("{$base}/dir", 01777);
+    assert(Filesystem::fileperms("{$base}/dir") === "drwxrwxrwt");
+    chmod("{$base}/dir", 01776);
+    assert(Filesystem::fileperms("{$base}/dir") === "drwxrwxrwT");
+
+    # A symlink is reported as the link itself, even when it is broken.
+    symlink("{$base}/file.txt", "{$base}/link");
+    assert(Filesystem::fileperms("{$base}/link") === "lrwxrwxrwx");
+    symlink("{$base}/missing", "{$base}/broken-link");
+    assert(Filesystem::fileperms("{$base}/broken-link") === "lrwxrwxrwx");
+
+    if (function_exists("posix_mkfifo"))
+    {
+        posix_mkfifo("{$base}/pipe", 0600);
+        assert(Filesystem::fileperms("{$base}/pipe") === "prw-------");
+    }
+
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => Filesystem::fileperms("{$base}/missing"),
+        "There is nothing at {$base}/missing"
+    );
+});
+

@@ -1314,50 +1314,73 @@ final class Filesystem
 
 
     /**
-     * A more human-readable version of the fileperms function. This one will output in the
-     * "-rw-r--r--" style format rather than a bunch of numbers. The code is taken straight from the
-     * examples section of https://www.php.net/manual/en/function.fileperms.php
-     * @param string $filepath - the path to the file/folder we wish to get the permissions of.
-     * @return string - the file permissions string.
+     * Get a file's type and permissions in the "-rw-r--r--" style that ls -l shows, rather than as
+     * a number. The first letter is the type: "-" for a regular file, "d" for a directory, "l" for a
+     * symlink, "c" or "b" for a character or block device, "p" for a named pipe, or "s" for a socket.
+     * The setuid, setgid and sticky bits show as "s", "s" and "t" in place of the matching "x" (or
+     * "S", "S" and "T" when that "x" isn't set), as ls -l shows them.
+     * A symlink is reported as the link itself (e.g. "lrwxrwxrwx"), rather than what it points to,
+     * as ls -l does, so this works for a broken symlink too.
+     * @param string $filepath - the path to the file, directory or symlink.
+     * @return string - the type and permissions, e.g. "-rw-r--r--" or "drwxr-xr-x".
+     * @throws FileDoesNotExistException - if there is nothing at $filepath.
+     * @throws FilesystemException - if its details could not be read.
      */
     public static function fileperms(string $filepath): string
     {
-        $perms = fileperms($filepath);
+        if (!file_exists($filepath) && !is_link($filepath))
+        {
+            throw new FileDoesNotExistException("There is nothing at {$filepath} to get the permissions of.");
+        }
 
-        $info = match ($perms & 0xF000) {
-            0xC000 => 's',
-            0xA000 => 'l',
-            0x8000 => 'r',
-            0x6000 => 'b',
-            0x4000 => 'd',
-            0x2000 => 'c',
-            0x1000 => 'p',
-            default => 'u',
+        # Use lstat() rather than fileperms(), so a symlink is reported as itself, rather than what it points to.
+        $readDetails = function () use ($filepath): array|false {
+            return lstat($filepath);
         };
 
-        // Owner
-        $info .= (($perms & 0x0100) ? 'r' : '-');
-        $info .= (($perms & 0x0080) ? 'w' : '-');
+        $details = Core::runCapturingWarning($readDetails, $error);
 
-        $info .= (($perms & 0x0040) ?
-                    (($perms & 0x0800) ? 's' : 'x' ) :
-                    (($perms & 0x0800) ? 'S' : '-'));
+        if ($details === false)
+        {
+            $error ??= 'unknown error';
+            throw new FilesystemException("Failed to read the permissions of {$filepath}: {$error}");
+        }
 
-        // Group
-        $info .= (($perms & 0x0020) ? 'r' : '-');
-        $info .= (($perms & 0x0010) ? 'w' : '-');
+        $mode = $details['mode'];
 
-        $info .= (($perms & 0x0008) ?
-                    (($perms & 0x0400) ? 's' : 'x' ) :
-                    (($perms & 0x0400) ? 'S' : '-'));
+        $info = match ($mode & 0170000) {
+            0140000 => 's',
+            0120000 => 'l',
+            0100000 => '-',
+            0060000 => 'b',
+            0040000 => 'd',
+            0020000 => 'c',
+            0010000 => 'p',
+            default => '?',
+        };
 
-        // World
-        $info .= (($perms & 0x0004) ? 'r' : '-');
-        $info .= (($perms & 0x0002) ? 'w' : '-');
+        # The owner's, group's and others' read, write and execute bits, each with the special bit (setuid, setgid or
+        # sticky) that is shown in place of its execute bit.
+        $permissionClasses = [
+            [0400, 0200, 0100, 04000, 's'],
+            [0040, 0020, 0010, 02000, 's'],
+            [0004, 0002, 0001, 01000, 't'],
+        ];
 
-        $info .= (($perms & 0x0001) ?
-                    (($perms & 0x0200) ? 't' : 'x' ) :
-                    (($perms & 0x0200) ? 'T' : '-'));
+        foreach ($permissionClasses as [$readBit, $writeBit, $executeBit, $specialBit, $specialLetter])
+        {
+            $info .= ($mode & $readBit) ? 'r' : '-';
+            $info .= ($mode & $writeBit) ? 'w' : '-';
+
+            if ($mode & $specialBit)
+            {
+                $info .= ($mode & $executeBit) ? $specialLetter : strtoupper($specialLetter);
+            }
+            else
+            {
+                $info .= ($mode & $executeBit) ? 'x' : '-';
+            }
+        }
 
         return $info;
     }
