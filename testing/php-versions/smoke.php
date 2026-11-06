@@ -268,6 +268,11 @@ $smoke->run("CSV methods", function () use ($dir) {
     CsvLib::removeColumns("{$dir}/b.csv", [2]);
     CsvLib::removeRows("{$dir}/b.csv", [1]);
     CsvLib::decimalDiff("{$dir}/a.csv", "{$dir}/a.csv");
+
+    # The output has one row per input row, with no extra empty row at the end.
+    file_put_contents("{$dir}/diff1.csv", "5,x\n3,y\n");
+    file_put_contents("{$dir}/diff2.csv", "2,x\n1,z\n");
+    assert(file_get_contents(CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/diff2.csv")) === "3,x\n2,y|z\n");
     assert(CsvLib::diffTolerance("{$dir}/a.csv", "{$dir}/a.csv", []));
     CsvLib::mergeFiles(["{$dir}/a.csv", "{$dir}/a.csv"], "{$dir}/merged.csv", true);
 });
@@ -290,7 +295,7 @@ $smoke->run("CSV byte order marks", function () use ($dir) {
     file_put_contents("{$dir}/with-bom.csv", "{$bom}1,2\n");
     file_put_contents("{$dir}/without-bom.csv", "1,2\n");
     $diffFile = CsvLib::decimalDiff("{$dir}/with-bom.csv", "{$dir}/without-bom.csv");
-    assert(str_starts_with(file_get_contents($diffFile), "0,0\n"));
+    assert(file_get_contents($diffFile) === "0,0\n");
 
     # Methods that rewrite the file keep its byte order mark, even when the first column is removed.
     file_put_contents("{$dir}/rewrite.csv", "{$bom}id,name\n1,x\n");

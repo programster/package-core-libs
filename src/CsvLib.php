@@ -723,38 +723,36 @@ final class CsvLib
             self::skipByteOrderMark($fileHandle1);
             self::skipByteOrderMark($fileHandle2);
 
-            while (!feof($fileHandle1))
+            # Read in the loop condition rather than checking feof(), as feof() is only true after a read has failed,
+            # which would add an extra empty row at the end of the output.
+            while (($lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape)) !== false)
             {
-                $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape);
                 $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure, $escape);
                 $resultArray = array();
 
-                if ($lineArray1)
+                foreach ($lineArray1 as $index => $value1)
                 {
-                    foreach ($lineArray1 as $index => $value1)
+                    // Can't use isset() here, as fgetcsv returns [null] for blank lines.
+                    if (!is_array($lineArray2) || !array_key_exists($index, $lineArray2))
                     {
-                        // Can't use isset() here, as fgetcsv returns [null] for blank lines.
-                        if (!is_array($lineArray2) || !array_key_exists($index, $lineArray2))
-                        {
-                            throw new InvalidCsvException("decimalDiff: rows do not have the same column count.");
-                        }
+                        throw new InvalidCsvException("decimalDiff: rows do not have the same column count.");
+                    }
 
-                        $value2 = $lineArray2[$index];
+                    $value2 = $lineArray2[$index];
 
-                        if (is_numeric($value1) && is_numeric($value2))
+                    if (is_numeric($value1) && is_numeric($value2))
+                    {
+                        $resultArray[$index] = $value1 - $value2;
+                    }
+                    else
+                    {
+                        if ($value1 === $value2)
                         {
-                            $resultArray[$index] = $value1 - $value2;
+                            $resultArray[$index] = $value1;
                         }
                         else
                         {
-                            if ($value1 === $value2)
-                            {
-                                $resultArray[$index] = $value1;
-                            }
-                            else
-                            {
-                                $resultArray[$index] = $value1 . "|" . $value2;
-                            }
+                            $resultArray[$index] = $value1 . "|" . $value2;
                         }
                     }
                 }
