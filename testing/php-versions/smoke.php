@@ -12,18 +12,23 @@ require_once(__DIR__ . '/../../vendor/autoload.php');
 use Programster\CoreLibs\ArrayLib;
 use Programster\CoreLibs\CliLib;
 use Programster\CoreLibs\Core;
+use Programster\CoreLibs\CsvFile;
 use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\DataSizeUnitEnum;
 use Programster\CoreLibs\EncryptionLib;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\DecryptionFailedException;
 use Programster\CoreLibs\Exceptions\EmptyArrayException;
+use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\Exceptions\InvalidCsvException;
 use Programster\CoreLibs\Exceptions\NetworkException;
+use Programster\CoreLibs\Exceptions\NoCsvHeaderException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
 use Programster\CoreLibs\Exceptions\StringConversionFailedException;
+use Programster\CoreLibs\File;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\MemoryTypeEnum;
 use Programster\CoreLibs\Network;
@@ -90,11 +95,17 @@ final class SmokeTest
      * Assert that a callback throws a specific type of exception.
      * @param string $exceptionClass - the class of exception that should be thrown.
      * @param callable $callback - the code that should throw it.
+     * @param string $messageContains - optionally, text the exception's message must contain, for when the same
+     *                                  class of exception can be thrown for different reasons.
      * @return void
      * @throws \Throwable - if the callback throws a different exception, it is rethrown.
-     * @throws \Exception - if the callback doesn't throw at all.
+     * @throws \Exception - if the callback doesn't throw at all, or the message doesn't contain $messageContains.
      */
-    public static function expectException(string $exceptionClass, callable $callback): void
+    public static function expectException(
+        string $exceptionClass,
+        callable $callback,
+        string $messageContains = ""
+    ): void
     {
         $threwExpectedException = false;
 
@@ -107,6 +118,14 @@ final class SmokeTest
             if (!($e instanceof $exceptionClass))
             {
                 throw $e;
+            }
+
+            if (!str_contains($e->getMessage(), $messageContains))
+            {
+                throw new \Exception(
+                    "Expected the {$exceptionClass} message to contain \"{$messageContains}\", but it was: " .
+                    $e->getMessage()
+                );
             }
 
             $threwExpectedException = true;
@@ -273,6 +292,312 @@ $smoke->run("CSV methods", function () use ($dir) {
     file_put_contents("{$dir}/diff1.csv", "5,x\n3,y\n");
     file_put_contents("{$dir}/diff2.csv", "2,x\n1,z\n");
     assert(file_get_contents(CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/diff2.csv")) === "3,x\n2,y|z\n");
+
+    # Blank lines at the end of either file don't count as rows, and aren't added to the output.
+    file_put_contents("{$dir}/diff2-blank-end.csv", "2,x\n1,z\n\n\n");
+    file_put_contents("{$dir}/diff2-blank-end-crlf.csv", "2,x\r\n1,z\r\n\r\n");
+    $trailingBlankPairs = [
+        ["{$dir}/diff1.csv", "{$dir}/diff2-blank-end.csv"],
+        ["{$dir}/diff2-blank-end.csv", "{$dir}/diff1.csv"],
+        ["{$dir}/diff1.csv", "{$dir}/diff2-blank-end-crlf.csv"],
+    ];
+
+    foreach ($trailingBlankPairs as [$file1, $file2])
+    {
+        $expected = ($file1 === "{$dir}/diff1.csv") ? "3,x\n2,y|z\n" : "-3,x\n-2,z|y\n";
+        assert(file_get_contents(CsvLib::decimalDiff($file1, $file2)) === $expected);
+    }
+
+    $blankEndBoth = "{$dir}/diff2-blank-end.csv";
+    assert(file_get_contents(CsvLib::decimalDiff($blankEndBoth, $blankEndBoth)) === "0,x\n0,z\n");
+
+    # Blank lines in the middle of a file are rejected, even if both files have them in the same place.
+    file_put_contents("{$dir}/diff-blank-middle.csv", "2,x\n\n1,z\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/diff-blank-middle.csv"),
+        "blank line at row 2"
+    );
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::decimalDiff("{$dir}/diff-blank-middle.csv", "{$dir}/diff-blank-middle.csv"),
+        "blank line at row 2"
+    );
+
+    # Files with different numbers of rows can't be compared, whichever one is longer.
+    file_put_contents("{$dir}/diff3.csv", "2,x\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/diff3.csv"),
+        "has 2 rows of data, but {$dir}/diff3.csv has 1"
+    );
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::decimalDiff("{$dir}/diff3.csv", "{$dir}/diff1.csv"),
+        "has 1 rows of data, but {$dir}/diff1.csv has 2"
+    );
+
+    # Files with different numbers of columns can't be compared, whichever one is wider.
+    file_put_contents("{$dir}/diff-wide.csv", "2,x,a\n1,z,b\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/diff-wide.csv"),
+        "has 2 columns"
+    );
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::decimalDiff("{$dir}/diff-wide.csv", "{$dir}/diff1.csv"),
+        "has 3 columns"
+    );
+
+    # Header rows: if both files have one, the output has a header row (not subtracted, even if the headers look
+    # like numbers). If only one does, it's skipped.
+    file_put_contents("{$dir}/head1.csv", "2024,b\n5,x\n3,y\n");
+    file_put_contents("{$dir}/head2.csv", "2023,b\n2,x\n1,z\n");
+    $headerDiff = CsvLib::decimalDiff(
+        "{$dir}/head1.csv",
+        "{$dir}/head2.csv",
+        file1HasHeader: true,
+        file2HasHeader: true
+    );
+    assert(file_get_contents($headerDiff) === "2024|2023,b\n3,x\n2,y|z\n");
+    $headerDiff = CsvLib::decimalDiff("{$dir}/head1.csv", "{$dir}/diff2.csv", file1HasHeader: true);
+    assert(file_get_contents($headerDiff) === "3,x\n2,y|z\n");
+    $headerDiff = CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/head2.csv", file2HasHeader: true);
+    assert(file_get_contents($headerDiff) === "3,x\n2,y|z\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::decimalDiff("{$dir}/head1.csv", "{$dir}/diff2.csv"),
+        "If only one of them has a header row"
+    );
+
+    # diffTolerance() doesn't compare header rows, so a header can't fail a numeric tolerance.
+    file_put_contents("{$dir}/tol1.csv", "price,qty\n1.00,2\n");
+    file_put_contents("{$dir}/tol2.csv", "cost,qty\n1.04,2\n");
+    file_put_contents("{$dir}/tol2-no-header.csv", "1.04,2\n");
+    $tolWithHeaders = fn(float $tolerance) => CsvLib::diffTolerance(
+        "{$dir}/tol1.csv",
+        "{$dir}/tol2.csv",
+        [1 => $tolerance],
+        file1HasHeader: true,
+        file2HasHeader: true
+    );
+    assert($tolWithHeaders(0.05));
+    assert(!$tolWithHeaders(0.01));
+    assert(CsvLib::diffTolerance("{$dir}/tol1.csv", "{$dir}/tol2-no-header.csv", [1 => 0.05], file1HasHeader: true));
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::diffTolerance("{$dir}/tol1.csv", "{$dir}/tol2.csv", [1 => 0.05]),
+        "non-numeric column"
+    );
+
+    # Validation allows blank lines at the end, rows of just delimiters, values spanning several lines, and empty
+    # files. Blank lines at the end don't count as rows.
+    file_put_contents("{$dir}/valid.csv", "a,b\n,\n\"line1\nline2\",x\n3,4\n\n\n");
+    CsvLib::validateCsvFile("{$dir}/valid.csv");
+    $validCsv = new CsvFile("{$dir}/valid.csv", false);
+    assert($validCsv->getRowCount() === 4 && $validCsv->getColumnCount() === 2);
+    file_put_contents("{$dir}/empty.csv", "");
+    CsvLib::validateCsvFile("{$dir}/empty.csv");
+    $emptyCsv = new CsvFile("{$dir}/empty.csv", false);
+    assert($emptyCsv->getRowCount() === 0 && $emptyCsv->getColumnCount() === 0);
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => new CsvFile("{$dir}/empty.csv", true),
+        "should have a header row, but has no rows"
+    );
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::decimalDiff("{$dir}/empty.csv", "{$dir}/diff1.csv"),
+        "has 0 rows of data, but {$dir}/diff1.csv has 2"
+    );
+
+    # validateCsvFile() rejects blank lines before more data, and rows with a different number of columns. Rows are
+    # counted rather than lines, as a value can span several lines.
+    file_put_contents("{$dir}/invalid-blank.csv", "a,b\n\"line1\nline2\",x\n\n\n3,4\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::validateCsvFile("{$dir}/invalid-blank.csv"),
+        "blank line at row 3, before more data at row 5"
+    );
+    file_put_contents("{$dir}/invalid-columns.csv", "a,b\n1,2\n3,4,5\n");
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::validateCsvFile("{$dir}/invalid-columns.csv"),
+        "has 3 columns at row 3, but 2 in the first row"
+    );
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => CsvLib::validateCsvFile("{$dir}/nope.csv"));
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => new CsvFile("{$dir}/invalid-columns.csv", true),
+        "has 3 columns at row 3"
+    );
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => new CsvFile("{$dir}/nope.csv", true));
+
+    # removeTrailingBlankLines() keeps the last row's own line ending, and nothing else after it.
+    $trailingCases = [
+        "a,b\n1,2\n\n\n" => "a,b\n1,2\n",
+        "a,b\r\n1,2\r\n\r\n\r\n" => "a,b\r\n1,2\r\n",
+        "a,b\r1,2\r\r" => "a,b\r1,2\r",
+        "a,b\n1,2\n" => "a,b\n1,2\n",
+        "a,b\n1,2" => "a,b\n1,2",
+        "a,\"x\n\n\"\n\n" => "a,\"x\n\n\"\n",
+        "\n\n\n" => "",
+        "" => "",
+        "a,b\n" . str_repeat("\n", 20000) => "a,b\n",
+    ];
+
+    foreach ($trailingCases as $before => $after)
+    {
+        file_put_contents("{$dir}/trailing.csv", $before);
+        CsvLib::removeTrailingBlankLines("{$dir}/trailing.csv");
+        clearstatcache();
+        assert(file_get_contents("{$dir}/trailing.csv") === $after);
+    }
+
+    file_put_contents("{$dir}/trailing.csv", "a,b\n1,2\n\n");
+    chmod("{$dir}/trailing.csv", 0640);
+    $trailingCsv = new CsvFile("{$dir}/trailing.csv", true);
+    $trailingCsv->removeTrailingBlankLines();
+    assert(file_get_contents("{$dir}/trailing.csv") === "a,b\n1,2\n");
+    assert($trailingCsv->getRowCount() === 2 && $trailingCsv->getColumnCount() === 2);
+
+    # reload() updates the counts. If the file is no longer valid, it throws and leaves the counts as they were.
+    file_put_contents("{$dir}/reload.csv", "a,b\n1,2\n");
+    $reloadCsv = new CsvFile("{$dir}/reload.csv", true);
+    file_put_contents("{$dir}/reload.csv", "a,b,c\n1,2,3\n4,5,6\n");
+    $reloadCsv->reload();
+    assert($reloadCsv->getRowCount() === 3 && $reloadCsv->getColumnCount() === 3);
+    file_put_contents("{$dir}/reload.csv", "a,b\n\n1,2\n");
+    SmokeTest::expectException(InvalidCsvException::class, fn() => $reloadCsv->reload(), "blank line at row 2");
+    assert($reloadCsv->getRowCount() === 3 && $reloadCsv->getColumnCount() === 3);
+
+    # Outside code can't change a CsvFile's details directly.
+    SmokeTest::expectException(\Error::class, function () use ($reloadCsv) { $reloadCsv->m_rowCount = 99; });
+    clearstatcache();
+    assert((fileperms("{$dir}/trailing.csv") & 0777) === 0640);
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => CsvLib::removeTrailingBlankLines("{$dir}/nope.csv")
+    );
+
+    # removeRows() counts from 0 by default, or from 1, and ignores duplicates and order.
+    $rowsFile = "{$dir}/rows.csv";
+    $rowsCases = [
+        [[0, 2], true],
+        [[1, 3], false],
+        [[2, 0, 2], true],
+    ];
+
+    foreach ($rowsCases as [$rowNumbers, $startFromZero])
+    {
+        file_put_contents($rowsFile, "h\n1\n2\n3\n");
+        CsvLib::removeRows($rowsFile, $rowNumbers, $startFromZero);
+        assert(file_get_contents($rowsFile) === "1\n3\n");
+    }
+
+    # Kept rows are copied exactly, including unneeded quotes, line endings, values spanning several lines, and blank
+    # lines at the end.
+    file_put_contents($rowsFile, "a,\"b\"\r\n\"multi\nline\",x\r\n1,2\r\n\r\n");
+    CsvLib::removeRows($rowsFile, [2]);
+    assert(file_get_contents($rowsFile) === "a,\"b\"\r\n\"multi\nline\",x\r\n\r\n");
+
+    # Row numbers that don't exist throw, and leave the file as it was.
+    file_put_contents($rowsFile, "h\n1\n");
+    $badRowNumbers = [
+        [[2], true, "rows are numbered 0 to 1"],
+        [[-1], true, "rows are numbered 0 to 1"],
+        [[0], false, "rows are numbered 1 to 2"],
+        [["1"], true, "'1' is not a row number"],
+    ];
+
+    foreach ($badRowNumbers as [$rowNumbers, $startFromZero, $message])
+    {
+        SmokeTest::expectException(
+            BadArgumentException::class,
+            fn() => CsvLib::removeRows($rowsFile, $rowNumbers, $startFromZero),
+            $message
+        );
+    }
+
+    assert(file_get_contents($rowsFile) === "h\n1\n");
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => CsvLib::removeRows("{$dir}/empty.csv", [0]),
+        "it has no rows"
+    );
+
+    # An invalid file is rejected and left as it was. A successful change keeps the file's permissions, and leaves no
+    # temporary file behind.
+    mkdir("{$dir}/rows-dir");
+    file_put_contents("{$dir}/rows-dir/bad.csv", "a\n\nb\n");
+    SmokeTest::expectException(InvalidCsvException::class, fn() => CsvLib::removeRows("{$dir}/rows-dir/bad.csv", [0]));
+    assert(file_get_contents("{$dir}/rows-dir/bad.csv") === "a\n\nb\n");
+    file_put_contents("{$dir}/rows-dir/good.csv", "a\nb\n");
+    chmod("{$dir}/rows-dir/good.csv", 0640);
+    CsvLib::removeRows("{$dir}/rows-dir/good.csv", [0]);
+    clearstatcache();
+    assert(file_get_contents("{$dir}/rows-dir/good.csv") === "b\n");
+    assert((fileperms("{$dir}/rows-dir/good.csv") & 0777) === 0640);
+    assert(array_values(array_diff(scandir("{$dir}/rows-dir"), [".", ".."])) === ["bad.csv", "good.csv"]);
+
+    # CsvFile::removeHeader() updates the CsvFile to have no header and one fewer row, and throws if there isn't one.
+    file_put_contents("{$dir}/with-header.csv", "a,b\n1,2\n3,4\n");
+    $withHeader = new CsvFile("{$dir}/with-header.csv", true);
+    $withHeader->removeHeader();
+    assert(file_get_contents("{$dir}/with-header.csv") === "1,2\n3,4\n");
+    assert(!$withHeader->hasHeader() && $withHeader->getRowCount() === 2 && $withHeader->getColumnCount() === 2);
+    SmokeTest::expectException(
+        NoCsvHeaderException::class,
+        fn() => $withHeader->removeHeader(),
+        "has no header row to remove"
+    );
+    assert(file_get_contents("{$dir}/with-header.csv") === "1,2\n3,4\n");
+
+    # Removing a header that's the only row gives the same counts as checking the file again would.
+    file_put_contents("{$dir}/only-header.csv", "a,b\n");
+    $onlyHeader = new CsvFile("{$dir}/only-header.csv", true);
+    $onlyHeader->removeHeader();
+    assert(file_get_contents("{$dir}/only-header.csv") === "");
+    assert($onlyHeader->getRowCount() === 0 && $onlyHeader->getColumnCount() === 0);
+    $onlyHeader->reload();
+    assert($onlyHeader->getRowCount() === 0 && $onlyHeader->getColumnCount() === 0);
+
+    # CsvFile's aliases pass its own header setting, delimiter etc. to the CsvLib methods.
+    file_put_contents("{$dir}/semi1.csv", "a;b\n5;x\n");
+    file_put_contents("{$dir}/semi2.csv", "a;b\n2;x\n");
+    $semi1 = new CsvFile("{$dir}/semi1.csv", true, ";");
+    $semi2 = new CsvFile("{$dir}/semi2.csv", true, ";");
+    assert($semi1->getFilepath() === "{$dir}/semi1.csv" && $semi1->getDelimiter() === ";" && $semi1->hasHeader());
+    assert($semi1->toArray() === [["a" => "5", "b" => "x"]]);
+    $semi1NoHeader = new CsvFile("{$dir}/semi1.csv", false, ";");
+    assert(!$semi1NoHeader->hasHeader() && $semi1NoHeader->toArray() === [["a", "b"], ["5", "x"]]);
+    SmokeTest::expectException(
+        NoCsvHeaderException::class,
+        fn() => $semi1NoHeader->toJson("{$dir}/semi1.json", true),
+        "has no header row"
+    );
+    $semi1->toJson("{$dir}/semi1.json", true);
+    assert(file_get_contents("{$dir}/semi1.json") === '[{"a":"5","b":"x"}]');
+    $walkedRows = [];
+    $semi1->walk(function (array $row) use (&$walkedRows) { $walkedRows[] = $row; });
+    assert($walkedRows === [["a" => "5", "b" => "x"]]);
+    assert(file_get_contents($semi1->decimalDiff($semi2)) === "a;b\n3;x\n");
+    assert(file_get_contents($semi1->decimalDiff("{$dir}/semi2.csv")) === "a;b\n3;x\n");
+    assert($semi1->diffTolerance($semi1, []));
+    assert($semi1->diffTolerance("{$dir}/semi1.csv", []));
+
+    # A CsvFile passed as $other brings its own header setting.
+    file_put_contents("{$dir}/semi2-no-header.csv", "2;x\n");
+    $semi2NoHeader = new CsvFile("{$dir}/semi2-no-header.csv", false, ";");
+    assert(file_get_contents($semi1->decimalDiff($semi2NoHeader)) === "3;x\n");
+    assert(file_get_contents($semi2NoHeader->decimalDiff($semi1)) === "-3;x\n");
+    assert($semi1->diffTolerance($semi2NoHeader, [1 => 3]));
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => $semi1->decimalDiff(new CsvFile("{$dir}/diff1.csv", false)),
+        "must use the same delimiter"
+    );
     assert(CsvLib::diffTolerance("{$dir}/a.csv", "{$dir}/a.csv", []));
     CsvLib::mergeFiles(["{$dir}/a.csv", "{$dir}/a.csv"], "{$dir}/merged.csv", true);
 });
@@ -301,8 +626,11 @@ $smoke->run("CSV byte order marks", function () use ($dir) {
     file_put_contents("{$dir}/rewrite.csv", "{$bom}id,name\n1,x\n");
     CsvLib::removeColumns("{$dir}/rewrite.csv", [1]);
     assert(file_get_contents("{$dir}/rewrite.csv") === "{$bom}name\nx\n");
-    CsvLib::removeRows("{$dir}/rewrite.csv", [2]);
+    CsvLib::removeRows("{$dir}/rewrite.csv", [1]);
     assert(file_get_contents("{$dir}/rewrite.csv") === "{$bom}name\n");
+    file_put_contents("{$dir}/rewrite.csv", "{$bom}id,name\n1,x\n");
+    CsvLib::removeRows("{$dir}/rewrite.csv", [0]);
+    assert(file_get_contents("{$dir}/rewrite.csv") === "{$bom}1,x\n");
 
     # Merging only puts a byte order mark at the start, never in the middle.
     CsvLib::mergeFiles(["{$dir}/with-bom.csv", "{$dir}/with-bom.csv"], "{$dir}/merged-bom.csv", false);
@@ -385,6 +713,128 @@ $smoke->run("encryption and passwords", function () {
 # ---------------------------------------------------------------------------------------------------------------------
 # Filesystem
 # ---------------------------------------------------------------------------------------------------------------------
+$smoke->run("File rename and move", function () use ($dir) {
+    $base = "{$dir}/file-test";
+    mkdir("{$base}/sub", 0777, true);
+    file_put_contents("{$base}/a.txt", "data");
+
+    # A plain name renames the file in its own directory.
+    $file = new File("{$base}/a.txt");
+    $file->rename("b.txt");
+    assert($file->getFilepath() === "{$base}/b.txt" && file_get_contents("{$base}/b.txt") === "data");
+    assert(!file_exists("{$base}/a.txt"));
+
+    # Relative paths are relative to the file's directory, and absolute paths are used as they are.
+    $file->rename("sub/c.txt");
+    assert($file->getFilepath() === "{$base}/sub/c.txt" && is_file("{$base}/sub/c.txt"));
+    $file->rename("../d.txt");
+    assert($file->getFilepath() === "{$base}/d.txt" && is_file("{$base}/d.txt"));
+    $file->rename("{$base}/sub/e.txt");
+    assert($file->getFilepath() === "{$base}/sub/e.txt" && is_file("{$base}/sub/e.txt"));
+
+    # Renaming to where the file already is does nothing.
+    $file->rename("e.txt");
+    $file->rename("../sub/e.txt");
+    assert($file->getFilepath() === "{$base}/sub/e.txt" && is_file("{$base}/sub/e.txt"));
+
+    # rename() doesn't overwrite, create directories, or take a directory.
+    file_put_contents("{$base}/sub/taken.txt", "other");
+    SmokeTest::expectException(FileAlreadyExistsException::class, fn() => $file->rename("taken.txt"));
+    assert(file_get_contents("{$base}/sub/taken.txt") === "other" && is_file("{$base}/sub/e.txt"));
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => $file->rename("nope/f.txt"));
+    SmokeTest::expectException(BadArgumentException::class, fn() => $file->rename("other/"));
+    SmokeTest::expectException(BadArgumentException::class, fn() => $file->rename(""));
+    assert($file->getFilepath() === "{$base}/sub/e.txt");
+
+    # move() keeps the name, and only creates the directory if asked to.
+    $file->move("..");
+    assert($file->getFilepath() === "{$base}/e.txt" && is_file("{$base}/e.txt"));
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => $file->move("{$base}/new/deeper"),
+        "Set \$createIfNotExists to true"
+    );
+    assert(!file_exists("{$base}/new"));
+    $file->move("{$base}/new/deeper", true);
+    assert($file->getFilepath() === "{$base}/new/deeper/e.txt" && is_file("{$base}/new/deeper/e.txt"));
+    SmokeTest::expectException(BadArgumentException::class, fn() => $file->move("{$base}/sub/taken.txt"));
+    file_put_contents("{$base}/sub/e.txt", "other");
+    SmokeTest::expectException(FileAlreadyExistsException::class, fn() => $file->move("{$base}/sub"));
+    assert(file_get_contents("{$base}/sub/e.txt") === "other");
+
+    # With $overwriteExistingFile, an existing file is replaced, by both rename() and move().
+    $file->rename("{$base}/sub/taken.txt", true);
+    assert($file->getFilepath() === "{$base}/sub/taken.txt" && file_get_contents("{$base}/sub/taken.txt") === "data");
+    file_put_contents("{$base}/taken.txt", "other");
+    $file->move("..", overwriteExistingFile: true);
+    assert($file->getFilepath() === "{$base}/taken.txt" && file_get_contents("{$base}/taken.txt") === "data");
+    assert(!file_exists("{$base}/sub/taken.txt"));
+
+    # A directory, or a symlink to one, is never replaced, even with $overwriteExistingFile.
+    mkdir("{$base}/a-dir");
+    symlink("{$base}/a-dir", "{$base}/dir-link");
+    mkdir("{$base}/sub/taken.txt");
+    $directoryClashes = [
+        fn() => $file->rename("a-dir", true),
+        fn() => $file->rename("dir-link", true),
+        fn() => $file->move("sub", false, true),
+    ];
+
+    foreach ($directoryClashes as $clash)
+    {
+        SmokeTest::expectException(FileAlreadyExistsException::class, $clash, "a directory");
+    }
+
+    assert(is_link("{$base}/dir-link") && is_dir("{$base}/a-dir") && is_file("{$base}/taken.txt"));
+    rmdir("{$base}/sub/taken.txt");
+
+    # Replacing a symlink replaces the link, not the file it points to. A broken symlink still counts as existing.
+    file_put_contents("{$base}/pointed-at.txt", "keep");
+    symlink("{$base}/pointed-at.txt", "{$base}/file-link");
+    $file->rename("file-link", true);
+    assert(!is_link("{$base}/file-link") && file_get_contents("{$base}/file-link") === "data");
+    assert(file_get_contents("{$base}/pointed-at.txt") === "keep");
+    symlink("{$base}/missing.txt", "{$base}/broken-link");
+    SmokeTest::expectException(FileAlreadyExistsException::class, fn() => $file->rename("broken-link"));
+    $file->rename("broken-link", true);
+    assert(!is_link("{$base}/broken-link") && file_get_contents("{$base}/broken-link") === "data");
+
+    # Moving a symlink over the file it points to (or the other way round), or over a hard link, is refused, as the
+    # data could be lost.
+    file_put_contents("{$base}/real.txt", "precious");
+    symlink("{$base}/real.txt", "{$base}/to-real");
+    link("{$base}/real.txt", "{$base}/hard.txt");
+    $sameFileCases = [
+        ["{$base}/to-real", "real.txt"],
+        ["{$base}/real.txt", "to-real"],
+        ["{$base}/real.txt", "hard.txt"],
+    ];
+
+    foreach ($sameFileCases as [$source, $target])
+    {
+        SmokeTest::expectException(
+            FileAlreadyExistsException::class,
+            fn() => (new File($source))->rename($target, true),
+            "they are the same file"
+        );
+    }
+
+    assert(!is_link("{$base}/real.txt") && file_get_contents("{$base}/real.txt") === "precious");
+    assert(is_link("{$base}/to-real") && file_get_contents("{$base}/hard.txt") === "precious");
+
+    # Only existing files can be used.
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => new File("{$base}/nope.txt"));
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => new File("{$base}/sub"));
+
+    # CsvFile gets these too, and keeps working after a move.
+    file_put_contents("{$base}/data.csv", "a,b\n1,2\n");
+    $csvFile = new CsvFile("{$base}/data.csv", true);
+    $csvFile->move("sub");
+    $csvFile->rename("renamed.csv");
+    assert($csvFile->getFilepath() === "{$base}/sub/renamed.csv");
+    assert($csvFile->toArray() === [["a" => "1", "b" => "2"]]);
+});
+
 $smoke->run("directories and files", function () use ($dir) {
     Filesystem::mkdir("{$dir}/sub/deep");
     Filesystem::mkdir("{$dir}/sub/deep"); # already existing is fine
