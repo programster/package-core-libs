@@ -172,7 +172,7 @@ final class Core
      */
     public static function fetchReqArgsFromArray(array $args, array $inputArray): array
     {
-        $values = array();
+        $values = [];
 
         foreach ($args as $arg)
         {
@@ -208,7 +208,7 @@ final class Core
      */
     public static function fetchOptionalArgsFromArray(array $args, array $inputArray): array
     {
-        $values = array();
+        $values = [];
 
         foreach ($args as $arg)
         {
@@ -505,7 +505,7 @@ final class Core
         }
 
         $data = explode("\n", $meminfoContents);
-        $meminfo = array();
+        $meminfo = [];
 
         foreach ($data as $line)
         {

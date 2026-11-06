@@ -71,7 +71,7 @@ trait SymlinkPathsTrait
      */
     private static function normalisePath(string $path): string
     {
-        $parts = array();
+        $parts = [];
 
         foreach (explode("/", $path) as $part)
         {

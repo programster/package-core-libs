@@ -191,7 +191,7 @@ final class ArrayLib
         {
             # Was going to use array_filter here but realized user may want
             # 'false' values.
-            $outputArray = array();
+            $outputArray = [];
 
             foreach ($inputArray as $index => $value)
             {
@@ -244,7 +244,7 @@ final class ArrayLib
      */
     public static function fastDiff(array $array1, array $array2): array
     {
-        $missingValues = array();
+        $missingValues = [];
         $flippedArray2 = array_flip($array2); # swaps indexes and values
 
         foreach ($array1 as $value)
@@ -269,7 +269,7 @@ final class ArrayLib
      */
     public static function fastIntersect(array $array1, array $array2): array
     {
-        $sharedValues = array();
+        $sharedValues = [];
         $flippedArray2 = array_flip($array2); # swaps indexes and values
 
         foreach ($array1 as $value)
@@ -295,7 +295,7 @@ final class ArrayLib
      */
     public static function getValues(array $haystack, array $indexes): array
     {
-        $values = array();
+        $values = [];
 
         foreach ($indexes as $index)
         {
@@ -378,7 +378,7 @@ final class ArrayLib
      */
     public static function indexDiff(array $array1, array $array2): array
     {
-        $indexes = array();
+        $indexes = [];
         $flippedArray2 = array_flip($array2); # swaps indexes and values
 
         foreach ($array1 as $index => $value)
@@ -426,7 +426,7 @@ final class ArrayLib
      */
     public static function assocArrayMerge(array $array1, array $array2, \Closure $clashHandler): array
     {
-        $resultArray = array();
+        $resultArray = [];
 
         foreach ($array1 as $index => $value)
         {
@@ -471,7 +471,7 @@ final class ArrayLib
      */
     public static function arrayCombineList(array $keys, array $rows): array
     {
-        $output = array();
+        $output = [];
 
         foreach ($rows as $row)
         {

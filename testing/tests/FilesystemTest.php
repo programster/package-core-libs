@@ -997,3 +997,162 @@ $smoke->run("fileperms", function () use ($dir) {
     );
 });
 
+$smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
+    $base = "{$dir}/zip-links";
+    mkdir("{$base}/outside/deeper", 0777, true);
+    file_put_contents("{$base}/outside/o.txt", "outside");
+    file_put_contents("{$base}/outside/deeper/d.txt", "deeper");
+    mkdir("{$base}/project/real", 0777, true);
+    file_put_contents("{$base}/project/real/f.txt", "inside");
+    symlink("real", "{$base}/project/dir-link");
+    symlink("real/f.txt", "{$base}/project/file-link");
+    symlink("{$base}/project/real/f.txt", "{$base}/project/absolute-inside");
+    symlink("{$base}/project/missing", "{$base}/project/broken");
+
+    # The targets stored for each symlink entry in a zip.
+    $storedLinks = function (string $zipPath): array {
+        $zip = new ZipArchive();
+        $zip->open($zipPath);
+        $links = [];
+
+        for ($i = 0; $i < $zip->numFiles; $i++)
+        {
+            $zip->getExternalAttributesIndex($i, $system, $attributes);
+
+            if ((($attributes >> 16) & 0170000) === 0120000)
+            {
+                $links[$zip->getNameIndex($i)] = $zip->getFromIndex($i);
+            }
+        }
+
+        $zip->close();
+        ksort($links);
+        return $links;
+    };
+
+    # Symlinks inside the folder are stored as symlinks relative to themselves, rather than followed.
+    Filesystem::zipDir("{$base}/project", "{$base}/inside.zip", false);
+
+    $expected = [
+        "project/absolute-inside" => "real/f.txt",
+        "project/broken" => "missing",
+        "project/dir-link" => "real",
+        "project/file-link" => "real/f.txt",
+    ];
+
+    assert($storedLinks("{$base}/inside.zip") === $expected);
+
+    # unzip() recreates them as symlinks, which work where it is extracted.
+    Filesystem::unzip("{$base}/inside.zip", "{$base}/out-inside", false);
+    assert(readlink("{$base}/out-inside/project/dir-link") === "real");
+    assert(file_get_contents("{$base}/out-inside/project/dir-link/f.txt") === "inside");
+    assert(file_get_contents("{$base}/out-inside/project/absolute-inside") === "inside");
+    assert(is_link("{$base}/out-inside/project/broken"));
+
+    # A symlink pointing outside is stored as it is, so an untrusted unzip refuses it, leaving nothing behind.
+    symlink("{$base}/outside", "{$base}/project/outside-dir");
+    symlink("../outside/o.txt", "{$base}/project/outside-file");
+    Filesystem::zipDir("{$base}/project", "{$base}/outside.zip", false);
+    $links = $storedLinks("{$base}/outside.zip");
+    assert($links["project/outside-dir"] === "{$base}/outside");
+    assert($links["project/outside-file"] === "../outside/o.txt");
+
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::unzip("{$base}/outside.zip", "{$base}/out-untrusted", false),
+        "pointing to {$base}/outside, which is outside {$base}/out-untrusted"
+    );
+
+    assert(!file_exists("{$base}/out-untrusted"));
+
+    # As is one that climbs out with "..", which only a hand-made zip would have.
+    $escapingZip = new ZipArchive();
+    $escapingZip->open("{$base}/escaping.zip", ZipArchive::CREATE);
+    $escapingZip->addFromString("sub/escape", "../../../etc/passwd");
+    $escapingZip->setExternalAttributesName("sub/escape", ZipArchive::OPSYS_UNIX, 0120777 << 16);
+    $escapingZip->close();
+    mkdir("{$base}/out-escaping");
+
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::unzip("{$base}/escaping.zip", "{$base}/out-escaping", false),
+        "pointing to ../../../etc/passwd, which is outside"
+    );
+
+    assert(scandir("{$base}/out-escaping") === [".", ".."]);
+
+    # A trusted unzip allows them.
+    Filesystem::unzip("{$base}/outside.zip", "{$base}/out-trusted", false, true);
+    assert(readlink("{$base}/out-trusted/project/outside-dir") === "{$base}/outside");
+
+    # With $followSymlinks, what symlinks pointing outside lead to is zipped instead, but ones inside stay links.
+    Filesystem::zipDir("{$base}/project", "{$base}/followed.zip", false, followSymlinks: true);
+    $links = $storedLinks("{$base}/followed.zip");
+    assert(!isset($links["project/outside-dir"]) && !isset($links["project/outside-file"]));
+    assert($links["project/dir-link"] === "real");
+    Filesystem::unzip("{$base}/followed.zip", "{$base}/out-followed", false);
+    assert(file_get_contents("{$base}/out-followed/project/outside-file") === "outside");
+    assert(file_get_contents("{$base}/out-followed/project/outside-dir/deeper/d.txt") === "deeper");
+    assert(!is_link("{$base}/out-followed/project/outside-dir"));
+
+    # A symlink inside a followed folder that points back into the zipped folder becomes relative to where it ends up.
+    symlink("{$base}/project/real", "{$base}/outside/back-inside");
+    Filesystem::zipDir("{$base}/project", "{$base}/back.zip", false, followSymlinks: true);
+    assert($storedLinks("{$base}/back.zip")["project/outside-dir/back-inside"] === "../real");
+
+    # Following a symlink that leads back to a folder above it would go round in circles, so it is refused.
+    symlink("{$base}/outside", "{$base}/outside/deeper/loop");
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::zipDir("{$base}/project", "{$base}/loop.zip", false, followSymlinks: true),
+        "would go round in circles"
+    );
+
+    # Without $includeFolder, only what is in the folder is zipped, so it is extracted straight into the destination,
+    # and symlinks inside it still point at the right place.
+    unlink("{$base}/outside/deeper/loop");
+    unlink("{$base}/outside/back-inside");
+    Filesystem::zipDir("{$base}/project", "{$base}/contents.zip", false, false);
+    assert($storedLinks("{$base}/contents.zip")["dir-link"] === "real");
+    Filesystem::unzip("{$base}/contents.zip", "{$base}/out-contents", false, true);
+    assert(file_get_contents("{$base}/out-contents/real/f.txt") === "inside");
+    assert(file_get_contents("{$base}/out-contents/dir-link/f.txt") === "inside");
+    assert(!file_exists("{$base}/out-contents/project"));
+
+    # Zipping a symlink to a folder zips the folder, named after the symlink.
+    symlink("{$base}/outside/deeper", "{$base}/named-link");
+    Filesystem::zipDir("{$base}/named-link", "{$base}/named.zip", false);
+    Filesystem::unzip("{$base}/named.zip", "{$base}/out-named", false, true);
+    assert(file_get_contents("{$base}/out-named/named-link/d.txt") === "deeper");
+});
+
+$smoke->run("zipDir including hidden files", function () use ($dir) {
+    $base = "{$dir}/zip-hidden";
+    mkdir("{$base}/project/.hidden-dir/.nested", 0777, true);
+    mkdir("{$base}/project/.empty-hidden");
+    file_put_contents("{$base}/project/.env", "x");
+    file_put_contents("{$base}/project/.hidden-dir/.nested/.deep", "x");
+    $expected = [".empty-hidden/", ".env", ".hidden-dir/", ".hidden-dir/.nested/", ".hidden-dir/.nested/.deep"];
+
+    foreach (["with" => true, "without" => false] as $name => $includeFolder)
+    {
+        Filesystem::zipDir("{$base}/project", "{$base}/{$name}.zip", false, $includeFolder);
+        $zip = new ZipArchive();
+        $zip->open("{$base}/{$name}.zip");
+        $names = [];
+
+        for ($i = 0; $i < $zip->numFiles; $i++)
+        {
+            $names[] = $zip->getNameIndex($i);
+        }
+
+        $zip->close();
+        sort($names);
+        $prefix = $includeFolder ? "project/" : "";
+        $expectedNames = array_map(fn(string $entry) => $prefix . $entry, $expected);
+        $expectedNames = $includeFolder ? array_merge(["project/"], $expectedNames) : $expectedNames;
+        sort($expectedNames);
+        assert($names === $expectedNames, "{$name} the folder, the zip had: " . implode(", ", $names));
+    }
+});
+

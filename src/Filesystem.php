@@ -25,10 +25,16 @@ use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
 use Programster\CoreLibs\Models\Directory;
 use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
+use Programster\CoreLibs\Models\SymlinkPathsTrait;
 use ZipArchive;
 
 final class Filesystem
 {
+    use SymlinkPathsTrait;
+
+    # The file type and permissions of a symlink (S_IFLNK and 0777), as stored in zip entries.
+    private const int SYMLINK_MODE = 0120777;
+
     private const MAX_DELETION_PROBLEMS = 100;
     private static array $s_fileLocks = [];
 
@@ -65,7 +71,7 @@ final class Filesystem
         }
 
         $realPath = realpath($path);
-        $directories = array();
+        $directories = [];
 
         # The directories still to look in, each with the real paths of the directories it is inside in this
         # listing, so that a symlink back up to one of them isn't gone into.
@@ -161,7 +167,7 @@ final class Filesystem
         }
 
         $realPath = realpath($dir);
-        $fileNames = array();
+        $fileNames = [];
 
         # The directories still to look in, each with the real paths of the directories it is inside in this
         # listing, so that a symlink back up to one of them isn't gone into.
@@ -285,7 +291,7 @@ final class Filesystem
         {
             # Note which directories this call is about to create, deepest first, so that only those have their
             # permissions set exactly. Without $recursive, that can only be $dirPath itself.
-            $directoriesToCreate = array();
+            $directoriesToCreate = [];
             $path = rtrim($dirPath, '/');
 
             while (
@@ -440,8 +446,8 @@ final class Filesystem
         }
 
         $realDir = realpath($dir);
-        $plan = array();
-        $problems = array();
+        $plan = [];
+        $problems = [];
 
         # Everything that will be deleted, by real path, so nothing is planned twice, and loops are impossible.
         $planned = [$realDir => true];
@@ -505,8 +511,8 @@ final class Filesystem
         }
 
         $realDir = realpath($dir);
-        $plan = array();
-        $problems = array();
+        $plan = [];
+        $problems = [];
         $planned = [$realDir => true];
         self::planDirectoryContents($realDir, $realDir, $followSymlinks, $plan, $problems, $planned);
         self::throwIfDeletionProblems($dir, $problems);
@@ -667,15 +673,30 @@ final class Filesystem
 
 
     /**
-     * Zip a directory and all of its contents into a zip file. The zip contains a single folder,
-     * named after $sourceFolder (e.g. zipping "/var/www/project" gives "project/..."), however the
-     * path is written (relative, with a trailing slash, through a symlink etc.). Empty
+     * Zip a directory and all of its contents into a zip file. By default, the zip contains a single
+     * folder, named after $sourceFolder (e.g. zipping "/var/www/project" gives "project/..."),
+     * however the path is written (relative, with a trailing slash, through a symlink etc.), so
+     * extracting it gives that folder. With $includeFolder set to false, it contains just what is in
+     * the folder instead, so extracting it puts those straight into the destination. Empty
      * subdirectories are included, so they are recreated when the zip is extracted.
+     * If $sourceFolder is itself a symlink, the folder it points to is zipped, named after the
+     * symlink. Symlinks inside it are stored in the zip as symlinks (which unzip() recreates), rather
+     * than followed. Those that point somewhere inside the folder are stored relative to themselves,
+     * so they still work wherever the zip is extracted. Those that point outside it are stored as
+     * they are, unless $followSymlinks is set.
      * @param string $sourceFolder - path to the folder we wish to zip up.
      * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed
      * files after they have been zipped. If $sourceFolder is a symlink, only the symlink is
      * deleted, and the folder it points to (and the files in it) are kept.
+     * @param bool $includeFolder - true (the default) to put the folder itself at the top of the zip,
+     * so extracting it gives a folder of the same name in the destination. False to only zip what
+     * is in it, so extracting it puts those straight into the destination.
+     * @param bool $followSymlinks - true to zip what symlinks pointing outside $sourceFolder point
+     * to (their files, or their folders and everything in them), in place of the symlinks, so the
+     * zip doesn't depend on anything outside it. Symlinks pointing inside $sourceFolder, and broken
+     * ones, are still stored as symlinks. Nothing outside $sourceFolder is deleted by
+     * $deleteOnComplete either way.
      * @return void
      * @throws FileAlreadyExistsException - if there is already a file at $dest.
      * @throws DirectoryDoesNotExistException - if there is no folder at $sourceFolder.
@@ -684,9 +705,16 @@ final class Filesystem
      * $sourceFolder can't be deleted. Nothing is deleted if this happens (see deleteDir()).
      * @throws BadArgumentException - with $deleteOnComplete, if $sourceFolder was replaced by a
      * symlink while it was being zipped, so isn't deleted.
-     * @throws FilesystemException - if the zip file could not be created or written.
+     * @throws FilesystemException - if the zip file could not be created or written, a symlink
+     * couldn't be read, or (with $followSymlinks) following a symlink would go round in circles.
      */
-    public static function zipDir(string $sourceFolder, string $dest, bool $deleteOnComplete=true): void
+    public static function zipDir(
+        string $sourceFolder,
+        string $dest,
+        bool $deleteOnComplete = true,
+        bool $includeFolder = true,
+        bool $followSymlinks = false
+    ): void
     {
         if (!extension_loaded('zip') )
         {
@@ -716,38 +744,27 @@ final class Filesystem
             throw new FilesystemException("Unable to create the zip file {$dest} (ZipArchive error code {$opened}).");
         }
 
-        # getDirContents() returns full, resolved paths (via realpath()), so resolve the source folder the same way, so
-        # that it can be removed from the start of each one. Otherwise a relative path, a trailing slash, or a symlink
-        # would leave the files' full paths in the zip.
+        # Zip the real folder, so a symlink, a relative path or a trailing slash makes no difference to what is zipped.
         $resolvedSourceFolder = realpath($sourceFolder);
 
-        # Include the directories as well as the files ($onlyFiles = false), so that empty directories are kept.
-        $paths = self::getDirContents($resolvedSourceFolder, true, true, false);
-
         # Name the folder in the zip after the path we were given (e.g. a symlink's own name, rather than what it points
-        # to), unless that has no name of its own, such as ".".
-        $baseDir = basename(rtrim($sourceFolder, '/'));
+        # to), unless that has no name of its own, such as ".". Without $includeFolder, there's no folder at the top.
+        $baseDir = "";
 
-        if ($baseDir === '' || $baseDir === '.' || $baseDir === '..')
+        if ($includeFolder)
         {
-            $baseDir = basename($resolvedSourceFolder);
+            $baseDir = basename(rtrim($sourceFolder, '/'));
+
+            if ($baseDir === '' || $baseDir === '.' || $baseDir === '..')
+            {
+                $baseDir = basename($resolvedSourceFolder);
+            }
+
+            $zip->addEmptyDir($baseDir);
         }
 
-        $zip->addEmptyDir($baseDir);
-
-        foreach ($paths as $path)
-        {
-            $relativePath = $baseDir . substr($path, strlen($resolvedSourceFolder));
-
-            if (is_dir($path))
-            {
-                $zip->addEmptyDir($relativePath);
-            }
-            else
-            {
-                $zip->addFile($path, $relativePath);
-            }
-        }
+        $root = ['source' => $resolvedSourceFolder, 'zip' => $baseDir, 'followSymlinks' => $followSymlinks];
+        self::addDirectoryToZip($zip, $resolvedSourceFolder, $baseDir, $root, [$resolvedSourceFolder]);
 
         # The files are only actually read and written into the zip when it is closed, so this is where most failures
         # show up (e.g. a file that can't be read, or the disk being full). This raises a warning as well as returning
@@ -799,22 +816,34 @@ final class Filesystem
      * existing directories are merged into. Anything that can't be (e.g. a file where the destination
      * has a directory, or an existing directory that can't be written to) is checked for before
      * anything is moved, and stops it.
+     * Symlinks stored in the zip (e.g. by zipDir()) are recreated as symlinks. Unless $trusted is
+     * set, a zip with a symlink that points outside $destinationFolder (e.g. to "/etc/passwd", or
+     * "../../x") is refused before anything is moved into place, as an untrusted zip could use one
+     * to make later code read or write files outside it.
      * @param string $sourceZip - zip file to unzip.
      * @param string $destinationFolder - path to the folder we wish to unzip into.
      * @param bool $deleteOnComplete - whether to delete the zip file once its contents have been
      * extracted. Defaults to true.
+     * @param bool $trusted - true to allow symlinks that point outside $destinationFolder. Only set
+     * this for zips from a source you trust. Defaults to false.
      * @return void
      * @throws MissingExtensionException - if PHP's zip extension isn't installed.
      * @throws FileDoesNotExistException - if there is no file at $sourceZip.
      * @throws BadArgumentException - if $destinationFolder exists, but isn't a directory.
      * @throws FilesystemException - if the zip file could not be opened or extracted, the destination
-     * could not be created, the contents clash with what is already in the destination, or (with
+     * could not be created, the contents clash with what is already in the destination, it has a
+     * symlink pointing outside the destination (without $trusted), or (with
      * $deleteOnComplete) the zip could not be deleted afterwards, in which case its contents have
      * already been extracted. Moving the extracted contents into place is checked first, so is very
      * unlikely to fail, but if it does, some will have been moved, and the message says where the
      * rest are.
      */
-    public static function unzip(string $sourceZip, string $destinationFolder, bool $deleteOnComplete = true): void
+    public static function unzip(
+        string $sourceZip,
+        string $destinationFolder,
+        bool $deleteOnComplete = true,
+        bool $trusted = false
+    ): void
     {
         if (!extension_loaded('zip'))
         {
@@ -882,10 +911,23 @@ final class Filesystem
         # Capture the warnings, to put their reasons in the exceptions, rather than letting them through.
         $extracted = Core::runCapturingWarning($extractZip, $error);
         $statusIfFailed = $zip->getStatusString();
+        $symlinkEntries = self::findZipSymlinkEntries($zip);
         $zip->close();
-        $clashes = $extracted ? self::findMergeProblems($tmpDirectory, $destinationFolder) : array();
+        $problems = [];
 
-        if (!$extracted || count($clashes) > 0)
+        # extractTo() writes each symlink as a file holding its target, so check those targets, and then turn them
+        # into symlinks, before checking they can all be merged into the destination.
+        if ($extracted)
+        {
+            $problems = self::recreateExtractedSymlinks($tmpDirectory, $realDestination, $symlinkEntries, $trusted);
+        }
+
+        if ($extracted && count($problems) === 0)
+        {
+            $problems = self::findMergeProblems($tmpDirectory, $destinationFolder);
+        }
+
+        if (!$extracted || count($problems) > 0)
         {
             # Nothing has been moved into place yet, so remove everything this made. This is only a best effort, so
             # that a failure here doesn't hide the real reason, which is what gets thrown.
@@ -893,7 +935,7 @@ final class Filesystem
             $leftBehind = self::removeDirectoriesQuietly($toRemove);
 
             $reason = $extracted
-                ? "it clashes with what is already there:\n - " . implode("\n - ", array_slice($clashes, 0, 20))
+                ? "of these problems:\n - " . implode("\n - ", array_slice($problems, 0, 20))
                 : ($error ?? $statusIfFailed);
 
             $leftBehindText = (count($leftBehind) > 0)
@@ -1769,6 +1811,235 @@ final class Filesystem
 
 
     /**
+     * Add everything in a directory to a zip, for zipDir(), going into subdirectories. Symlinks are
+     * added by addSymlinkToZip().
+     * @param ZipArchive $zip - the zip being written.
+     * @param string $directory - the real path of the directory whose contents to add.
+     * @param string $zipDirectory - the path in the zip to add them under, or "" for the top.
+     * @param array{source: string, zip: string, followSymlinks: bool} $root - the real path of the
+     * folder being zipped, its path in the zip ("" if its contents are at the top), and whether to
+     * follow symlinks pointing outside it.
+     * @param array<string> $ancestors - the real paths of the directories above this one that are
+     * being zipped (including $directory), so following a symlink can't go round in circles.
+     * @return void
+     * @throws FilesystemException - if a directory or symlink couldn't be read, or following a
+     * symlink would go round in circles.
+     */
+    private static function addDirectoryToZip(
+        ZipArchive $zip,
+        string $directory,
+        string $zipDirectory,
+        array $root,
+        array $ancestors
+    ): void
+    {
+        foreach (self::readDirectoryEntries($directory) as $entry)
+        {
+            $path = "{$directory}/{$entry}";
+
+            # The top of the zip has no folder without $includeFolder, so nothing goes in front of those entries.
+            $zipPath = ($zipDirectory === "") ? $entry : "{$zipDirectory}/{$entry}";
+
+            if (is_link($path))
+            {
+                self::addSymlinkToZip($zip, $path, $zipPath, $root, $ancestors);
+            }
+            elseif (is_dir($path))
+            {
+                $zip->addEmptyDir($zipPath);
+                self::addDirectoryToZip($zip, $path, $zipPath, $root, array_merge($ancestors, [$path]));
+            }
+            else
+            {
+                $zip->addFile($path, $zipPath);
+            }
+        }
+    }
+
+
+    /**
+     * Add a symlink to a zip, for zipDir(). One pointing inside the folder being zipped is stored as
+     * a symlink, relative to itself, so it still works wherever the zip is extracted. One pointing
+     * outside it is stored as it is, or, when following symlinks, replaced by what it points to.
+     * @param ZipArchive $zip - the zip being written.
+     * @param string $linkPath - the path of the symlink.
+     * @param string $zipPath - the path in the zip to add it at.
+     * @param array{source: string, zip: string, followSymlinks: bool} $root - see addDirectoryToZip().
+     * @param array<string> $ancestors - see addDirectoryToZip().
+     * @return void
+     * @throws FilesystemException - if the symlink couldn't be read, or following it would go round
+     * in circles.
+     */
+    private static function addSymlinkToZip(
+        ZipArchive $zip,
+        string $linkPath,
+        string $zipPath,
+        array $root,
+        array $ancestors
+    ): void
+    {
+        # Suppress the warning, as we throw an exception instead.
+        $rawTarget = @readlink($linkPath);
+
+        if ($rawTarget === false)
+        {
+            throw new FilesystemException("Failed to read where the symlink {$linkPath} points.");
+        }
+
+        # Where it really leads, following any further links, or (for a broken link) where it would lead.
+        $realTarget = realpath($linkPath);
+
+        $resolvedTarget = ($realTarget !== false)
+            ? $realTarget
+            : self::resolveLinkTarget(dirname($linkPath), $rawTarget);
+
+        if (self::isWithinDirectory($resolvedTarget, $root['source']))
+        {
+            $targetZipPath = $root['zip'] . substr($resolvedTarget, strlen($root['source']));
+            self::addZipSymlink($zip, $zipPath, self::relativePathBetween(dirname($zipPath), $targetZipPath));
+        }
+        elseif (!$root['followSymlinks'] || $realTarget === false)
+        {
+            # Not following symlinks, or there's nothing there to follow.
+            self::addZipSymlink($zip, $zipPath, $rawTarget);
+        }
+        elseif (is_dir($realTarget))
+        {
+            if (in_array($realTarget, $ancestors, true))
+            {
+                throw new FilesystemException(
+                    "Can't follow the symlink {$linkPath}, as it points to {$realTarget}, which contains it, so " .
+                    "following it would go round in circles."
+                );
+            }
+
+            $zip->addEmptyDir($zipPath);
+            self::addDirectoryToZip($zip, $realTarget, $zipPath, $root, array_merge($ancestors, [$realTarget]));
+        }
+        else
+        {
+            $zip->addFile($realTarget, $zipPath);
+        }
+    }
+
+
+    /**
+     * Add a symlink to a zip: an entry holding its target, marked as a symlink in the way unzip
+     * tools (and unzip()) recognise.
+     * @param ZipArchive $zip - the zip being written.
+     * @param string $zipPath - the path in the zip to add it at.
+     * @param string $target - where the symlink points.
+     * @return void
+     * @throws FilesystemException - if it couldn't be added.
+     */
+    private static function addZipSymlink(ZipArchive $zip, string $zipPath, string $target): void
+    {
+        $added = $zip->addFromString($zipPath, $target)
+            && $zip->setExternalAttributesName($zipPath, ZipArchive::OPSYS_UNIX, self::SYMLINK_MODE << 16);
+
+        if (!$added)
+        {
+            throw new FilesystemException("Failed to add the symlink {$zipPath} to the zip: {$zip->getStatusString()}");
+        }
+    }
+
+
+    /**
+     * Find the entries in a zip that are symlinks.
+     * @param ZipArchive $zip - the open zip.
+     * @return array<string> - the names of the symlink entries.
+     */
+    private static function findZipSymlinkEntries(ZipArchive $zip): array
+    {
+        $entries = [];
+
+        for ($index = 0; $index < $zip->numFiles; $index++)
+        {
+            $zip->getExternalAttributesIndex($index, $operatingSystem, $attributes);
+
+            $isSymlink = ($operatingSystem === ZipArchive::OPSYS_UNIX)
+                && ((($attributes >> 16) & 0170000) === (self::SYMLINK_MODE & 0170000));
+
+            if ($isSymlink)
+            {
+                $entries[] = $zip->getNameIndex($index);
+            }
+        }
+
+        return $entries;
+    }
+
+
+    /**
+     * Turn the symlinks unzip() extracted (which ZipArchive::extractTo() writes as files holding
+     * their targets) back into symlinks. Every one is checked first, and nothing is changed if any
+     * has a problem.
+     * @param string $tmpDirectory - where the zip was extracted.
+     * @param string $destination - the real path of where it will be moved, which the symlinks'
+     * targets are checked against.
+     * @param array<string> $entries - the names of the zip's symlink entries.
+     * @param bool $trusted - true to allow symlinks pointing outside $destination.
+     * @return array<string> - descriptions of the problems found, which is empty if there are none.
+     */
+    private static function recreateExtractedSymlinks(
+        string $tmpDirectory,
+        string $destination,
+        array $entries,
+        bool $trusted
+    ): array
+    {
+        $problems = [];
+        $targets = [];
+
+        foreach ($entries as $entry)
+        {
+            $finalPath = "{$destination}/{$entry}";
+            $extractedPath = "{$tmpDirectory}/{$entry}";
+
+            # A target can't be longer than this, so anything longer isn't a real symlink.
+            $target = (is_file($extractedPath) && filesize($extractedPath) <= 4096)
+                ? file_get_contents($extractedPath)
+                : false;
+
+            $isSafeName = !str_starts_with($entry, "/") && !in_array("..", explode("/", $entry), true);
+            $isValid = $target !== false && $target !== "" && $isSafeName;
+            $resolvedTarget = $isValid ? self::resolveLinkTarget(dirname($finalPath), $target) : "";
+
+            if (!$isValid)
+            {
+                $problems[] = "the zip has a symlink at {$finalPath}, which isn't a valid symlink.";
+            }
+            elseif (!$trusted && !self::isWithinDirectory($resolvedTarget, $destination))
+            {
+                $problems[] =
+                    "the zip has a symlink at {$finalPath} pointing to {$target}, which is outside {$destination} " .
+                    "(this is only allowed for a trusted zip).";
+            }
+            else
+            {
+                $targets[$extractedPath] = $target;
+            }
+        }
+
+        if (count($problems) === 0)
+        {
+            foreach ($targets as $extractedPath => $target)
+            {
+                $replaced = @unlink($extractedPath) && @symlink($target, $extractedPath);
+
+                if (!$replaced)
+                {
+                    $entry = substr($extractedPath, strlen($tmpDirectory) + 1);
+                    $problems[] = "the symlink {$entry} couldn't be created.";
+                }
+            }
+        }
+
+        return $problems;
+    }
+
+
+    /**
      * Find anything that would stop mergeDirectoryInto() moving everything from $source into
      * $destination: a file where $destination has a directory, a directory where it has a file (or
      * a symlink), or an existing directory that can't be written to.
@@ -1779,7 +2050,7 @@ final class Filesystem
      */
     private static function findMergeProblems(string $source, string $destination): array
     {
-        $problems = array();
+        $problems = [];
 
         if (!is_writable($destination) || !is_executable($destination))
         {
@@ -1896,7 +2167,7 @@ final class Filesystem
      */
     private static function removeDirectoriesQuietly(array $directories): array
     {
-        $leftBehind = array();
+        $leftBehind = [];
 
         foreach ($directories as $directory)
         {
@@ -1933,7 +2204,7 @@ final class Filesystem
             throw new FilesystemException("Failed to open the directory {$directory}, e.g. because it can't be read.");
         }
 
-        $entries = array();
+        $entries = [];
 
         while (($entry = readdir($handle)) !== false)
         {
@@ -2253,19 +2524,6 @@ final class Filesystem
                 );
             }
         }
-    }
-
-
-    /**
-     * Check whether a path is a directory, or is inside it, by their real paths.
-     * @param string $path - the real path to check.
-     * @param string $directory - the real path of the directory.
-     * @return bool - true if $path is $directory, or anywhere inside it.
-     */
-    private static function isWithinDirectory(string $path, string $directory): bool
-    {
-        # Compare with a trailing slash, so that e.g. /a/bc doesn't count as being inside /a/b. This also handles "/".
-        return $path === $directory || str_starts_with($path . "/", rtrim($directory, "/") . "/");
     }
 
 

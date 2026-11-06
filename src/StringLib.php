@@ -281,9 +281,9 @@ final class StringLib
      */
     public static function replace(string $search, string $replace, string $subject): string
     {
-        $pairs = array(
+        $pairs = [
             $search => $replace
-        );
+        ];
 
         return strtr($subject, $pairs);
     }

@@ -231,8 +231,8 @@ class Directory
             $crossesFilesystem = $this->checkCanMoveTo($currentPath, $newPath);
 
             # Check everything before anything is changed.
-            $symlinkUpdates = array();
-            $problems = array();
+            $symlinkUpdates = [];
+            $problems = [];
 
             if ($crossesFilesystem)
             {
@@ -441,7 +441,7 @@ class Directory
      */
     private static function applySymlinkUpdates(string $oldRoot, string $newRoot, array $symlinkUpdates): void
     {
-        $failed = array();
+        $failed = [];
 
         foreach ($symlinkUpdates as [$oldLinkPath, $newTarget])
         {
@@ -591,7 +591,7 @@ class Directory
     {
         # Directories get their real owner, permissions and times only once everything is copied, so that a
         # read-only one can't stop the copy, or stop a failed copy being removed.
-        $directoriesToFinish = array();
+        $directoriesToFinish = [];
 
         try
         {

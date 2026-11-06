@@ -167,7 +167,7 @@ final class CsvLib
 
         self::skipByteOrderMark($file);
 
-        $output = array();
+        $output = [];
         $firstRow = true;
 
         # Close the file however this ends, including when a row throws an exception.
@@ -415,7 +415,7 @@ final class CsvLib
                     throw new BadArgumentException($msg);
                 }
 
-                $rowOfValues = array();
+                $rowOfValues = [];
 
                 foreach ($keys as $key)
                 {
@@ -795,7 +795,7 @@ final class CsvLib
         $rowCount = $csvFile->getRowCount();
         $firstRowNumber = $startFromZero ? 0 : 1;
         $lastRowNumber = $firstRowNumber + $rowCount - 1;
-        $rowIndexesToRemove = array();
+        $rowIndexesToRemove = [];
 
         foreach ($rowNumbers as $rowNumber)
         {
@@ -997,7 +997,7 @@ final class CsvLib
             {
                 $headerRow1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape);
                 $headerRow2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure, $escape);
-                $resultHeaderRow = array();
+                $resultHeaderRow = [];
 
                 # Don't subtract headers that look like numbers (e.g. years), as they're names, not values.
                 foreach ($headerRow1 as $index => $header1)
@@ -1025,7 +1025,7 @@ final class CsvLib
             {
                 $lineArray1 = fgetcsv($fileHandle1, 0, $delimiter, $enclosure, $escape);
                 $lineArray2 = fgetcsv($fileHandle2, 0, $delimiter, $enclosure, $escape);
-                $resultArray = array();
+                $resultArray = [];
 
                 foreach ($lineArray1 as $index => $value1)
                 {
@@ -1169,7 +1169,7 @@ final class CsvLib
 
         # Every row in a file has the same number of columns, so a missing column only needs checking once per file.
         $columnNumbers = array_keys($tolerances);
-        $missingColumns = array();
+        $missingColumns = [];
 
         foreach ([$csvFile1, $csvFile2] as $csvFile)
         {
@@ -1528,7 +1528,7 @@ final class CsvLib
      */
     private static function findNonNumericValues(CsvFile $csvFile, array $columnNumbers, int $maxErrors): array
     {
-        $errors = array();
+        $errors = [];
         $dataRowCount = $csvFile->getRowCount() - ($csvFile->hasHeader() ? 1 : 0);
 
         if ($maxErrors > 0)
