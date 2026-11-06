@@ -403,8 +403,8 @@ final class ArrayLib
     {
         $outputArray = array_filter($inputArray);
 
-        # An empty array has nothing to re-index (and isAssoc() would throw for it).
-        if (count($inputArray) > 0 && !self::isAssoc($inputArray))
+        # Only re-index a list (keys 0, 1, 2...), so it stays one, and keep an associative array's keys.
+        if (array_is_list($inputArray))
         {
             $outputArray = array_values($outputArray);
         }

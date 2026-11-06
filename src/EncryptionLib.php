@@ -42,6 +42,8 @@ final class EncryptionLib
      * @return string - the encrypted text, as base64. This is safe to store in a database, JSON,
      * config files etc.
      * @throws BadArgumentException - if the key is not exactly 32 bytes.
+     * @throws \Random\RandomException - if no random bytes could be got for the nonce (which only
+     * happens if the system has no source of randomness).
      */
     public static function encrypt(#[\SensitiveParameter] string $plaintext, #[\SensitiveParameter] string $key): string
     {

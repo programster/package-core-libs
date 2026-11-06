@@ -680,6 +680,10 @@ final class Filesystem
      * @throws FileAlreadyExistsException - if there is already a file at $dest.
      * @throws DirectoryDoesNotExistException - if there is no folder at $sourceFolder.
      * @throws MissingExtensionException - if the zip extension isn't installed.
+     * @throws DirectoryNotDeletableException - with $deleteOnComplete, if the zip was created, but
+     * $sourceFolder can't be deleted. Nothing is deleted if this happens (see deleteDir()).
+     * @throws BadArgumentException - with $deleteOnComplete, if $sourceFolder was replaced by a
+     * symlink while it was being zipped, so isn't deleted.
      * @throws FilesystemException - if the zip file could not be created or written.
      */
     public static function zipDir(string $sourceFolder, string $dest, bool $deleteOnComplete=true): void

@@ -115,6 +115,8 @@ final class CsvFile extends File
      * @param bool $compressed - if true, the JSON has no line endings or padding.
      * @return void
      * @throws NoCsvHeaderException - if this file doesn't have a header row.
+     * @throws BadFilePermissionsException - if the JSON file (or, for a new file, its directory)
+     * can't be written to.
      * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not
      * be written.
      * @throws \JsonException
@@ -177,6 +179,8 @@ final class CsvFile extends File
      * enclosure or escape character.
      * @throws InvalidCsvException - if the two files don't have the same number of rows and
      * columns.
+     * @throws FileDoesNotExistException - if there is no file at $other, or this file no longer
+     * exists (e.g. it was deleted since this CsvFile was created).
      * @throws FilesystemException - if either CSV file could not be opened, or the diff file could
      * not be created.
      */
@@ -211,6 +215,8 @@ final class CsvFile extends File
      * in either file. getErrors() says where each one is. See CsvLib::diffTolerance().
      * @throws InvalidCsvException - if either file isn't valid, they don't have the same number of
      * rows of data, or either is missing one of the listed columns.
+     * @throws FileDoesNotExistException - if there is no file at $other, or this file no longer
+     * exists (e.g. it was deleted since this CsvFile was created).
      * @throws FilesystemException - if either CSV file could not be opened.
      */
     public function diffTolerance(CsvFile|string $other, array $tolerances): bool
@@ -233,6 +239,9 @@ final class CsvFile extends File
      * CsvLib::removeTrailingBlankLines(). The row and column counts don't change, as blank lines at
      * the end aren't counted as rows.
      * @return void
+     * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
+     * this CsvFile was created).
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
      * @throws FilesystemException - if the file could not be opened, read, or shortened.
      */
     public function removeTrailingBlankLines(): void
@@ -249,6 +258,11 @@ final class CsvFile extends File
      * @throws NoCsvHeaderException - if this file doesn't have a header row.
      * @throws InvalidCsvException - if the file is no longer valid, e.g. because it was changed by
      * something else since this CsvFile was created.
+     * @throws BadArgumentException - if the file no longer has a first row, because it was emptied
+     * by something else since this CsvFile was created.
+     * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
+     * this CsvFile was created).
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
      * @throws FilesystemException - if the file could not be read, or could not be replaced.
      */
     public function removeHeader(): void
