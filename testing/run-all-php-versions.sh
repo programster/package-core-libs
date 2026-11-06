@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs lint, the test suite and the smoke tests on every supported version of PHP, each in its own Docker container.
+# Runs lint and the tests (testing/main.php) on every supported version of PHP, each in its own Docker container.
 # This catches code that only works on newer versions of PHP than the minimum this package supports.
 #
 # Usage:

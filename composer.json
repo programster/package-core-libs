@@ -35,8 +35,7 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Programster\\CoreLibs\\Testing\\": "testing/",
-            "Programster\\CoreLibs\\Testing\\Tests\\": "testing/tests/"
+            "Programster\\CoreLibs\\Testing\\": "testing/"
         }
     }
 }

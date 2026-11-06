@@ -46,6 +46,10 @@ To run the tests on your current version of PHP, run `composer install`, and the
 php testing/main.php
 ```
 
+The tests are in `testing/tests/`, with one file per class (e.g. `CsvLibTest.php`). Between them, they call nearly
+every public method and check its result. A test fails if it throws, fails an `assert()`, or raises a PHP warning or
+deprecation. `main.php` runs every `*Test.php` file in that folder, so a new file is picked up automatically.
+
 This package supports PHP 8.3 and above. To check it works on every supported version, run the following, which
 uses Docker to test each version in its own container. Use this before releasing, as it catches code that only
 works on newer versions of PHP than the minimum.
@@ -56,7 +60,5 @@ testing/run-all-php-versions.sh 8.3 8.5     # test only specific versions
 testing/run-all-php-versions.sh --rebuild   # rebuild the Docker images first, to get the latest PHP patch releases
 ```
 
-For each version, this lints every file, runs the test suite, and runs a smoke test
-(`testing/php-versions/smoke.php`) that calls nearly every public method and checks its result. It exits with a
-non-zero code if anything fails. The Docker images are built the first time they are needed, and then reused.
+For each version, this lints every file and runs the tests. It exits with a non-zero code if anything fails. The Docker images are built the first time they are needed, and then reused.
 When a new version of PHP is released, add it to `SUPPORTED_VERSIONS` at the top of the script.

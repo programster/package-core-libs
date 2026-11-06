@@ -1,39 +1,48 @@
 <?php
 
-namespace Programster\CoreLibs\Testing;
+/*
+ * Runs the smoke tests in testing/tests/, which call (nearly) every public method in the library, and reports any that
+ * fail, throw an error, or raise a warning/deprecation. There is one file of tests per class, e.g. CsvLibTest.php.
+ * This is used by run-all-php-versions.sh to check the library works on every supported version of PHP, but it can
+ * also be run directly: php testing/main.php
+ * Exits with 0 if everything passed, or 1 if anything failed.
+ */
 
 require_once(__DIR__ . '/../vendor/autoload.php');
 
-
-$tests = \Programster\CoreLibs\Filesystem::getDirContents(
-    $dir=__DIR__ . '/tests',
-    $recursive = true,
-    $includePath = false,
-    $onlyFiles = true
-);
+use Programster\CoreLibs\Filesystem;
+use Programster\CoreLibs\Testing\SmokeTest;
 
 
-$numFailed = 0;
-
-foreach ($tests as $testFilename)
+# The tests check things with assert(), which does nothing when zend.assertions is 0 or -1, so every test would pass
+# without checking anything. It can be switched from 0 to 1 here, but -1 (the usual production setting) can only be
+# changed in php.ini or on the command line.
+if (ini_get('zend.assertions') !== '1' && @ini_set('zend.assertions', '1') === false)
 {
-    $testName = substr($testFilename, 0, -4);
-    $testName = __NAMESPACE__ . "\\tests\\" . $testName;
-
-    /* @var $testToRun AbstractTest */
-    $testToRun = new $testName();
-    $testToRun->runTest();
-
-    if ($testToRun->getPassed())
-    {
-        print $testName . ": \e[32mPASSED\e[0m" . PHP_EOL;
-    }
-    else
-    {
-        print $testName . ": \e[31mFAILED\e[0m" . PHP_EOL;
-        $numFailed++;
-    }
+    echo "zend.assertions must be 1 for the tests to check anything. Run: php -d zend.assertions=1 " . __FILE__ . "\n";
+    exit(1);
 }
 
-# Exit with a non-zero code if any test failed, so that scripts (e.g. run-all-php-versions.sh) can detect it.
-exit(($numFailed === 0) ? 0 : 1);
+$smoke = new SmokeTest();
+$dir = sys_get_temp_dir() . "/corelibs-smoke-" . getmypid();
+mkdir($dir);
+
+$testFiles = glob(__DIR__ . '/tests/*Test.php');
+sort($testFiles);
+
+foreach ($testFiles as $testFile)
+{
+    require $testFile;
+}
+
+# Clean up, then report.
+Filesystem::deleteDir($dir);
+$failures = $smoke->getFailures();
+printf("PHP %s: %d passed, %d failed\n", PHP_VERSION, $smoke->getNumPassed(), count($failures));
+
+foreach ($failures as $failure)
+{
+    echo "  FAIL {$failure}\n";
+}
+
+exit(count($failures) === 0 ? 0 : 1);

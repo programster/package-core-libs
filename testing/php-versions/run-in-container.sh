@@ -22,13 +22,8 @@ done
 echo "lint failures: ${numLintFailures}"
 [ "$numLintFailures" -eq 0 ] || failed=1
 
-echo "=== test suite"
-php /app/testing/main.php 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
-# main.php exits with 1 if any test failed. The pipe would hide that, so check its status separately.
-php /app/testing/main.php > /dev/null 2>&1 || failed=1
-
-echo "=== smoke test"
-php -d zend.assertions=1 -d assert.exception=1 /app/testing/php-versions/smoke.php || failed=1
+echo "=== tests"
+php -d zend.assertions=1 -d assert.exception=1 /app/testing/main.php || failed=1
 
 echo "=== password from piped input"
 password=$(echo "piped-secret" | php -r 'require "/app/vendor/autoload.php"; echo Programster\CoreLibs\CliLib::getPasswordFromUserInput();')
