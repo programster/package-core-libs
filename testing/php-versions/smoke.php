@@ -410,6 +410,15 @@ $smoke->run("directories and files", function () use ($dir) {
     );
     SmokeTest::expectException(NoFileExtensionException::class, fn() => Filesystem::getFileExtension("file."));
     Filesystem::deleteDir(Filesystem::tmpDir());
+    Filesystem::mkdir("{$dir}/perms", "0o750");
+    assert((fileperms("{$dir}/perms") & 0777) === (0750 & ~umask()));
+    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::mkdir("{$dir}/bad", "493"));
+    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::mkdir("{$dir}/bad", "0758"));
+    assert(!file_exists("{$dir}/bad"));
+    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::tmpDir("rwx"));
+    assert(Filesystem::permissionsStringToInt("755") === 0755);
+    assert(Filesystem::permissionsStringToInt("0o1777") === 01777);
+    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::permissionsStringToInt("0x755"));
     assert(Filesystem::lockFile("{$dir}/lock", true, false));
     Filesystem::unlockFile("{$dir}/lock");
 });

@@ -203,26 +203,38 @@ final class Filesystem
      * will create all relevant parent directories
      *
      * @param string $dirPath - the path to the directory we wish to create
-     * @param string|null $perms - optionally set the permissions to set for the directory. E.g. "0700" or "755". If
-     * not provided, then this will default to "0755".
+     * @param string $perms - the permissions to set for the directory, as 3 or 4 octal digits, optionally with a
+     *                        leading 0 or 0o, e.g. "0700", "755" or "0o755". Defaults to "0755".
      * @param bool $recursive - override to false if you want to fail if parent
      *                          dirs don't exist.
      *
      * @return void
+     * @throws BadArgumentException - if $perms is not 3 or 4 octal digits, optionally with a leading 0 or 0o.
      * @throws FilesystemException - if the directory doesn't exist and could not be created.
      */
     public static function mkdir(
         string $dirPath,
-        ?string $perms = null,
+        string $perms = "0755",
         bool $recursive = true
     ): void
     {
-        $perms = $perms ?? "0755";
-        $perms = octdec($perms);
+        try
+        {
+            $permsInt = self::permissionsStringToInt($perms);
+        }
+        catch (BadArgumentException $e)
+        {
+            throw new BadArgumentException(
+                "mkdir: \$perms must be 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. \"0755\" or " .
+                "\"0o755\", but is \"{$perms}\".",
+                0,
+                $e
+            );
+        }
 
         # Suppress the warning, as we throw an exception with the details instead. The second is_dir() check is in
         # case another process created the directory at the same time.
-        if (!is_dir($dirPath) && !@mkdir($dirPath, $perms, $recursive) && !is_dir($dirPath))
+        if (!is_dir($dirPath) && !@mkdir($dirPath, $permsInt, $recursive) && !is_dir($dirPath))
         {
             $error = error_get_last()['message'] ?? 'unknown error';
             throw new FilesystemException("Failed to create the directory {$dirPath}: {$error}");
@@ -749,6 +761,30 @@ final class Filesystem
 
 
     /**
+     * Converts a permissions string, such as "0755", into the int that PHP's mkdir() and chmod() expect. Unlike
+     * octdec(), this throws for anything that isn't a valid mode, rather than silently ignoring invalid characters
+     * and giving the wrong permissions.
+     * @param string $mode - 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. "755", "0755", "0o755" or
+     *                       "1777".
+     * @return int - the permissions as an int, e.g. 493 (0755) for "0755".
+     * @throws BadArgumentException - if $mode is not in one of the forms above.
+     */
+    public static function permissionsStringToInt(string $mode): int
+    {
+        # E.g. an octal int like 0755 arrives here as the string "493", which octdec() would turn into 043.
+        if (preg_match('/^(0o?)?[0-7]{3,4}$/D', $mode) !== 1)
+        {
+            throw new BadArgumentException(
+                "Invalid permissions string \"{$mode}\". It must be 3 or 4 octal digits, optionally with a leading 0 " .
+                "or 0o, e.g. \"0755\" or \"0o755\"."
+            );
+        }
+
+        return octdec($mode);
+    }
+
+
+    /**
      * Create a temporary directory. This will be a randomly named directory in the system's
      * temporary directory folder (usually /tmp).
      * @param string $mode - the permissions the new temporary directory will have. Using the defaults from mkdir:
@@ -760,13 +796,17 @@ final class Filesystem
      */
     public static function tmpDir(string $mode = "0777"): string
     {
-        # Without this, octdec() silently ignores invalid characters, giving the wrong permissions. E.g. an octal int
-        # like 0755 arrives here as the string "493", which would become 043.
-        if (preg_match('/^(0o?)?[0-7]{3,4}$/D', $mode) !== 1)
+        try
+        {
+            $modeInt = self::permissionsStringToInt($mode);
+        }
+        catch (BadArgumentException $e)
         {
             throw new BadArgumentException(
-                "tmpDir: \$mode must be a string of 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. " .
-                "\"0755\" or \"0o755\", but is \"{$mode}\"."
+                "tmpDir: \$mode must be 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. \"0755\" or " .
+                "\"0o755\", but is \"{$mode}\".",
+                0,
+                $e
             );
         }
 
@@ -779,7 +819,7 @@ final class Filesystem
         }
 
         unlink($tempName);
-        mkdir($tempName, octdec($mode));
+        mkdir($tempName, $modeInt);
 
         if (is_dir($tempName) === FALSE)
         {
