@@ -762,25 +762,25 @@ final class Filesystem
 
     /**
      * Converts a permissions string, such as "0755", into the int that PHP's mkdir() and chmod() expect. Unlike
-     * octdec(), this throws for anything that isn't a valid mode, rather than silently ignoring invalid characters
+     * octdec(), this throws for anything that isn't valid, rather than silently ignoring invalid characters
      * and giving the wrong permissions.
-     * @param string $mode - 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. "755", "0755", "0o755" or
-     *                       "1777".
+     * @param string $permissions - 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. "755", "0755",
+     *                              "0o755" or "1777".
      * @return int - the permissions as an int, e.g. 493 (0755) for "0755".
-     * @throws BadArgumentException - if $mode is not in one of the forms above.
+     * @throws BadArgumentException - if $permissions is not in one of the forms above.
      */
-    public static function permissionsStringToInt(string $mode): int
+    public static function permissionsStringToInt(string $permissions): int
     {
         # E.g. an octal int like 0755 arrives here as the string "493", which octdec() would turn into 043.
-        if (preg_match('/^(0o?)?[0-7]{3,4}$/D', $mode) !== 1)
+        if (preg_match('/^(0o?)?[0-7]{3,4}$/D', $permissions) !== 1)
         {
             throw new BadArgumentException(
-                "Invalid permissions string \"{$mode}\". It must be 3 or 4 octal digits, optionally with a leading 0 " .
-                "or 0o, e.g. \"0755\" or \"0o755\"."
+                "Invalid permissions string \"{$permissions}\". It must be 3 or 4 octal digits, optionally with a " .
+                "leading 0 or 0o, e.g. \"0755\" or \"0o755\"."
             );
         }
 
-        return octdec($mode);
+        return octdec($permissions);
     }
 
 
