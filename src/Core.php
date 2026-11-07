@@ -88,9 +88,11 @@ final class Core
     public static function redirectUser(string $location, bool $allowExternal = false): never
     {
         # Browsers treat "//other.site" and "/\other.site" as another site, so only a single "/" is a path here.
-        $isSameSitePath = str_starts_with($location, "/")
+        $isSameSitePath = (
+               str_starts_with($location, "/")
             && !str_starts_with($location, "//")
-            && !str_starts_with($location, "/\\");
+            && !str_starts_with($location, "/\\")
+        );
 
         if (!$allowExternal && !$isSameSitePath)
         {

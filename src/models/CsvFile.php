@@ -549,9 +549,9 @@ final class CsvFile extends File
     private function getOtherFilepath(CsvFile|string $other): string
     {
         if (
-            $other instanceof CsvFile
+               $other instanceof CsvFile
             && (
-                $other->getDelimiter() !== $this->m_delimiter
+                   $other->getDelimiter() !== $this->m_delimiter
                 || $other->getEnclosure() !== $this->m_enclosure
                 || $other->getEscape() !== $this->m_escape
             )

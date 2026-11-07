@@ -296,7 +296,7 @@ final class Filesystem
             $path = rtrim($dirPath, '/');
 
             while (
-                !in_array($path, ['', '.', '/'], true)
+                   !in_array($path, ['', '.', '/'], true)
                 && !file_exists($path)
                 && !is_link($path)
                 && ($recursive || count($directoriesToCreate) === 0)
@@ -1120,7 +1120,7 @@ final class Filesystem
         // If the output file already exists, it may be the input file under a different path (e.g. relative path or
         // symlink), so compare the resolved paths. If it doesn't exist yet, it can't be the input file.
         $isInPlace = (
-            $outputFilepath === null
+               $outputFilepath === null
             || (file_exists($outputFilepath) && realpath($outputFilepath) === realpath($inputFile))
         );
 
@@ -1996,8 +1996,10 @@ final class Filesystem
         PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
     {
-        $renamed = self::canReplaceByRenaming($filepath, $tmpFilepath)
-            && self::replaceByRenaming($filepath, $tmpFilepath, $preserveOwnership);
+        $renamed = (
+               self::canReplaceByRenaming($filepath, $tmpFilepath)
+            && self::replaceByRenaming($filepath, $tmpFilepath, $preserveOwnership)
+        );
 
         if (!$renamed)
         {
@@ -2087,14 +2089,16 @@ final class Filesystem
 
         # It is the same thing under the new name, but the directory doesn't list the new name exactly, as a
         # case-sensitive one would for a second hard link that only differs by case.
-        $isCaseOnly = $currentName !== $newName
+        $isCaseOnly = (
+               $currentName !== $newName
             && strcasecmp($currentName, $newName) === 0
             && realpath(dirname($currentPath)) === realpath(dirname($newPath))
             && $currentDetails !== false
             && $newDetails !== false
             && $currentDetails['dev'] === $newDetails['dev']
             && $currentDetails['ino'] === $newDetails['ino']
-            && !in_array($newName, self::readDirectoryEntries(dirname($newPath)), true);
+            && !in_array($newName, self::readDirectoryEntries(dirname($newPath)), true)
+        );
 
         return $isCaseOnly;
     }
@@ -2232,8 +2236,10 @@ final class Filesystem
         $comparedDirectory = $resolveSymlinks ? self::resolvePath($directory) : self::normalisePath($directory);
 
         # Compare with a trailing slash, so that e.g. /a/bc doesn't count as being inside /a/b.
-        return $comparedPath === $comparedDirectory
-            || str_starts_with($comparedPath . "/", rtrim($comparedDirectory, "/") . "/");
+        return (
+               $comparedPath === $comparedDirectory
+            || str_starts_with($comparedPath . "/", rtrim($comparedDirectory, "/") . "/")
+        );
     }
 
 
@@ -2467,8 +2473,10 @@ final class Filesystem
      */
     private static function addZipSymlink(ZipArchive $zip, string $zipPath, string $target): void
     {
-        $added = $zip->addFromString($zipPath, $target)
-            && $zip->setExternalAttributesName($zipPath, ZipArchive::OPSYS_UNIX, self::SYMLINK_MODE << 16);
+        $added = (
+               $zip->addFromString($zipPath, $target)
+            && $zip->setExternalAttributesName($zipPath, ZipArchive::OPSYS_UNIX, self::SYMLINK_MODE << 16)
+        );
 
         if (!$added)
         {
@@ -2490,8 +2498,10 @@ final class Filesystem
         {
             $zip->getExternalAttributesIndex($index, $operatingSystem, $attributes);
 
-            $isSymlink = ($operatingSystem === ZipArchive::OPSYS_UNIX)
-                && ((($attributes >> 16) & 0170000) === (self::SYMLINK_MODE & 0170000));
+            $isSymlink = (
+                   ($operatingSystem === ZipArchive::OPSYS_UNIX)
+                && ((($attributes >> 16) & 0170000) === (self::SYMLINK_MODE & 0170000))
+            );
 
             if ($isSymlink)
             {
@@ -2692,8 +2702,10 @@ final class Filesystem
         }
 
         # Either it is in the zip (so in the temporary directory now), or it already exists.
-        $inZip = self::isWithinDirectory($current, $destination, false)
-            && file_exists($tmpDirectory . substr($current, strlen($destination)));
+        $inZip = (
+               self::isWithinDirectory($current, $destination, false)
+            && file_exists($tmpDirectory . substr($current, strlen($destination)))
+        );
 
         $exists = !$followedOne && ($inZip || file_exists($current));
         return $exists ? $current : "";
@@ -2939,21 +2951,27 @@ final class Filesystem
 
         # A tmpfs (e.g. /tmp on Debian 13) can be allowed more space than there is free memory, so filling it could push
         # the system into swap. Only count it as having room if the memory is free too.
-        $systemHasRoom = is_writable($systemTmpDirectory)
+        $systemHasRoom = (
+               is_writable($systemTmpDirectory)
             && self::hasFreeSpace($systemTmpDirectory, $neededBytes)
-            && (!$systemIsTmpfs || self::hasFreeMemory($neededBytes));
+            && (!$systemIsTmpfs || self::hasFreeMemory($neededBytes))
+        );
 
         $fileCouldBeRenamed = self::couldRenameOver($filepath, $preserveOwnership);
         $couldRenameFromNextTo = $hasRoom && $fileCouldBeRenamed;
 
-        $couldRenameFromSystem = $systemHasRoom
+        $couldRenameFromSystem = (
+               $systemHasRoom
             && $fileCouldBeRenamed
             && !self::isSelinuxEnabled()
-            && self::isOnSameFilesystem($systemTmpDirectory, $directory);
+            && self::isOnSameFilesystem($systemTmpDirectory, $directory)
+        );
 
-        return ($systemIsTmpfs && $systemHasRoom)
+        return (
+               ($systemIsTmpfs && $systemHasRoom)
             || $couldRenameFromSystem
-            || (!$couldRenameFromNextTo && ($systemHasRoom || !$hasRoom));
+            || (!$couldRenameFromNextTo && ($systemHasRoom || !$hasRoom))
+        );
     }
 
 
@@ -2977,8 +2995,10 @@ final class Filesystem
             $userId = posix_geteuid();
             $groupIds = array_merge([posix_getegid()], posix_getgroups());
 
-            $ownershipKeepable = ($userId === 0)
-                || ($details['uid'] === $userId && in_array($details['gid'], $groupIds, true));
+            $ownershipKeepable = (
+                   ($userId === 0)
+                || ($details['uid'] === $userId && in_array($details['gid'], $groupIds, true))
+            );
         }
 
         return $details !== false && $details['nlink'] === 1 && $ownershipKeepable;
@@ -3165,18 +3185,22 @@ final class Filesystem
 
         $tmpDirectory = realpath(dirname($tmpFilepath));
 
-        $isRenamableFromElsewhere = ($tmpDirectory !== false)
+        $isRenamableFromElsewhere = (
+               ($tmpDirectory !== false)
             && !self::isSelinuxEnabled()
-            && self::isOnSameFilesystem($tmpDirectory, $directory);
+            && self::isOnSameFilesystem($tmpDirectory, $directory)
+        );
 
         $isRenamableFromThere = ($tmpDirectory === $directory) || $isRenamableFromElsewhere;
 
-        return $directory !== false
+        return (
+               $directory !== false
             && $details !== false
             && $details['nlink'] === 1
             && $isRenamableFromThere
             && is_writable($directory)
-            && self::canEnterDirectory($directory);
+            && self::canEnterDirectory($directory)
+        );
     }
 
 
@@ -3216,9 +3240,11 @@ final class Filesystem
         $tmp = stat($tmpFilepath);
         $ownershipKept = ($tmp['uid'] === $original['uid']) && ($tmp['gid'] === $original['gid']);
 
-        return ($ownershipKept || $preserveOwnership === PreserveOwnershipEnum::NO)
+        return (
+               ($ownershipKept || $preserveOwnership === PreserveOwnershipEnum::NO)
             && @chmod($tmpFilepath, $original['mode'] & 07777)
-            && @rename($tmpFilepath, $filepath);
+            && @rename($tmpFilepath, $filepath)
+        );
     }
 
 
@@ -3253,9 +3279,11 @@ final class Filesystem
         # Write over the old contents first, then cut off whatever is left of them, so the file is only ever
         # shortened once the new contents are all in place.
         # stream_copy_to_stream() returns false for nothing to copy on Windows, so an empty file needs no copying.
-        $succeeded = ($newSize === 0 || stream_copy_to_stream($source, $target) === $newSize)
+        $succeeded = (
+               ($newSize === 0 || stream_copy_to_stream($source, $target) === $newSize)
             && ftruncate($target, $newSize)
-            && fflush($target);
+            && fflush($target)
+        );
 
         fclose($source);
         fclose($target);
@@ -3339,9 +3367,11 @@ final class Filesystem
     ): bool
     {
         # A symlink back up to a directory the listing is already inside would go round in circles.
-        return $recursive
+        return (
+               $recursive
             && (!is_link($entryPath) || $followSymlinks)
-            && !in_array(realpath($entryPath), $ancestors, true);
+            && !in_array(realpath($entryPath), $ancestors, true)
+        );
     }
 
 
@@ -3500,9 +3530,11 @@ final class Filesystem
                         # Only remove the link itself if not following links, it is broken, what it points to is
                         # already being deleted, or it points "up" to a directory that contains it (which would
                         # otherwise loop, or delete the directories the link is in).
-                        $followLink = $target !== false
+                        $followLink = (
+                               $target !== false
                             && !isset($planned[$target])
-                            && !(is_dir($target) && self::isWithinDirectory($realDir, $target));
+                            && !(is_dir($target) && self::isWithinDirectory($realDir, $target))
+                        );
 
                         if ($followLink)
                         {
@@ -3674,10 +3706,12 @@ final class Filesystem
      */
     private static function findDeletionProblem(string $parentDir, string $path, array &$problems): void
     {
-        $isReadOnlyOnWindows = PHP_OS_FAMILY === "Windows"
+        $isReadOnlyOnWindows = (
+               PHP_OS_FAMILY === "Windows"
             && is_file($path)
             && !is_link($path)
-            && !is_writable($path);
+            && !is_writable($path)
+        );
 
         if (!is_writable($parentDir) || !self::canEnterDirectory($parentDir))
         {

@@ -157,9 +157,11 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
 
 $smoke->run("Directory move to a different filesystem", function () use ($dir) {
     # /dev/shm is usually a separate (in-memory) filesystem, so use it as the destination when it is.
-    $isSeparateFilesystem = is_dir("/dev/shm")
+    $isSeparateFilesystem = (
+           is_dir("/dev/shm")
         && is_writable("/dev/shm")
-        && stat("/dev/shm")['dev'] !== stat($dir)['dev'];
+        && stat("/dev/shm")['dev'] !== stat($dir)['dev']
+    );
 
     if ($isSeparateFilesystem)
     {
@@ -452,10 +454,12 @@ $smoke->run("moves to another drive on Windows keeping ownership", function () u
     # On Windows, a copy on another drive can't keep its owner and ACLs, so YES (the default) refuses such a move, and
     # PREFERRED allows it. GitHub's Windows runners have a D: drive, separate from the temporary directory's.
     $otherDrive = "D:/corelibs-ownership-" . getmypid();
-    $canTest = PHP_OS_FAMILY === "Windows"
+    $canTest = (
+           PHP_OS_FAMILY === "Windows"
         && is_dir("D:/")
         && is_writable("D:/")
-        && !Filesystem::isOnSameFilesystem(sys_get_temp_dir(), "D:/");
+        && !Filesystem::isOnSameFilesystem(sys_get_temp_dir(), "D:/")
+    );
 
     if (!$canTest)
     {

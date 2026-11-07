@@ -896,9 +896,11 @@ $smoke->run("unzip", function () use ($dir) {
     # A destination on a different filesystem from the system's temporary directory can't have the contents moved
     # there instantly, so it extracts into a hidden directory inside the destination instead. /dev/shm is usually a
     # separate filesystem, so check there if so.
-    $isSeparateFilesystem = is_dir("/dev/shm")
+    $isSeparateFilesystem = (
+           is_dir("/dev/shm")
         && is_writable("/dev/shm")
-        && stat("/dev/shm")['dev'] !== stat(sys_get_temp_dir())['dev'];
+        && stat("/dev/shm")['dev'] !== stat(sys_get_temp_dir())['dev']
+    );
 
     if ($isSeparateFilesystem)
     {
@@ -1279,9 +1281,11 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     # ...and next to the original when the system's temporary directory is on another (disk) filesystem, as renaming
     # from next to it is then the fastest way. /dev/shm is a separate filesystem in the test containers.
     $otherFilesystem = "/dev/shm/corelibs-replacement-" . getmypid();
-    $canUseOtherFilesystem = is_dir("/dev/shm")
+    $canUseOtherFilesystem = (
+           is_dir("/dev/shm")
         && stat("/dev/shm")['dev'] !== stat(sys_get_temp_dir())['dev']
-        && !Filesystem::isTmpfs(sys_get_temp_dir());
+        && !Filesystem::isTmpfs(sys_get_temp_dir())
+    );
 
     if ($canUseOtherFilesystem)
     {

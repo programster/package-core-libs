@@ -687,10 +687,12 @@ class File
         $stats1 = @stat($path1);
         $stats2 = @stat($path2);
 
-        return $stats1 !== false
+        return (
+               $stats1 !== false
             && $stats2 !== false
             && $stats1['dev'] === $stats2['dev']
-            && $stats1['ino'] === $stats2['ino'];
+            && $stats1['ino'] === $stats2['ino']
+        );
     }
 
 
