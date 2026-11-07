@@ -2295,3 +2295,34 @@ $smoke->run("UNC paths, as used for WSL's files from Windows", function () use (
     }
 });
 
+$smoke->run("replaceWithFile() copying back over another user's file", function () use ($dir) {
+    # Without root, a file someone else owns can't be renamed over (that would give it a new owner), so its new contents
+    # are copied into it instead, keeping its owner. Only root can make such a file, so this uses the fixtures from
+    # run-all-php-versions.sh, and needs a normal user to test.
+    $fixtures = getenv("CORELIBS_TEST_FIXTURES");
+    $file = ($fixtures === false) ? "" : "{$fixtures}/writable-other-owner/root-owned.txt";
+
+    if ($file === "" || !is_file($file))
+    {
+        SmokeTest::skip("replaceWithFile() copying back over another user's file", "needs the fixtures from run-all-php-versions.sh");
+    }
+    elseif (!function_exists("posix_geteuid") || posix_geteuid() === 0)
+    {
+        SmokeTest::skip("replaceWithFile() copying back over another user's file", "needs a normal user");
+    }
+    else
+    {
+        $before = stat($file);
+        $replacement = "{$dir}/replacement-for-root.txt";
+        file_put_contents($replacement, "new contents");
+        Filesystem::replaceWithFile($file, $replacement, PreserveOwnershipEnum::YES);
+        clearstatcache();
+        $after = stat($file);
+
+        # The same file (so the same owner), with the new contents, and the temporary file is gone.
+        assert(file_get_contents($file) === "new contents");
+        assert($after['ino'] === $before['ino'] && $after['uid'] === 0 && $before['uid'] === 0);
+        assert(!file_exists($replacement));
+    }
+});
+

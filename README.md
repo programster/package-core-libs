@@ -135,5 +135,7 @@ it to `SUPPORTED_VERSIONS` at the top of the script.
 The same script runs on GitHub Actions (`.github/workflows/tests.yml`) for pushes to `master`, every tag, and pull
 requests into `master`, which is what the "Linux tests" badge at the top of this README shows. Pushes to other
 branches don't run it, but it can be run on any branch by hand, with "Run workflow" on the repository's Actions tab.
-As the containers run as root, the checks that need root (e.g. that rewriting a file keeps its owner) run there. When
-run without root, `main.php` lists those checks as skipped.
+In each container, the tests run three times: as root (for the checks that need it, e.g. that rewriting a file keeps
+its owner), as a normal user (for the checks that root would get past, e.g. a read-only folder), and as a normal user
+with the temporary directory behind a symlink, as on macOS. Each run lists the checks it had to skip, which another
+run covers.

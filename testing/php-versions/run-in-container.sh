@@ -37,6 +37,12 @@ echo "group 12345" > "$fixtures/other-group/other-group.txt"
 chown nobody:nogroup "$fixtures" "$fixtures/other-owner" "$fixtures/other-group" \
     "$fixtures/other-group/other-group.txt"
 chgrp 12345 "$fixtures/other-group/other-group.txt"
+# A file owned by root that anyone can write to, in a folder the normal user owns, for replacing a file's contents
+# without changing its owner.
+mkdir -p "$fixtures/writable-other-owner"
+echo "owned by root" > "$fixtures/writable-other-owner/root-owned.txt"
+chmod 666 "$fixtures/writable-other-owner/root-owned.txt"
+chown nobody:nogroup "$fixtures/writable-other-owner"
 # A "sticky" folder like /tmp, which anyone can write to, holding a file that only root can delete from it.
 mkdir -p "$fixtures/sticky"
 echo "owned by root" > "$fixtures/sticky/root-owned.txt"
@@ -45,6 +51,16 @@ export CORELIBS_TEST_FIXTURES="$fixtures"
 
 echo "=== tests (as a normal user)"
 setpriv --reuid=nobody --regid=nogroup --clear-groups \
+    php -d zend.assertions=1 -d assert.exception=1 /app/testing/main.php || failed=1
+
+# And once more, as a normal user, with the temporary directory reached through a symlink, as on macOS (where /var is
+# really /private/var). This catches code that mixes up a path with its real path.
+mkdir -p /tmp/real-tmp
+chmod 1777 /tmp/real-tmp
+ln -sfn /tmp/real-tmp /tmp/linked-tmp
+
+echo "=== tests (as a normal user, with a symlinked temporary directory)"
+TMPDIR=/tmp/linked-tmp setpriv --reuid=nobody --regid=nogroup --clear-groups \
     php -d zend.assertions=1 -d assert.exception=1 /app/testing/main.php || failed=1
 
 echo "=== password from piped input"
