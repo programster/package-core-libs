@@ -1,0 +1,88 @@
+# Runs the tests on macOS, on every supported version of PHP. Linux is the first-class platform (see tests.yml, and
+# the README), so this is a separate workflow with its own badge: it shows how far macOS support has got, without
+# turning the main "Tests" badge red. The Docker images the Linux tests use don't run on GitHub's macOS runners, so
+# PHP is installed on the runner directly. macOS's usual filesystem (APFS) ignores case, unlike Linux's.
+name: macOS tests
+
+on:
+    push:
+        branches:
+            - master
+            - main
+            # TEMPORARY: also run on the overhaul branch, to find and fix what fails on macOS. Remove this line
+            # once that is done, so it only runs on the main branch, like tests.yml.
+            - overhaul
+        tags:
+            - "*"
+    pull_request:
+        branches:
+            - master
+            - main
+    # Adds a "Run workflow" button on the Actions tab (only once this file is on the default branch).
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    tests:
+        name: Tests on macOS, PHP ${{ matrix.php }}
+        runs-on: macos-latest
+        timeout-minutes: 30
+
+        strategy:
+            # Run every version, even if one fails, to see all the failures at once.
+            fail-fast: false
+            matrix:
+                php: ["8.3", "8.4", "8.5"]
+
+        steps:
+            - name: Check out the code
+              uses: actions/checkout@v5
+
+            # The same extensions as the Linux test images.
+            - name: Install PHP
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: ${{ matrix.php }}
+                  extensions: fileinfo, mbstring, sodium, sockets, zip, curl, openssl, pcntl, posix
+                  ini-values: zend.assertions=1, assert.exception=1
+                  coverage: none
+
+            - name: Install Composer dependencies
+              run: composer install --no-interaction --no-progress --prefer-dist
+
+            # Also report the results as annotations on the run, which (unlike the logs) can be read without logging
+            # in to GitHub: one for the summary, one listing what was skipped, and the failures. A step can only have
+            # 10 error annotations, so the failures are grouped into at most 9, with one more for the last lines of
+            # output if it failed without listing any (e.g. a fatal error).
+            - name: Run the tests
+              shell: bash
+              run: |
+                  # GitHub runs bash with -e, which would stop here if the tests failed, so catch the exit code instead.
+                  status=0
+                  php testing/main.php > test-output.txt 2>&1 || status=$?
+                  cat test-output.txt
+                  summary=$(grep -E "passed, [0-9]+ failed" test-output.txt | head -1)
+                  echo "::notice title=PHP ${{ matrix.php }} results::${summary:-no summary line}"
+
+                  # List the checks that couldn't run on macOS (and so didn't fail), all in one annotation.
+                  skipped=$(grep -E "^  SKIPPED " test-output.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+                  echo "::notice title=PHP ${{ matrix.php }} skipped::${skipped:-nothing was skipped}"
+                  grep -E "^  FAIL " test-output.txt > failures.txt || true
+                  total=$(wc -l < failures.txt)
+
+                  if [ "$total" -gt 0 ]; then
+                      per=$(( (total + 8) / 9 ))
+                      split -l "$per" failures.txt failure-group-
+
+                      for group in failure-group-*; do
+                          message=$(sed 's/%/%25/g' "$group" | awk '{printf "%s%%0A", $0}')
+                          echo "::error title=PHP ${{ matrix.php }} failures::${message}"
+                      done
+                  elif [ "$status" -ne 0 ]; then
+                      message=$(tail -n 30 test-output.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+                      echo "::error title=PHP ${{ matrix.php }} failed without a summary::${message}"
+                  fi
+
+                  exit $status

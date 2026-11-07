@@ -11,6 +11,7 @@ use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Models\CsvFile;
+use Programster\CoreLibs\Models\Directory;
 use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Testing\SmokeTest;
 
@@ -337,5 +338,43 @@ $smoke->run("absolute paths, including Windows ones", function () {
     }
 
     assert(Filesystem::isAbsolutePath("/srv/bob.txt") === true);
+});
+
+$smoke->run("renaming that only changes the case of the name", function () use ($dir) {
+    $base = "{$dir}/case-rename";
+    mkdir($base);
+
+    # Find out whether this filesystem ignores case (e.g. Windows, or macOS by default).
+    file_put_contents("{$base}/probe", "");
+    $ignoresCase = file_exists("{$base}/PROBE");
+    unlink("{$base}/probe");
+
+    # Either way, renaming a file or directory to just change its case works, leaving only the new name.
+    file_put_contents("{$base}/report.txt", "data");
+    mkdir("{$base}/folder");
+    assert(Filesystem::isCaseOnlyRename("{$base}/report.txt", "{$base}/Report.txt") === $ignoresCase);
+    $file = new File("{$base}/report.txt");
+    $file->rename("Report.txt");
+    (new Directory("{$base}/folder"))->rename("Folder");
+    $names = array_values(array_diff(scandir($base), [".", ".."]));
+    sort($names);
+    assert($names === ["Folder", "Report.txt"], "renaming by case left: " . implode(", ", $names));
+    assert(basename($file->getFilepath()) === "Report.txt" && file_get_contents("{$base}/Report.txt") === "data");
+
+    # On a filesystem that cares about case, a file whose name only differs by case is a different file, so it is
+    # never replaced without $overwriteExistingFile.
+    if (!$ignoresCase)
+    {
+        file_put_contents("{$base}/other.txt", "lower");
+        file_put_contents("{$base}/Other.txt", "upper");
+        assert(!Filesystem::isCaseOnlyRename("{$base}/other.txt", "{$base}/Other.txt"));
+
+        SmokeTest::expectException(
+            FileAlreadyExistsException::class,
+            fn() => (new File("{$base}/other.txt"))->rename("Other.txt")
+        );
+
+        assert(file_get_contents("{$base}/Other.txt") === "upper");
+    }
 });
 

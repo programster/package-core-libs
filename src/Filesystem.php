@@ -2075,6 +2075,39 @@ final class Filesystem
 
 
     /**
+     * Check whether moving a file or directory from one path to another only changes the case of its
+     * name (e.g. "report.txt" to "Report.txt"), on a filesystem that ignores case (e.g. Windows, or
+     * macOS by default), where the new path is just another way to write the current one. Such a
+     * rename looks like a move onto something that already exists, as the new path already "exists",
+     * so code checking for that needs to allow it. On a case-sensitive filesystem (e.g. Linux), the
+     * two are different names, so this is false.
+     * @param string $currentPath - the path of the existing file or directory.
+     * @param string $newPath - the path it is being renamed to.
+     * @return bool - true if only the case of the name changes, and they are the same thing.
+     */
+    public static function isCaseOnlyRename(string $currentPath, string $newPath): bool
+    {
+        $currentName = basename($currentPath);
+        $newName = basename($newPath);
+        $currentDetails = @lstat($currentPath);
+        $newDetails = @lstat($newPath);
+
+        # It is the same thing under the new name, but the directory doesn't list the new name exactly, as a
+        # case-sensitive one would for a second hard link that only differs by case.
+        $isCaseOnly = $currentName !== $newName
+            && strcasecmp($currentName, $newName) === 0
+            && realpath(dirname($currentPath)) === realpath(dirname($newPath))
+            && $currentDetails !== false
+            && $newDetails !== false
+            && $currentDetails['dev'] === $newDetails['dev']
+            && $currentDetails['ino'] === $newDetails['ino']
+            && !in_array($newName, self::readDirectoryEntries(dirname($newPath)), true);
+
+        return $isCaseOnly;
+    }
+
+
+    /**
      * Tidy a path from the path alone (without checking the filesystem): remove "." parts, apply
      * ".." parts, and remove repeated or trailing slashes, e.g. "/a/./b/../c/" gives "/a/c". An
      * absolute path stays absolute, and a ".." at its root is dropped (as "/.." is "/"). A relative

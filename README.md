@@ -3,6 +3,7 @@ Core Libs
 
 [![Tests](https://github.com/programster/package-core-libs/actions/workflows/tests.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests.yml)
 [![Windows tests](https://github.com/programster/package-core-libs/actions/workflows/tests-windows.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-windows.yml)
+[![macOS tests](https://github.com/programster/package-core-libs/actions/workflows/tests-macos.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-macos.yml)
 
 This is a PHP package providing a set of static libraries that act to "extend" the standard library. 
 These are built primarily with a focus on rapid development and ease of understanding over 
@@ -10,11 +11,11 @@ performance.
 
 ### Supported platforms
 Linux has first-class support: it is what this library is built and tested on, and every test runs on it
-automatically. Windows is meant to be supported too, but only in theory: it isn't held to passing every test, so
-some parts (especially the file and directory handling) may not work on it yet. The "Windows tests" badge shows how
-the tests do on Windows, which is run separately so that it doesn't affect the main "Tests" badge. Some methods are
-Linux only by nature, such as `Core::getMemory()`, which reads `/proc/meminfo`, and throw an exception saying so
-elsewhere.
+automatically. Windows and macOS are meant to be supported too, but aren't held to passing every test, so some parts
+(especially the file and directory handling) may not work on them yet. The "Windows tests" and "macOS tests" badges
+show how the tests do on each, which are run separately so that they don't affect the main "Tests" badge. Some
+methods are Linux only by nature, such as `Core::getMemory()`, which reads `/proc/meminfo`, and throw an exception
+saying so elsewhere.
 
 ### Recommended Extensions
 This package recommends various extensions such as mbstring in order to be able to perform some of

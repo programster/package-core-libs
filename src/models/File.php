@@ -233,43 +233,57 @@ class File
 
         if ($newPath !== $currentPath)
         {
-            # is_link() is needed too, as file_exists() is false for a broken symlink, which rename() would replace.
-            $somethingExists = file_exists($newPath) || is_link($newPath);
-
-            # is_dir() follows symlinks, so this also catches a symlink to a directory.
-            if (is_dir($newPath))
+            # On a filesystem that ignores case, a new name that only differs by case is the same file, so just
+            # rename it, rather than refusing because something "already exists" there.
+            if (Filesystem::isCaseOnlyRename($currentPath, $newPath))
             {
-                throw new FileAlreadyExistsException(
-                    "Can't move {$this->m_filepath} to {$newPath}, as there is a directory there. Directories are " .
-                    "never replaced."
-                );
-            }
-            elseif ($somethingExists && !$overwriteExistingFile)
-            {
-                throw new FileAlreadyExistsException(
-                    "Can't move {$this->m_filepath} to {$newPath}, as something already exists there. Set " .
-                    "\$overwriteExistingFile to true to replace it."
-                );
-            }
-            elseif ($somethingExists && self::isSameFile($currentPath, $newPath))
-            {
-                throw new FileAlreadyExistsException(
-                    "Can't move {$this->m_filepath} to {$newPath}, as they are the same file (one is a symlink to " .
-                    "the other, or they are hard links), so replacing one with the other could lose its data."
-                );
-            }
-
-            $linkTarget = is_link($currentPath) ? readlink($currentPath) : false;
-            $isRelativeLink = $linkTarget !== false && !Filesystem::isAbsolutePath($linkTarget);
-
-            if ($isRelativeLink && dirname($newPath) !== dirname($currentPath))
-            {
-                # Moving it as it is would leave it pointing somewhere else, so recreate it with its target adjusted.
-                self::moveRelativeSymlink($currentPath, $newPath, $linkTarget, $somethingExists);
+                # Suppress the warning, as we throw an exception instead.
+                if (!@rename($currentPath, $newPath))
+                {
+                    throw new FilesystemException("Failed to rename {$this->m_filepath} to {$newPath}.");
+                }
             }
             else
             {
-                self::moveFile($currentPath, $newPath, $overwriteExistingFile, $preserveOwnership);
+                # is_link() is needed too, as file_exists() is false for a broken symlink, which rename() would replace.
+                $somethingExists = file_exists($newPath) || is_link($newPath);
+
+                # is_dir() follows symlinks, so this also catches a symlink to a directory.
+                if (is_dir($newPath))
+                {
+                    throw new FileAlreadyExistsException(
+                        "Can't move {$this->m_filepath} to {$newPath}, as there is a directory there. Directories " .
+                        "are never replaced."
+                    );
+                }
+                elseif ($somethingExists && !$overwriteExistingFile)
+                {
+                    throw new FileAlreadyExistsException(
+                        "Can't move {$this->m_filepath} to {$newPath}, as something already exists there. Set " .
+                        "\$overwriteExistingFile to true to replace it."
+                    );
+                }
+                elseif ($somethingExists && self::isSameFile($currentPath, $newPath))
+                {
+                    throw new FileAlreadyExistsException(
+                        "Can't move {$this->m_filepath} to {$newPath}, as they are the same file (one is a symlink " .
+                        "to the other, or they are hard links), so replacing one with the other could lose its data."
+                    );
+                }
+
+                $linkTarget = is_link($currentPath) ? readlink($currentPath) : false;
+                $isRelativeLink = $linkTarget !== false && !Filesystem::isAbsolutePath($linkTarget);
+
+                if ($isRelativeLink && dirname($newPath) !== dirname($currentPath))
+                {
+                    # Moving it as it is would leave it pointing somewhere else, so recreate it with its target
+                    # adjusted.
+                    self::moveRelativeSymlink($currentPath, $newPath, $linkTarget, $somethingExists);
+                }
+                else
+                {
+                    self::moveFile($currentPath, $newPath, $overwriteExistingFile, $preserveOwnership);
+                }
             }
         }
 

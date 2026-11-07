@@ -262,40 +262,53 @@ class Directory
 
         if ($newPath !== $currentPath)
         {
-            $crossesFilesystem = $this->checkCanMoveTo($currentPath, $newPath);
-
-            # Check everything before anything is changed.
-            $symlinkUpdates = [];
-            $problems = [];
-
-            if ($crossesFilesystem)
-            {
-                self::planCopy($currentPath, $newPath, $overrideUmask, $preserveOwnership, $problems);
-            }
-            else
-            {
-                self::planSymlinkUpdates($currentPath, $currentPath, $newPath, $symlinkUpdates, $problems);
-            }
-
-            self::throwIfProblems($currentPath, $problems);
-
-            if ($directoryToCreate !== null)
-            {
-                Filesystem::mkdir($directoryToCreate, recursive: true);
-            }
-
-            if ($crossesFilesystem)
-            {
-                self::copyThenDelete($currentPath, $newPath, $overrideUmask, $preserveOwnership);
-            }
-            elseif (!@rename($currentPath, $newPath))
+            # On a filesystem that ignores case, a new name that only differs by case is the same directory, so just
+            # rename it, rather than refusing because something "already exists" there.
+            if (Filesystem::isCaseOnlyRename($currentPath, $newPath))
             {
                 # Suppress the warning, as we throw an exception instead.
-                throw new FilesystemException("Failed to move {$currentPath} to {$newPath}.");
+                if (!@rename($currentPath, $newPath))
+                {
+                    throw new FilesystemException("Failed to rename {$currentPath} to {$newPath}.");
+                }
             }
             else
             {
-                self::applySymlinkUpdates($currentPath, $newPath, $symlinkUpdates);
+                $crossesFilesystem = $this->checkCanMoveTo($currentPath, $newPath);
+
+                # Check everything before anything is changed.
+                $symlinkUpdates = [];
+                $problems = [];
+
+                if ($crossesFilesystem)
+                {
+                    self::planCopy($currentPath, $newPath, $overrideUmask, $preserveOwnership, $problems);
+                }
+                else
+                {
+                    self::planSymlinkUpdates($currentPath, $currentPath, $newPath, $symlinkUpdates, $problems);
+                }
+
+                self::throwIfProblems($currentPath, $problems);
+
+                if ($directoryToCreate !== null)
+                {
+                    Filesystem::mkdir($directoryToCreate, recursive: true);
+                }
+
+                if ($crossesFilesystem)
+                {
+                    self::copyThenDelete($currentPath, $newPath, $overrideUmask, $preserveOwnership);
+                }
+                elseif (!@rename($currentPath, $newPath))
+                {
+                    # Suppress the warning, as we throw an exception instead.
+                    throw new FilesystemException("Failed to move {$currentPath} to {$newPath}.");
+                }
+                else
+                {
+                    self::applySymlinkUpdates($currentPath, $newPath, $symlinkUpdates);
+                }
             }
         }
 
