@@ -5,6 +5,7 @@
  */
 
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;
+use Programster\CoreLibs\Enums\FileDeletionOperationEnum;
 use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
@@ -2103,7 +2104,9 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
     # With $resolveSymlinks, the real paths are given instead, including for what is found through a followed symlink.
     $realBase = realpath($base);
     assert(Filesystem::getDirContents("{$base}/link", resolveSymlinks: true) === $tidy(["{$realBase}/real/sub/f.txt"]));
-    assert(Filesystem::listDirectories("{$base}/link", resolveSymlinks: true) === $tidy(["{$realBase}/real/sub"]));
+    $resolvedDirectories = Filesystem::listDirectories("{$base}/link", resolveSymlinks: true);
+    $message = "listDirectories() resolving symlinks gave: " . implode(", ", $resolvedDirectories);
+    assert($resolvedDirectories === $tidy(["{$realBase}/real/sub"]), $message);
     symlink("{$base}/elsewhere", "{$base}/real/sub/to-elsewhere");
     $followed = Filesystem::getDirContents("{$base}/link", followSymlinks: true, resolveSymlinks: true);
     sort($followed);
@@ -2170,4 +2173,70 @@ $smoke->run("zipDir() keeping relative symlinks as they are, as on each system",
         SmokeTest::expectException(FilesystemException::class, $zipWithBrokenLink, "it has broken symlinks");
     }
 }, needsSymlinks: true, anySymlinks: false);
+
+$smoke->run("deleteDir() / emptyDir() in a sticky folder", function () {
+    # In a sticky folder (e.g. /tmp), only a file's owner (or the folder's, or root) can delete it. That needs a file
+    # someone else owns, which only root can make, and a normal user to test, so it uses the fixtures from
+    # run-all-php-versions.sh.
+    $fixtures = getenv("CORELIBS_TEST_FIXTURES");
+    $sticky = ($fixtures === false) ? "" : "{$fixtures}/sticky";
+
+    if ($sticky === "" || !is_dir($sticky))
+    {
+        SmokeTest::skip("deleteDir() / emptyDir() in a sticky folder", "needs the fixtures from run-all-php-versions.sh");
+    }
+    elseif (function_exists("posix_geteuid") && posix_geteuid() === 0)
+    {
+        SmokeTest::skip("deleteDir() / emptyDir() in a sticky folder", "needs a normal user, as root can delete anything");
+    }
+    else
+    {
+        # Our own file in it could be deleted, but nothing is, as root's can't be.
+        $ours = "{$sticky}/ours-" . getmypid() . ".txt";
+        file_put_contents($ours, "ours");
+        $problems = [];
+
+        try
+        {
+            Filesystem::emptyDir($sticky);
+        }
+        catch (DirectoryNotDeletableException $e)
+        {
+            $problems = $e->getProblems();
+        }
+        finally
+        {
+            $stillThere = file_exists($ours);
+            @unlink($ours);
+        }
+
+        assert(count($problems) === 1, "expected 1 problem, got " . count($problems));
+        assert($problems[0]->reason === FileDeletionProblemEnum::NOT_OWNED_IN_STICKY_DIRECTORY);
+        assert($problems[0]->path === "{$sticky}/root-owned.txt");
+        assert($stillThere, "emptyDir() deleted our file, despite refusing");
+    }
+});
+
+$smoke->run("deleteDir() failing part way through", function () use ($dir) {
+    # Some failures can't be seen beforehand (e.g. an immutable file), and containers can't usually make one, so give
+    # the step that deletes a plan with something in it that has gone, as if another process deleted it.
+    $runPlan = new ReflectionMethod(Filesystem::class, "runDeletionPlan");
+    $base = "{$dir}/delete-part-way";
+    mkdir($base);
+    touch("{$base}/first.txt");
+
+    $plan = [
+        [FileDeletionOperationEnum::UNLINK, "{$base}/first.txt"],
+        [FileDeletionOperationEnum::UNLINK, "{$base}/gone.txt"],
+        [FileDeletionOperationEnum::RMDIR, $base],
+    ];
+
+    $runBrokenPlan = function () use ($runPlan, $base, $plan): void {
+        $runPlan->invoke(null, $base, $plan);
+    };
+
+    # It stops at the failure, and says some may already have been deleted.
+    SmokeTest::expectException(FilesystemException::class, $runBrokenPlan, "some of {$base} may already have been deleted");
+    assert(!file_exists("{$base}/first.txt") && is_dir($base));
+});
 

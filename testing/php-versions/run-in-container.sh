@@ -37,6 +37,10 @@ echo "group 12345" > "$fixtures/other-group/other-group.txt"
 chown nobody:nogroup "$fixtures" "$fixtures/other-owner" "$fixtures/other-group" \
     "$fixtures/other-group/other-group.txt"
 chgrp 12345 "$fixtures/other-group/other-group.txt"
+# A "sticky" folder like /tmp, which anyone can write to, holding a file that only root can delete from it.
+mkdir -p "$fixtures/sticky"
+echo "owned by root" > "$fixtures/sticky/root-owned.txt"
+chmod 1777 "$fixtures/sticky"
 export CORELIBS_TEST_FIXTURES="$fixtures"
 
 echo "=== tests (as a normal user)"

@@ -626,3 +626,33 @@ $smoke->run("Directory moves with relative symlinks, as on each system", functio
     }
 }, needsSymlinks: true, anySymlinks: false);
 
+$smoke->run("Directory moves removing a partial copy", function () use ($dir) {
+    # A move to another filesystem checks everything can be copied first, so a copy only fails part way for a reason
+    # that can't be seen beforehand. So copy straight away (without the checks) with a file that can't be read.
+    if (SmokeTest::canTestPermissions("Directory moves removing a partial copy"))
+    {
+        $copyThenDelete = new ReflectionMethod(Directory::class, "copyThenDelete");
+        $base = realpath($dir) . "/partial-copy";
+        mkdir("{$base}/source/sub", 0777, true);
+        file_put_contents("{$base}/source/a.txt", "a");
+        file_put_contents("{$base}/source/sub/locked.txt", "locked");
+        chmod("{$base}/source/sub/locked.txt", 0000);
+
+        $copyWithUnreadableFile = function () use ($copyThenDelete, $base): void {
+            $copyThenDelete->invoke(null, "{$base}/source", "{$base}/copy", false, PreserveOwnershipEnum::NO);
+        };
+
+        try
+        {
+            # The copy fails, what was copied so far is removed, and the original is left as it was.
+            SmokeTest::expectException(FilesystemException::class, $copyWithUnreadableFile, "the original was left");
+            assert(!file_exists("{$base}/copy"), "the partial copy was left behind");
+            assert(file_get_contents("{$base}/source/a.txt") === "a" && file_exists("{$base}/source/sub/locked.txt"));
+        }
+        finally
+        {
+            chmod("{$base}/source/sub/locked.txt", 0644);
+        }
+    }
+});
+

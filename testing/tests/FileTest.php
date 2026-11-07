@@ -8,6 +8,7 @@ use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
+use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Models\CsvFile;

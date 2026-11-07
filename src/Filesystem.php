@@ -856,7 +856,8 @@ final class Filesystem
         }
 
         # Zip the real folder, so a symlink, a relative path or a trailing slash makes no difference to what is zipped.
-        $resolvedSourceFolder = realpath($sourceFolder);
+        # Tidy it, as on Windows realpath() gives "\", and the paths in the zip are worked out from it with "/".
+        $resolvedSourceFolder = self::normalisePath(realpath($sourceFolder));
 
         # Name the folder in the zip after the path we were given (e.g. a symlink's own name, rather than what it points
         # to), unless that has no name of its own, such as ".". Without $includeFolder, there's no folder at the top.
@@ -2499,7 +2500,10 @@ final class Filesystem
     {
         # Where it really leads, following any further links, which is false for a broken link. Its target as stored
         # is only read where it is needed, as on Windows that takes a call to PowerShell (see readLinkTarget()).
-        $realTarget = realpath($linkPath);
+        $resolvedTarget = realpath($linkPath);
+
+        # Tidied in the same way as the folder being zipped (see zipDir()), so the two can be compared.
+        $realTarget = ($resolvedTarget === false) ? false : self::normalisePath($resolvedTarget);
 
         if ($realTarget === false)
         {

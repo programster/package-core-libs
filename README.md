@@ -27,6 +27,18 @@ and "macOS tests" badges), but a few things work differently, or not at all, the
 
 Each method's docblock gives the details.
 
+#### WSL
+Inside WSL, PHP is running on Linux, so this library behaves as it does on Linux (though the tests aren't run in WSL
+automatically). Two places behave differently, because they are really the other system's files:
+
+| Where | What to expect |
+|---|---|
+| Windows drives seen from WSL (e.g. `/mnt/c`) | Unless the drive is mounted with the `metadata` option, Unix permissions and owners aren't stored there: `chmod()` and `chown()` have no lasting effect, and every file appears to belong to you. So checks that a copy kept its exact permissions (`$overrideUmask` on `File` and `Directory` moves) can fail there, and the moves that need them are refused. Moving files between there and WSL's own filesystem copies them, as they are different filesystems |
+| WSL's files seen from Windows (e.g. `\\wsl.localhost\Ubuntu\home\...`) | PHP on Windows treats these as a network share on another drive, so moves between them and `C:` copy rather than rename, and with `PreserveOwnershipEnum::YES`, are refused (see the table above). Symlinks made inside WSL may not show as symlinks from Windows |
+
+For the most predictable results, run PHP on the same side as the files: in WSL for files in WSL's filesystem, and on
+Windows for files on Windows drives.
+
 ### Recommended Extensions
 This package recommends various extensions such as mbstring in order to be able to perform some of
 the provided methods. However, we did not wish to prevent this from allowing you to install the 
