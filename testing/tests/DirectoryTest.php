@@ -601,32 +601,14 @@ $smoke->run("Directory moves with absolute symlinks", function () use ($dir) {
 }, needsSymlinks: true, anySymlinks: false);
 
 $smoke->run("Directory moves with relative symlinks, as on each system", function () use ($dir) {
-    # PHP can't create a relative symlink on Windows, but Windows' own mklink can, so use that to set this up there.
-    $makeRelativeLink = function (string $target, string $linkPath): bool {
-        $made = false;
-
-        if (PHP_OS_FAMILY === "Windows")
-        {
-            $command = "mklink " . escapeshellarg(str_replace("/", "\\", $linkPath)) . " " . escapeshellarg($target);
-            exec("cmd /c {$command} 2>NUL", $output, $exitCode);
-            $made = ($exitCode === 0);
-        }
-        else
-        {
-            $made = symlink($target, $linkPath);
-        }
-
-        return $made;
-    };
-
     $base = realpath($dir) . "/relative-directory-links";
     mkdir("{$base}/project", 0777, true);
     mkdir("{$base}/archive");
     file_put_contents("{$base}/outside.txt", "outside");
     file_put_contents("{$base}/project/inside.txt", "inside");
 
-    $canTest = $makeRelativeLink("../outside.txt", "{$base}/project/to-outside")
-        && $makeRelativeLink("inside.txt", "{$base}/project/to-inside");
+    $canTest = SmokeTest::makeRelativeSymlink("../outside.txt", "{$base}/project/to-outside")
+        && SmokeTest::makeRelativeSymlink("inside.txt", "{$base}/project/to-inside");
 
     if (!$canTest)
     {

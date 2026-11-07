@@ -135,6 +135,34 @@ final class SmokeTest
 
 
     /**
+     * Create a symlink with a relative target, for tests of how the library handles one. PHP can't
+     * create a relative symlink on Windows, but Windows' own mklink can, so that is used there.
+     * @param string $target - the relative target, e.g. "../data.txt".
+     * @param string $linkPath - where to create the link.
+     * @return bool - true if it was created.
+     */
+    public static function makeRelativeSymlink(string $target, string $linkPath): bool
+    {
+        $made = false;
+
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            $windowsTarget = escapeshellarg(str_replace("/", "\\", $target));
+            $windowsLinkPath = escapeshellarg(str_replace("/", "\\", $linkPath));
+            $command = "mklink {$windowsLinkPath} {$windowsTarget}";
+            exec("cmd /c {$command} 2>NUL", $output, $exitCode);
+            $made = ($exitCode === 0);
+        }
+        else
+        {
+            $made = @symlink($target, $linkPath);
+        }
+
+        return $made;
+    }
+
+
+    /**
      * Give a file to another user and group (OTHER_USER_ID), so that a test can check the library
      * doesn't change a file's owner. Only root can do this, which the Docker test runs always are,
      * and Windows can't at all, as it has no Unix owners. Otherwise, this records the check as

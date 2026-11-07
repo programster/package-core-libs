@@ -2128,3 +2128,46 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
     }
 }, needsSymlinks: true, anySymlinks: false);
 
+$smoke->run("zipDir() keeping relative symlinks as they are, as on each system", function () use ($dir) {
+    # On Windows, readlink() gives the resolved absolute path, so zipDir() asks PowerShell for the stored target
+    # instead. That only runs on Windows, but tidying what it gives can be checked here.
+    $tidy = new ReflectionMethod(Filesystem::class, "tidyWindowsLinkTarget");
+    assert($tidy->invoke(null, "..\\shared\\data.txt") === "../shared/data.txt");
+    assert($tidy->invoke(null, "\\\\?\\C:\\data\\x.txt") === "C:/data/x.txt");
+    assert($tidy->invoke(null, "\\\\?\\UNC\\server\\share\\x") === "//server/share/x");
+
+    $base = realpath($dir) . "/zip-relative-links";
+    mkdir("{$base}/project", 0777, true);
+    file_put_contents("{$base}/outside.txt", "outside");
+    file_put_contents("{$base}/project/inside.txt", "inside");
+
+    $canTest = SmokeTest::makeRelativeSymlink("../outside.txt", "{$base}/project/to-outside")
+        && SmokeTest::makeRelativeSymlink("inside.txt", "{$base}/project/to-inside");
+
+    if (!$canTest)
+    {
+        SmokeTest::skip("zipDir() keeping relative symlinks as they are, as on each system", "needs relative symlinks");
+    }
+    else
+    {
+        # Both are stored with relative targets: the one outside as it is, and the one inside worked out again.
+        Filesystem::zipDir("{$base}/project", "{$base}/project.zip", deleteOnComplete: false, includeFolder: false);
+        $zip = new ZipArchive();
+        $zip->open("{$base}/project.zip");
+        assert($zip->getFromName("to-outside") === "../outside.txt", "to-outside: " . $zip->getFromName("to-outside"));
+        assert($zip->getFromName("to-inside") === "inside.txt", "to-inside: " . $zip->getFromName("to-inside"));
+        $zip->close();
+
+        # A broken one is reported as broken, rather than as one that can't be read, on Windows too.
+        file_put_contents("{$base}/soon-gone.txt", "x");
+        SmokeTest::makeRelativeSymlink("../soon-gone.txt", "{$base}/project/broken");
+        unlink("{$base}/soon-gone.txt");
+
+        $zipWithBrokenLink = function () use ($base): void {
+            Filesystem::zipDir("{$base}/project", "{$base}/broken.zip", deleteOnComplete: false);
+        };
+
+        SmokeTest::expectException(FilesystemException::class, $zipWithBrokenLink, "it has broken symlinks");
+    }
+}, needsSymlinks: true, anySymlinks: false);
+

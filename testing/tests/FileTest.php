@@ -495,29 +495,11 @@ $smoke->run("moving a symlink where link() follows them", function () use ($dir)
 }, needsSymlinks: true);
 
 $smoke->run("File moves of a relative symlink, as on each system", function () use ($dir) {
-    # PHP can't create a relative symlink on Windows, but Windows' own mklink can, so use that to set this up there.
-    $makeRelativeLink = function (string $target, string $linkPath): bool {
-        $made = false;
-
-        if (PHP_OS_FAMILY === "Windows")
-        {
-            $command = "mklink " . escapeshellarg(str_replace("/", "\\", $linkPath)) . " " . escapeshellarg($target);
-            exec("cmd /c {$command} 2>NUL", $output, $exitCode);
-            $made = ($exitCode === 0);
-        }
-        else
-        {
-            $made = symlink($target, $linkPath);
-        }
-
-        return $made;
-    };
-
     $base = realpath($dir) . "/relative-link-moves";
     mkdir("{$base}/sub", 0777, true);
     file_put_contents("{$base}/target.txt", "target");
 
-    if (!$makeRelativeLink("target.txt", "{$base}/link"))
+    if (!SmokeTest::makeRelativeSymlink("target.txt", "{$base}/link"))
     {
         SmokeTest::skip("File moves of a relative symlink, as on each system", "relative symlinks can't be made here");
     }
@@ -534,7 +516,7 @@ $smoke->run("File moves of a relative symlink, as on each system", function () u
         # anything changes, as Windows can't create it again. Elsewhere, it is moved, and stays pointing at the same
         # (missing) place.
         file_put_contents("{$base}/missing.txt", "soon gone");
-        $makeRelativeLink("missing.txt", "{$base}/broken");
+        SmokeTest::makeRelativeSymlink("missing.txt", "{$base}/broken");
         $broken = new File("{$base}/broken");
         unlink("{$base}/missing.txt");
 

@@ -33,6 +33,15 @@ use ZipArchive;
 
 final class Filesystem
 {
+    # A PowerShell script that prints a symlink's target as it is stored (so a relative one stays relative), which PHP's
+    # readlink() can't on Windows. The link's path is read from stdin, and both are base64 of UTF-8, so no character
+    # can be mangled on the way, and the path is never part of the command.
+    private const string WINDOWS_LINK_TARGET_SCRIPT = '$ErrorActionPreference = "Stop"; '
+        . '$path = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadLine())); '
+        . '$target = @((Get-Item -LiteralPath $path -Force).Target)[0]; '
+        . '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$target))';
+
+
     # The file type and permissions of a symlink (S_IFLNK and 0777), as stored in zip entries.
     private const int SYMLINK_MODE = 0120777;
 
@@ -2488,20 +2497,13 @@ final class Filesystem
         array &$brokenLinks
     ): void
     {
-        # Suppress the warning, as we throw an exception instead.
-        $rawTarget = @readlink($linkPath);
-
-        if ($rawTarget === false)
-        {
-            throw new FilesystemException("Failed to read where the symlink {$linkPath} points.");
-        }
-
-        # Where it really leads, following any further links, which is false for a broken link.
+        # Where it really leads, following any further links, which is false for a broken link. Its target as stored
+        # is only read where it is needed, as on Windows that takes a call to PowerShell (see readLinkTarget()).
         $realTarget = realpath($linkPath);
 
         if ($realTarget === false)
         {
-            $brokenLinks[] = "{$linkPath} (pointing at {$rawTarget})";
+            $brokenLinks[] = "{$linkPath} (pointing at " . self::readLinkTarget($linkPath) . ")";
         }
         elseif (self::isWithinDirectory($realTarget, $root['source'], false))
         {
@@ -2511,7 +2513,7 @@ final class Filesystem
         }
         elseif (!$root['followSymlinks'])
         {
-            self::addZipSymlink($zip, $zipPath, $rawTarget);
+            self::addZipSymlink($zip, $zipPath, self::readLinkTarget($linkPath));
         }
         elseif (is_dir($realTarget))
         {
@@ -2854,6 +2856,80 @@ final class Filesystem
         {
             throw new FilesystemException("Unzipped it, but failed to create the symlink {$linkPath} to {$target}.");
         }
+    }
+
+
+    /**
+     * Read a symlink's target as it is stored, so that a relative one stays relative, even if the
+     * link is broken. On Windows, PHP's readlink() gives the fully resolved absolute path instead
+     * (and fails for a broken link), so this asks PowerShell there, which takes around half a
+     * second, so only call it when the stored target is needed. It gives the target with "/" as
+     * the separator there.
+     * @param string $linkPath - the symlink.
+     * @return string - its target, e.g. "../shared/data.txt".
+     * @throws FilesystemException - if it couldn't be read.
+     */
+    private static function readLinkTarget(string $linkPath): string
+    {
+        $target = "";
+
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            # -EncodedCommand wants base64 of UTF-16LE. The script is ASCII, so a 0 byte after each character does it.
+            $encodedScript = base64_encode(preg_replace('/(.)/s', "\$1\0", self::WINDOWS_LINK_TARGET_SCRIPT));
+            $command = "powershell -NoProfile -NonInteractive -EncodedCommand {$encodedScript}";
+
+            try
+            {
+                $output = Core::runCommand($command, base64_encode($linkPath) . "\n");
+            }
+            catch (CommandFailedException $e)
+            {
+                throw new FilesystemException("Failed to read where the symlink {$linkPath} points.", 0, $e);
+            }
+
+            $decoded = base64_decode(trim($output), true);
+
+            if ($decoded === false || $decoded === "")
+            {
+                throw new FilesystemException("Failed to read where the symlink {$linkPath} points.");
+            }
+
+            $target = self::tidyWindowsLinkTarget($decoded);
+        }
+        else
+        {
+            # Suppress the warning, as we throw an exception instead.
+            $rawTarget = @readlink($linkPath);
+
+            if ($rawTarget === false)
+            {
+                throw new FilesystemException("Failed to read where the symlink {$linkPath} points.");
+            }
+
+            $target = $rawTarget;
+        }
+
+        return $target;
+    }
+
+
+    /**
+     * Tidy a symlink target that Windows stored, for readLinkTarget(): remove the "\\?\" that
+     * marks a long path (e.g. "\\?\C:\data", or "\\?\UNC\server\share" for "\\server\share"), and
+     * use "/" as the separator, which Windows accepts too, and other systems need.
+     * @param string $target - the target as Windows stored it.
+     * @return string - the tidied target.
+     */
+    private static function tidyWindowsLinkTarget(string $target): string
+    {
+        $withoutPrefix = match (true) {
+            str_starts_with($target, "\\\\?\\UNC\\") => "\\\\" . substr($target, 8),
+            str_starts_with($target, "\\\\?\\") => substr($target, 4),
+            default => $target,
+        };
+
+        return str_replace("\\", "/", $withoutPrefix);
     }
 
 
