@@ -1,8 +1,8 @@
 <?php
 
 /*
- * Path helpers for working out where symlinks point, shared by File and Directory, which both have
- * to keep symlinks pointing at the right place when they move them.
+ * Path helpers for working out where paths and symlinks point, shared by File, Directory and
+ * Filesystem, which have to keep symlinks pointing at the right place when they move them.
  */
 
 namespace Programster\CoreLibs\Models;
@@ -10,6 +10,35 @@ namespace Programster\CoreLibs\Models;
 
 trait SymlinkPathsTrait
 {
+    /**
+     * Check whether a path is absolute, rather than relative to some other directory: one starting
+     * with "/". On Windows, this also accepts the absolute forms of a Windows path: one starting
+     * with a drive letter (e.g. "C:\data" or "C:/data"), a UNC path (e.g. "\\server\share"), or
+     * one starting with "\" (the root of the current drive). A drive letter without a slash
+     * after it (e.g. "C:data") is relative to that drive's current directory, so isn't absolute.
+     * Elsewhere, "C:\data" and "\data" are just unusual relative names, so they aren't absolute.
+     * @param string $path - the path to check.
+     * @return bool - true if it is absolute.
+     */
+    private static function isAbsolutePath(string $path): bool
+    {
+        $isWindowsAbsolute = PHP_OS_FAMILY === "Windows" && self::isWindowsAbsolutePath($path);
+        return str_starts_with($path, "/") || $isWindowsAbsolute;
+    }
+
+
+    /**
+     * Check whether a path is in one of the absolute forms of a Windows path (see isAbsolutePath()),
+     * whatever system this is running on.
+     * @param string $path - the path to check.
+     * @return bool - true if it starts with a drive letter and a slash, or with "\".
+     */
+    private static function isWindowsAbsolutePath(string $path): bool
+    {
+        return str_starts_with($path, "\\") || preg_match('/^[A-Za-z]:[\\\\\/]/', $path) === 1;
+    }
+
+
     /**
      * Work out the absolute path a symlink target points to, as the operating system would. The
      * directory part is resolved with realpath() where it exists, as the system follows any
@@ -24,7 +53,7 @@ trait SymlinkPathsTrait
     {
         # Don't tidy the ".." parts out first: for "sub/../x.txt" where "sub" is itself a symlink, the
         # system goes up from wherever "sub" leads, which only realpath() on the path as written gets right.
-        $joined = str_starts_with($linkTarget, "/") ? $linkTarget : "{$linkDirectory}/{$linkTarget}";
+        $joined = self::isAbsolutePath($linkTarget) ? $linkTarget : "{$linkDirectory}/{$linkTarget}";
         $realParent = realpath(dirname($joined));
 
         return ($realParent === false)

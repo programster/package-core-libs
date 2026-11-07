@@ -4,6 +4,8 @@
  * Smoke tests for Directory. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
+use Programster\CoreLibs\Exceptions\DirectoryNotMovableException;
+use Programster\CoreLibs\Enums\DirectoryMoveProblemEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
@@ -221,6 +223,33 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
 
             assert(is_file("{$base}/uncopyable/a.txt") && !file_exists("{$otherFilesystem}/uncopyable"));
 
+            # The exception is a DirectoryNotMovableException, whose getProblems() says what and why.
+            try
+            {
+                $uncopyable->move($otherFilesystem);
+                assert(false, "the move should have been refused");
+            }
+            catch (DirectoryNotMovableException $e)
+            {
+                $reasons = [];
+
+                foreach ($e->getProblems() as $problem)
+                {
+                    $reasons[basename($problem->getPath())] = $problem->getReason();
+                }
+
+                ksort($reasons);
+
+                $expectedReasons = [
+                    "a.txt" => DirectoryMoveProblemEnum::HARD_LINK,
+                    "b.txt" => DirectoryMoveProblemEnum::HARD_LINK,
+                    "pipe" => DirectoryMoveProblemEnum::SPECIAL_FILE,
+                ];
+
+                assert($reasons === $expectedReasons);
+                assert(str_contains($e->getProblems()[0]->getDescription(), "names), which would become a separate"));
+            }
+
             # Files owned by another user, or by a group the current user isn't in, would change owner or group if
             # copied, so are refused. Only root can create these, so run-in-container.sh makes them before the
             # normal-user run, and says where with CORELIBS_TEST_FIXTURES.
@@ -266,6 +295,31 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                         $expectedMessage
                     );
                     assert(is_dir("{$fixtures}/{$fixture}") && !file_exists("{$otherFilesystem}/{$fixture}"));
+                }
+
+                $foreignReasons = [
+                    "other-owner" => DirectoryMoveProblemEnum::OWNED_BY_ANOTHER_USER,
+                    "other-group" => DirectoryMoveProblemEnum::GROUP_NOT_A_MEMBER_OF,
+                ];
+
+                foreach ($foreignReasons as $fixture => $expectedReason)
+                {
+                    try
+                    {
+                        (new Directory("{$fixtures}/{$fixture}"))->move($otherFilesystem);
+                        assert(false, "moving {$fixture} should have been refused");
+                    }
+                    catch (DirectoryNotMovableException $e)
+                    {
+                        $problemReasons = [];
+
+                        foreach ($e->getProblems() as $problem)
+                        {
+                            $problemReasons[] = $problem->getReason();
+                        }
+
+                        assert(in_array($expectedReason, $problemReasons, true), "{$fixture}'s problems");
+                    }
                 }
 
                 # With PREFERRED or NO, they are moved anyway, and the copies belong to the current user and group.

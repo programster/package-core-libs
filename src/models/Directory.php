@@ -10,10 +10,11 @@
 namespace Programster\CoreLibs\Models;
 
 
+use Programster\CoreLibs\Exceptions\DirectoryNotMovableException;
+use Programster\CoreLibs\Enums\DirectoryMoveProblemEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
-use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
@@ -81,8 +82,8 @@ class Directory
      * @throws BadArgumentException - if $newPath is empty, or is inside this directory.
      * @throws DirectoryDoesNotExistException - if the directory $newPath would be in doesn't exist.
      * @throws FileAlreadyExistsException - if something already exists at $newPath.
-     * @throws BadFilePermissionsException - if the checks find anything that would stop the move or
-     * the symlink updates (see move()). Nothing is moved if this happens.
+     * @throws DirectoryNotMovableException - if the checks find anything that would stop the move or
+     * the symlink updates (see move()). getProblems() lists them. Nothing is moved if this happens.
      * @throws FilesystemException - if the move failed.
      */
     public function rename(
@@ -167,9 +168,9 @@ class Directory
      * is false.
      * @throws FileAlreadyExistsException - if $directory already has something with this
      * directory's name in it.
-     * @throws BadFilePermissionsException - if the checks find anything that would stop the move,
-     * the copy, or the symlink updates. Its message lists them (stopping at 100). Nothing is moved
-     * if this happens.
+     * @throws DirectoryNotMovableException - if the checks find anything that would stop the move,
+     * the copy, or the symlink updates. getProblems() lists them, as does the message (stopping at
+     * 100). Nothing is moved if this happens. This extends BadFilePermissionsException.
      * @throws FilesystemException - if the move or copy failed, a symlink couldn't be updated, or
      * (after a copy) the original couldn't be deleted, despite the checks.
      */
@@ -222,8 +223,8 @@ class Directory
     private function resolvePath(string $path): string
     {
         $parent = dirname($this->m_path);
-        $resolved = str_starts_with($path, "/") ? $path : "{$parent}/{$path}";
-        return str_starts_with($resolved, "/") ? $resolved : getcwd() . "/" . $resolved;
+        $resolved = self::isAbsolutePath($path) ? $path : "{$parent}/{$path}";
+        return self::isAbsolutePath($resolved) ? $resolved : getcwd() . "/" . $resolved;
     }
 
 
@@ -239,7 +240,7 @@ class Directory
      * @return void
      * @throws BadArgumentException - if $targetPath is inside this directory.
      * @throws FileAlreadyExistsException - if something already exists at $targetPath.
-     * @throws BadFilePermissionsException - if anything would stop the move, copy or symlink
+     * @throws DirectoryNotMovableException - if anything would stop the move, copy or symlink
      * updates.
      * @throws FilesystemException - if the move or copy failed, a symlink couldn't be updated, or
      * the original couldn't be deleted after a copy.
@@ -310,7 +311,7 @@ class Directory
      * @throws FileAlreadyExistsException - if something already exists at $newPath.
      * @return bool - true if $newPath is on a different filesystem, so the directory has to be
      * copied there, rather than moved in one step.
-     * @throws BadFilePermissionsException - if the directory can't be removed from its parent, or
+     * @throws DirectoryNotMovableException - if the directory can't be removed from its parent, or
      * added to its new one.
      */
     private function checkCanMoveTo(string $currentPath, string $newPath): bool
@@ -341,17 +342,25 @@ class Directory
         $isNewParent = $currentParent !== dirname($newPath);
 
         # Moving a directory to a new parent also updates its ".." entry, so the directory itself must be writable.
-        if (
-               !is_writable($currentParent)
-            || !is_writable($existingAncestor)
-            || ($isNewParent && !is_writable($currentPath))
-        )
+        $mustBeWritable = $isNewParent
+            ? [$currentParent, $existingAncestor, $currentPath]
+            : [$currentParent, $existingAncestor];
+
+        $problems = [];
+
+        foreach (array_unique($mustBeWritable) as $directory)
         {
-            throw new BadFilePermissionsException(
-                "Can't move {$currentPath} to {$newPath}, as {$currentParent}, {$existingAncestor}" .
-                ($isNewParent ? " and {$currentPath}" : "") . " must all be writable."
-            );
+            if (!is_writable($directory))
+            {
+                $problems[] = new DirectoryMoveProblem(
+                    $directory,
+                    DirectoryMoveProblemEnum::DIRECTORY_NOT_WRITABLE,
+                    "{$directory} can't be written to, which moving {$currentPath} to {$newPath} needs."
+                );
+            }
         }
+
+        self::throwIfProblems($currentPath, $problems);
 
         return !Filesystem::isOnSameFilesystem($currentPath, $existingAncestor);
     }
@@ -382,7 +391,11 @@ class Directory
 
             if ($entries === false)
             {
-                $problems[] = "{$directory} can't be listed, so the symlinks in it can't be checked.";
+                $problems[] = new DirectoryMoveProblem(
+                    $directory,
+                    DirectoryMoveProblemEnum::DIRECTORY_NOT_LISTABLE,
+                    "{$directory} can't be listed, so the symlinks in it can't be checked."
+                );
             }
             else
             {
@@ -401,7 +414,11 @@ class Directory
                         {
                             if (!is_writable($directory) || !is_executable($directory))
                             {
-                                $problems[] = "{$path} needs updating, but {$directory} can't be written to.";
+                                $problems[] = new DirectoryMoveProblem(
+                                    $path,
+                                    DirectoryMoveProblemEnum::SYMLINK_NOT_UPDATABLE,
+                                    "{$path} needs updating, but {$directory} can't be written to."
+                                );
                             }
 
                             $symlinkUpdates[] = [$path, $newTarget];
@@ -435,7 +452,7 @@ class Directory
         string $newRoot
     ): string
     {
-        $isAbsolute = str_starts_with($linkTarget, "/");
+        $isAbsolute = self::isAbsolutePath($linkTarget);
         $pointsAt = self::resolveLinkTarget($linkDirectory, $linkTarget);
         $isInside = self::isWithinDirectory($pointsAt, $oldRoot);
 
@@ -519,25 +536,17 @@ class Directory
 
         if ($checkOwnership && !function_exists('posix_geteuid'))
         {
-            $problems[] = "Moving {$oldRoot} to a different filesystem needs PHP's posix extension, to check who " .
-                "owns what, so that ownership isn't silently changed (or pass PreserveOwnershipEnum::PREFERRED or NO).";
+            $problems[] = new DirectoryMoveProblem(
+                $oldRoot,
+                DirectoryMoveProblemEnum::POSIX_EXTENSION_MISSING,
+                "Moving {$oldRoot} to a different filesystem needs PHP's posix extension, to check who owns what, " .
+                "so that ownership isn't silently changed (or pass PreserveOwnershipEnum::PREFERRED or NO)."
+            );
         }
         else
         {
             $totalBytes = 0;
             self::planCopyEntry($oldRoot, $overrideUmask, $checkOwnership, $problems, $totalBytes);
-
-            # Say once, after them, how ownership problems can be avoided.
-            $isOwnershipProblem = function (string $problem): bool {
-                return str_contains($problem, "would change its owner")
-                    || str_contains($problem, "would change its group");
-            };
-
-            if (count(array_filter($problems, $isOwnershipProblem)) > 0)
-            {
-                $problems[] = "To keep these owners and groups, run this as root (e.g. with sudo), or pass " .
-                    "PreserveOwnershipEnum::PREFERRED or NO to let the copies belong to the current user.";
-            }
 
             # Check the space at the nearest existing directory, as the destination may not exist yet.
             $existingAncestor = dirname($newPath);
@@ -551,7 +560,11 @@ class Directory
 
             if ($freeBytes !== false && $freeBytes < $totalBytes && count($problems) < self::MAX_PROBLEMS)
             {
-                $problems[] = "{$existingAncestor} only has {$freeBytes} bytes free, but copying needs {$totalBytes}.";
+                $problems[] = new DirectoryMoveProblem(
+                    $existingAncestor,
+                    DirectoryMoveProblemEnum::NOT_ENOUGH_SPACE,
+                    "{$existingAncestor} only has {$freeBytes} bytes free, but copying needs {$totalBytes}."
+                );
             }
         }
     }
@@ -587,31 +600,54 @@ class Directory
 
             if (!$isDirectory && !$isSymlink && $type !== 0100000)
             {
-                $problems[] = "{$path} is a special file (e.g. a pipe, socket or device), which can't be copied.";
+                $problems[] = new DirectoryMoveProblem(
+                    $path,
+                    DirectoryMoveProblemEnum::SPECIAL_FILE,
+                    "{$path} is a special file (e.g. a pipe, socket or device), which can't be copied."
+                );
             }
             elseif ($type === 0100000 && $stats['nlink'] > 1)
             {
-                $problems[] = "{$path} is a hard link (it has {$stats['nlink']} names), which would become a " .
-                    "separate copy.";
+                $problems[] = new DirectoryMoveProblem(
+                    $path,
+                    DirectoryMoveProblemEnum::HARD_LINK,
+                    "{$path} is a hard link (it has {$stats['nlink']} names), which would become a separate copy."
+                );
             }
             elseif ($checkOwnership && $userId !== 0 && $stats['uid'] !== $userId)
             {
-                $problems[] = "{$path} is owned by user {$stats['uid']}, so a copy (owned by user {$userId}) " .
-                    "would change its owner. Only root can keep it.";
+                $problems[] = new DirectoryMoveProblem(
+                    $path,
+                    DirectoryMoveProblemEnum::OWNED_BY_ANOTHER_USER,
+                    "{$path} is owned by user {$stats['uid']}, so a copy (owned by user {$userId}) would change " .
+                    "its owner. Only root can keep it."
+                );
             }
             elseif ($checkOwnership && $userId !== 0 && !in_array($stats['gid'], $groupIds, true))
             {
-                $problems[] = "{$path} belongs to group {$stats['gid']}, which the current user isn't in, so a " .
-                    "copy would change its group.";
+                $problems[] = new DirectoryMoveProblem(
+                    $path,
+                    DirectoryMoveProblemEnum::GROUP_NOT_A_MEMBER_OF,
+                    "{$path} belongs to group {$stats['gid']}, which the current user isn't in, so a copy would " .
+                    "change its group."
+                );
             }
             elseif (!$isSymlink && !is_readable($path))
             {
-                $problems[] = "{$path} can't be read, so it can't be copied.";
+                $problems[] = new DirectoryMoveProblem(
+                    $path,
+                    DirectoryMoveProblemEnum::NOT_READABLE,
+                    "{$path} can't be read, so it can't be copied."
+                );
             }
             elseif ($isDirectory && (!is_writable($path) || !is_executable($path)))
             {
                 # The original is deleted after copying, which means removing everything in each directory.
-                $problems[] = "{$path} can't be written to, so the original couldn't be deleted after copying.";
+                $problems[] = new DirectoryMoveProblem(
+                    $path,
+                    DirectoryMoveProblemEnum::ORIGINAL_NOT_DELETABLE,
+                    "{$path} can't be written to, so the original couldn't be deleted after copying."
+                );
             }
 
             if ($type === 0100000)
@@ -631,7 +667,11 @@ class Directory
             }
             elseif ($isDirectory && is_readable($path))
             {
-                $problems[] = "{$path} can't be opened, so the things in it can't be copied.";
+                $problems[] = new DirectoryMoveProblem(
+                    $path,
+                    DirectoryMoveProblemEnum::DIRECTORY_NOT_LISTABLE,
+                    "{$path} can't be opened, so the things in it can't be copied."
+                );
             }
         }
     }
@@ -916,9 +956,9 @@ class Directory
     /**
      * Throw if the checks before a move found anything that would stop it.
      * @param string $path - the directory being moved, for the message.
-     * @param array $problems - descriptions of the problems found.
+     * @param array<DirectoryMoveProblem> $problems - the problems found.
      * @return void
-     * @throws BadFilePermissionsException - if there are any problems.
+     * @throws DirectoryNotMovableException - if there are any problems.
      */
     private static function throwIfProblems(string $path, array $problems): void
     {
@@ -930,15 +970,34 @@ class Directory
                 ? self::MAX_PROBLEMS . " or more (stopped counting at " . self::MAX_PROBLEMS . ") problems"
                 : count($problems) . " problem(s)";
 
+            $describe = function (DirectoryMoveProblem $problem): string {
+                return $problem->getDescription();
+            };
+
             $message = "Can't move {$path}, as {$countText} were found, so nothing was moved:\n - " .
-                implode("\n - ", array_slice($problems, 0, $maxListed));
+                implode("\n - ", array_map($describe, array_slice($problems, 0, $maxListed)));
 
             if (count($problems) > $maxListed)
             {
                 $message .= "\n - and " . (count($problems) - $maxListed) . " more.";
             }
 
-            throw new BadFilePermissionsException($message);
+            # Say once, after them, how ownership problems can be avoided.
+            $isOwnershipProblem = function (DirectoryMoveProblem $problem): bool {
+                return in_array(
+                    $problem->getReason(),
+                    [DirectoryMoveProblemEnum::OWNED_BY_ANOTHER_USER, DirectoryMoveProblemEnum::GROUP_NOT_A_MEMBER_OF],
+                    true
+                );
+            };
+
+            if (count(array_filter($problems, $isOwnershipProblem)) > 0)
+            {
+                $message .= "\nTo keep these owners and groups, run this as root (e.g. with sudo), or pass " .
+                    "PreserveOwnershipEnum::PREFERRED or NO to let the copies belong to the current user.";
+            }
+
+            throw new DirectoryNotMovableException($message, $problems);
         }
     }
 

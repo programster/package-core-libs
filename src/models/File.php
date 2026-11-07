@@ -191,7 +191,7 @@ class File
      */
     private function resolvePath(string $path): string
     {
-        return str_starts_with($path, "/") ? $path : dirname($this->m_filepath) . "/" . $path;
+        return self::isAbsolutePath($path) ? $path : dirname($this->m_filepath) . "/" . $path;
     }
 
 
@@ -258,7 +258,7 @@ class File
             }
 
             $linkTarget = is_link($currentPath) ? readlink($currentPath) : false;
-            $isRelativeLink = $linkTarget !== false && !str_starts_with($linkTarget, "/");
+            $isRelativeLink = $linkTarget !== false && !self::isAbsolutePath($linkTarget);
 
             if ($isRelativeLink && dirname($newPath) !== dirname($currentPath))
             {

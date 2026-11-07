@@ -14,6 +14,7 @@ use Programster\CoreLibs\Enums\MemoryTypeEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
 use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
+use Programster\CoreLibs\Exceptions\DirectoryNotMovableException;
 use Programster\CoreLibs\Models\FileDeletionProblem;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
@@ -361,8 +362,8 @@ final class Filesystem
      * @throws DirectoryDoesNotExistException - if there is no directory at $source, or
      * $destination's parent doesn't exist.
      * @throws FileAlreadyExistsException - if something already exists at $destination.
-     * @throws BadFilePermissionsException - if anything would stop the move or the symlink updates.
-     * Nothing is moved if this happens.
+     * @throws DirectoryNotMovableException - if anything would stop the move or the symlink updates.
+     * getProblems() lists them. Nothing is moved if this happens.
      * @throws FilesystemException - if the move or copy failed, or the original couldn't be deleted
      * after a copy to a different filesystem.
      */
@@ -373,7 +374,7 @@ final class Filesystem
         PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
     ): void
     {
-        $absoluteDestination = str_starts_with($destination, "/") ? $destination : getcwd() . "/" . $destination;
+        $absoluteDestination = self::isAbsolutePath($destination) ? $destination : getcwd() . "/" . $destination;
         $directory = new Directory($source);
         $directory->rename($absoluteDestination, $overrideUmask, $preserveOwnership);
     }
@@ -410,7 +411,7 @@ final class Filesystem
         PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
     ): void
     {
-        $absoluteDestination = str_starts_with($destination, "/") ? $destination : getcwd() . "/" . $destination;
+        $absoluteDestination = self::isAbsolutePath($destination) ? $destination : getcwd() . "/" . $destination;
         $file = new File($source);
         $file->rename($absoluteDestination, $overwriteExistingFile, $preserveOwnership);
     }
@@ -1163,7 +1164,7 @@ final class Filesystem
     {
         foreach ([$path1, $path2] as $path)
         {
-            if (!str_starts_with($path, "/"))
+            if (!self::isAbsolutePath($path))
             {
                 throw new BadArgumentException("isOnSameFilesystem: {$path} must be an absolute path.");
             }
@@ -2122,7 +2123,7 @@ final class Filesystem
                 ? file_get_contents($extractedPath)
                 : false;
 
-            $isSafeName = !str_starts_with($entry, "/") && !in_array("..", explode("/", $entry), true);
+            $isSafeName = !self::isAbsolutePath($entry) && !in_array("..", explode("/", $entry), true);
             $isValid = $target !== false && $target !== "" && $isSafeName;
             $resolvedTarget = $isValid ? self::resolveLinkTarget(dirname($finalPath), $target) : "";
 
