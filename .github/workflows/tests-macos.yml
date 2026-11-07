@@ -1,6 +1,6 @@
 # Runs the tests on macOS, on every supported version of PHP. Linux is the first-class platform (see tests.yml, and
 # the README), so this is a separate workflow with its own badge: it shows how far macOS support has got, without
-# turning the main "Tests" badge red. The Docker images the Linux tests use don't run on GitHub's macOS runners, so
+# turning the "Linux tests" badge red. The Docker images the Linux tests use don't run on GitHub's macOS runners, so
 # PHP is installed on the runner directly. macOS's usual filesystem (APFS) ignores case, unlike Linux's.
 name: macOS tests
 

@@ -1,8 +1,8 @@
 # Runs lint and the tests on every supported version of PHP, using the same script as running them locally
 # (testing/run-all-php-versions.sh), which tests each version in its own Docker container, as root. Running as root
 # means the checks that need it (e.g. that rewriting a file keeps its owner) run here too, rather than being skipped.
-# The README's "Tests" badge shows the result of the latest run on the default branch.
-name: Tests
+# The README's "Linux tests" badge shows the result of the latest run on the default branch.
+name: Linux tests
 
 on:
     # Pushes to the main branch (not work-in-progress branches), and every tag, e.g. a new release.

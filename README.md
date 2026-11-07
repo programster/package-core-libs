@@ -1,7 +1,7 @@
 Core Libs
 ========
 
-[![Tests](https://github.com/programster/package-core-libs/actions/workflows/tests.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests.yml)
+[![Linux tests](https://github.com/programster/package-core-libs/actions/workflows/tests.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests.yml)
 [![Windows tests](https://github.com/programster/package-core-libs/actions/workflows/tests-windows.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-windows.yml)
 [![macOS tests](https://github.com/programster/package-core-libs/actions/workflows/tests-macos.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-macos.yml)
 
@@ -12,10 +12,9 @@ performance.
 ### Supported platforms
 Linux has first-class support: it is what this library is built and tested on, and every test runs on it
 automatically. Windows and macOS are meant to be supported too, but aren't held to passing every test, so some parts
-(especially the file and directory handling) may not work on them yet. The "Windows tests" and "macOS tests" badges
-show how the tests do on each, which are run separately so that they don't affect the main "Tests" badge. Some
-methods are Linux only by nature, such as `Core::getMemory()`, which reads `/proc/meminfo`, and throw an exception
-saying so elsewhere.
+(especially the file and directory handling) may not work on them yet. The "Linux tests", "Windows tests" and "macOS
+tests" badges show how the tests do on each, which are run separately. Some methods are Linux only by nature, such
+as `Core::getMemory()`, which reads `/proc/meminfo`, and throw an exception saying so elsewhere.
 
 ### Recommended Extensions
 This package recommends various extensions such as mbstring in order to be able to perform some of
@@ -77,7 +76,7 @@ Docker images are built the first time they are needed, and then reused. When a 
 it to `SUPPORTED_VERSIONS` at the top of the script.
 
 The same script runs on GitHub Actions (`.github/workflows/tests.yml`) for pushes to `master`, every tag, and pull
-requests into `master`, which is what the "Tests" badge at the top of this README shows. Pushes to other branches
-don't run it, but it can be run on any branch by hand, with "Run workflow" on the repository's Actions tab. As the
-containers run as root, the checks that need root (e.g. that rewriting a file keeps its owner) run there. When run
-without root, `main.php` lists those checks as skipped.
+requests into `master`, which is what the "Linux tests" badge at the top of this README shows. Pushes to other
+branches don't run it, but it can be run on any branch by hand, with "Run workflow" on the repository's Actions tab.
+As the containers run as root, the checks that need root (e.g. that rewriting a file keeps its owner) run there. When
+run without root, `main.php` lists those checks as skipped.
