@@ -508,16 +508,17 @@ final class Filesystem
      * @throws DirectoryDoesNotExistException - if a directory does not exist at the path specified.
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted,
      * including $dir itself (e.g. because its parent directory can't be written to). Its
-     * getProblems() says what, and why, with paths starting with $dir as it was given (not
-     * resolved), apart from what it found by following symlinks. Nothing is deleted if this
+     * getProblems() says what, and why, with paths starting with $dir made absolute, but keeping
+     * any symlinks in it, apart from what it found by following symlinks. Nothing is deleted if this
      * happens. This extends BadFilePermissionsException.
      * @throws FilesystemException - if deleting something still failed part way through, despite
      * the checks (see emptyDir()).
      */
     public static function deleteDir(string $dir, bool $followSymlinks = false): void
     {
-        # Remove any trailing slash first, as is_link() is false for "link/" (it checks what it points to).
-        $dirPath = self::removeTrailingSlashes($dir);
+        # Make it absolute, keeping any symlinks in it, so problems are reported with paths the caller recognises. This
+        # also removes any trailing slash, as is_link() is false for "link/" (it checks what it points to).
+        $dirPath = self::absolutePathKeepingSymlinks($dir);
         $isSymlink = is_link($dirPath);
 
         # Without this, deleting through a symlink would empty the real folder it points to, and then fail to remove
@@ -587,8 +588,8 @@ final class Filesystem
      * @return void
      * @throws DirectoryDoesNotExistException - if a directory does not exist at the path specified.
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted.
-     * Its getProblems() says what, and why (stopping at 100), with paths starting with $dir as it
-     * was given (not resolved), as in deleteDir(). Nothing is deleted if this happens. This extends
+     * Its getProblems() says what, and why (stopping at 100), with paths starting with $dir made
+     * absolute, but keeping any symlinks in it, as in deleteDir(). Nothing is deleted if this happens. This extends
      * BadFilePermissionsException.
      * @throws FilesystemException - if deleting something still failed part way through, despite
      * the checks.
@@ -601,9 +602,10 @@ final class Filesystem
             throw new DirectoryDoesNotExistException("There is no directory at {$dir}.");
         }
 
-        # Plan with the path as given (rather than the real one), so the problems are reported in the form the caller
-        # will recognise, as in deleteDir(). The real path is only used to spot symlinks pointing "up".
-        $dirPath = self::removeTrailingSlashes($dir);
+        # Plan with the path made absolute, keeping any symlinks in it (rather than the real path), so the problems are
+        # reported in a form the caller will recognise, as in deleteDir(). The real path is only used to spot symlinks
+        # pointing "up".
+        $dirPath = self::absolutePathKeepingSymlinks($dir);
         $realDir = realpath($dir);
         $plan = [];
         $problems = [];
@@ -3535,19 +3537,6 @@ final class Filesystem
 
 
     /**
-     * Remove any slashes from the end of a path, for deleteDir() and emptyDir(), keeping "/" itself.
-     * @param string $path - the path.
-     * @return string - the path without trailing slashes.
-     */
-    private static function removeTrailingSlashes(string $path): string
-    {
-        $trimmed = rtrim($path, '/');
-
-        return ($trimmed === '') ? '/' : $trimmed;
-    }
-
-
-    /**
      * Add everything in a directory to a deletion plan, in an order that can be deleted (each
      * directory's contents before the directory itself), going into subdirectories, and checking
      * that each thing can be deleted. See deleteDir() for how symlinks are handled. Stops once
@@ -3825,8 +3814,8 @@ final class Filesystem
     }
 
     /**
-     * Make a path absolute without resolving its symlinks, for getDirectories() and getDirContents(),
-     * so the paths they give back are the ones the caller used. A relative path is taken from the
+     * Make a path absolute without resolving its symlinks, for getDirectories(), getDirContents(),
+     * emptyDir() and deleteDir(), so the paths they give back are the ones the caller used. A relative path is taken from the
      * current directory. "." parts and repeated or trailing slashes are removed. A ".." goes up a
      * part, unless what it goes up from is a symlink: the system goes up from the link's target
      * instead, so that part is resolved first, to keep the path pointing at the same place.

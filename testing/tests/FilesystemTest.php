@@ -591,7 +591,13 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
             ["emptyDir", $base, $base],
             ["emptyDir", "{$base}/", $base],
             ["emptyDir", "{$dir}/delete-locked-link", "{$dir}/delete-locked-link"],
+
+            # A relative path is made absolute, from the current directory (which getcwd() gives as a real path).
+            ["emptyDir", "delete-locked", realpath($dir) . "/delete-locked"],
         ];
+
+        $previousDirectory = getcwd();
+        chdir($dir);
 
         foreach ($calls as [$method, $path, $reportedBase])
         {
@@ -619,6 +625,7 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
             assert($problems === $expectedProblems, "{$method}({$path}) reported the wrong problems");
         }
 
+        chdir($previousDirectory);
         unlink("{$dir}/delete-locked-link");
 
         $deleteLocked = function () use ($base): void {
