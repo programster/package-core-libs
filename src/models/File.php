@@ -424,6 +424,9 @@ class File
      */
     private static function placeFile(string $fromPath, string $newPath, bool $replace, string $originalPath): void
     {
+        # On macOS and BSD, link() follows a symlink, and hard-links what it points to, rather than the link itself.
+        $linkFollowsSymlinks = is_link($fromPath) && in_array(PHP_OS_FAMILY, ["Darwin", "BSD"], true);
+
         # Suppress the warnings, as we throw exceptions instead.
         if ($replace)
         {
@@ -431,6 +434,10 @@ class File
             {
                 throw new FilesystemException("Failed to move {$originalPath} to {$newPath}.");
             }
+        }
+        elseif ($linkFollowsSymlinks)
+        {
+            self::placeSymlinkWithoutReplacing($fromPath, $newPath, $originalPath);
         }
         elseif (@link($fromPath, $newPath))
         {
@@ -454,6 +461,48 @@ class File
         {
             # Hard links aren't allowed here, so rename() is all that's left, and that failed too.
             throw new FilesystemException("Failed to move {$originalPath} to {$newPath}.");
+        }
+    }
+
+
+    /**
+     * Move a symlink to a new path without replacing anything there, for placeFile() on systems where
+     * link() follows symlinks (macOS and BSD). symlink() fails if anything is at the new path, so like
+     * link(), it never replaces something created there after the checks. The new symlink belongs to
+     * whoever runs this.
+     * @param string $fromPath - the symlink to move.
+     * @param string $newPath - where to move it, in the same directory or with an absolute target.
+     * @param string $originalPath - the path being moved, for the error messages.
+     * @return void
+     * @throws FileAlreadyExistsException - if something is at $newPath.
+     * @throws FilesystemException - if it couldn't be moved. $fromPath is left as it was.
+     */
+    private static function placeSymlinkWithoutReplacing(string $fromPath, string $newPath, string $originalPath): void
+    {
+        # Suppress the warnings, as we throw exceptions instead.
+        $target = @readlink($fromPath);
+
+        if ($target === false || !@symlink($target, $newPath))
+        {
+            if (file_exists($newPath) || is_link($newPath))
+            {
+                throw new FileAlreadyExistsException(
+                    "Can't move {$originalPath} to {$newPath}, as something was created there while it was being " .
+                    "moved."
+                );
+            }
+
+            throw new FilesystemException("Failed to move {$originalPath} to {$newPath}.");
+        }
+
+        if (!@unlink($fromPath))
+        {
+            # Don't leave it under two names.
+            @unlink($newPath);
+
+            throw new FilesystemException(
+                "Failed to move {$originalPath} to {$newPath}, as the old link couldn't be removed."
+            );
         }
     }
 

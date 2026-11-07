@@ -378,3 +378,26 @@ $smoke->run("renaming that only changes the case of the name", function () use (
     }
 });
 
+$smoke->run("moving a symlink where link() follows them", function () use ($dir) {
+    # On macOS and BSD, link() hard-links what a symlink points to, so moving a symlink there recreates it with
+    # symlink() instead. That only runs there, so call it directly.
+    $base = "{$dir}/symlink-placing";
+    mkdir($base);
+    file_put_contents("{$base}/target.txt", "target");
+    symlink("target.txt", "{$base}/link");
+    file_put_contents("{$base}/taken", "taken");
+    $place = new ReflectionMethod(File::class, "placeSymlinkWithoutReplacing");
+
+    # Something already there is never replaced.
+    SmokeTest::expectException(
+        FileAlreadyExistsException::class,
+        fn() => $place->invoke(null, "{$base}/link", "{$base}/taken", "{$base}/link")
+    );
+
+    assert(file_get_contents("{$base}/taken") === "taken" && is_link("{$base}/link"));
+
+    # Otherwise the link is moved as a link, with the same target, and the old name is removed.
+    $place->invoke(null, "{$base}/link", "{$base}/renamed", "{$base}/link");
+    assert(is_link("{$base}/renamed") && readlink("{$base}/renamed") === "target.txt" && !is_link("{$base}/link"));
+}, needsSymlinks: true);
+

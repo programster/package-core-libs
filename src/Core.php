@@ -374,24 +374,30 @@ final class Core
 
 
     /**
-     * Fetches the number of vCPU on a Linux machine. I state vCPU instead of CPU as this includes
-     * all hyperthreads/cores. (e.g. an i7 will show up as 8 even though there is only 1 physical
-     * processor)
-     * @return int - the number of threads this machine can concurrently run.
-     * @throws CommandFailedException - if the nproc command failed.
-     * @throws UnexpectedOutputException - if nproc did not return a number.
+     * Fetch the number of logical processors (vCPUs) this machine has, which includes all cores and
+     * hyperthreads, e.g. a 4 core processor with hyperthreading gives 8. This uses the fastest way
+     * on each system: nproc on Linux, sysctl on macOS and BSD, and the NUMBER_OF_PROCESSORS setting
+     * on Windows.
+     * @return int - the number of threads this machine can run at the same time.
+     * @throws CommandFailedException - if the command failed.
+     * @throws UnexpectedOutputException - if it didn't give a number.
+     * @throws UnsupportedPlatformException - on a system other than Linux, macOS, BSD or Windows.
      */
     public static function getNumProcessors(): int
     {
-        $output = trim(self::runCommand("nproc --all"));
+        $output = match (PHP_OS_FAMILY) {
+            "Linux" => trim(self::runCommand("nproc --all")),
+            "Darwin", "BSD" => trim(self::runCommand("sysctl -n hw.ncpu")),
+            "Windows" => trim((string)getenv("NUMBER_OF_PROCESSORS")),
+            default => throw new UnsupportedPlatformException("getNumProcessors: unsupported OS " . PHP_OS_FAMILY),
+        };
 
         if (!ctype_digit($output))
         {
-            throw new UnexpectedOutputException("Expected nproc to return a number of processors, but got: {$output}");
+            throw new UnexpectedOutputException("Expected a number of processors, but got: {$output}");
         }
 
-        $numProcessors = (int) $output;
-        return $numProcessors;
+        return (int)$output;
     }
 
 
