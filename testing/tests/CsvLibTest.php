@@ -906,3 +906,47 @@ $smoke->run("file-rewriting methods passing on where to write first", function (
     }
 });
 
+$smoke->run("CsvFile trim, removeColumns and removeRows", function () use ($dir) {
+    $base = "{$dir}/csvfile-changes";
+    mkdir($base);
+
+    # After each change, the object's details must match a fresh CsvFile made from the changed file.
+    $assertMatchesFile = function (CsvFile $csvFile, string $name): void {
+        $fresh = new CsvFile($csvFile->getFilepath(), $csvFile->hasHeader());
+        assert($csvFile->getRowCount() === $fresh->getRowCount(), "{$name}: row count");
+        assert($csvFile->getColumnCount() === $fresh->getColumnCount(), "{$name}: column count");
+    };
+
+    file_put_contents("{$base}/a.csv", " h1 ,h2,h3\n a ,b,c\nd,e,f\n\n");
+    $csvFile = new CsvFile("{$base}/a.csv", true);
+    $csvFile->trim();
+    assert(file_get_contents("{$base}/a.csv") === "h1,h2,h3\na,b,c\nd,e,f\n");
+    $assertMatchesFile($csvFile, "trim");
+
+    $csvFile->removeColumns([2, 2]);
+    assert(file_get_contents("{$base}/a.csv") === "h1,h3\na,c\nd,f\n" && $csvFile->getColumnCount() === 2);
+    $assertMatchesFile($csvFile, "removeColumns");
+
+    $csvFile->removeRows([2]);
+    assert(file_get_contents("{$base}/a.csv") === "h1,h3\na,c\n" && $csvFile->getRowCount() === 2);
+    assert($csvFile->hasHeader());
+    $assertMatchesFile($csvFile, "removeRows");
+
+    # Removing the first row removes the header (counting from 1 here).
+    $csvFile->removeRows([1], false);
+    assert(file_get_contents("{$base}/a.csv") === "a,c\n" && !$csvFile->hasHeader() && $csvFile->getRowCount() === 1);
+    $assertMatchesFile($csvFile, "removeRows of the header");
+
+    # Removing every row matches what the constructor gives for an empty file.
+    $csvFile->removeRows([0]);
+    assert($csvFile->getRowCount() === 0 && $csvFile->getColumnCount() === 0);
+    $assertMatchesFile($csvFile, "removeRows of everything");
+
+    # A failure leaves the object as it was.
+    file_put_contents("{$base}/b.csv", "h1,h2\n1,2\n");
+    $csvFile = new CsvFile("{$base}/b.csv", true);
+    SmokeTest::expectException(InvalidCsvException::class, fn() => $csvFile->removeColumns([3]));
+    SmokeTest::expectException(BadArgumentException::class, fn() => $csvFile->removeRows([5]));
+    assert($csvFile->getColumnCount() === 2 && $csvFile->getRowCount() === 2 && $csvFile->hasHeader());
+});
+

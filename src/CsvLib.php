@@ -460,10 +460,9 @@ final class CsvLib
      * file is checked as described in the CsvFile constructor first, so a blank line in the middle
      * of the file makes it invalid, and nothing is changed. Blank lines at the end of the file are
      * removed, unless $removeTrailingBlankLines is false. This works row by row rather than reading
-     * everything into memory. The new contents are written to a temporary file in the system's
-     * temporary directory, then copied back into the original, which keeps its permissions and
-     * owner (see Filesystem::replaceWithFile()). Only the file, not its directory, needs to be
-     * writable.
+     * everything into memory. The new contents are written to a temporary file first (see
+     * $useSystemTempDir), and only replace the original once complete, keeping its owner and
+     * permissions (see Filesystem::replaceWithFile()).
      * @param string $filepath - the path to the CSV file we are trimming
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma, e.g. ';'.
      * @param string $enclosure - optionally specify the enclosure if it isn't a double quote, e.g.
@@ -662,10 +661,9 @@ final class CsvLib
 
 
     /**
-     * Remove columns from a CSV file. The new contents are written to a temporary file in the
-     * system's temporary directory, then copied back into the original, which keeps its permissions
-     * and owner (see Filesystem::replaceWithFile()). Only the file, not its directory, needs to be
-     * writable.
+     * Remove columns from a CSV file. The new contents are written to a temporary file first (see
+     * $useSystemTempDir), and only replace the original once complete, keeping its owner and
+     * permissions (see Filesystem::replaceWithFile()).
      * @param string $filepath - the path of the CSV file we are modifying.
      * @param array $columnIndexes - array of integers specifying the column indexes to remove,
      * starting at 1
@@ -793,9 +791,8 @@ final class CsvLib
      * lines at the end of the file, are copied across exactly as they were (including their quoting
      * and line endings), as is any byte order mark. The file is checked as described in the CsvFile
      * constructor first, so it can't have blank lines in the middle. The new contents are written
-     * to a temporary file in the system's temporary directory, then copied back into the original,
-     * which keeps its permissions and owner (see Filesystem::replaceWithFile()). Only the file, not
-     * its directory, needs to be writable.
+     * to a temporary file first (see $useSystemTempDir), and only replace the original once
+     * complete, keeping its owner and permissions (see Filesystem::replaceWithFile()).
      * @param string $filepath - the path of the CSV file we are modifying.
      * @param array $rowNumbers - the numbers of the rows to remove, e.g. [0, 4]. Any header row
      * counts as a row. Duplicates are allowed, and the order doesn't matter.
@@ -1470,8 +1467,8 @@ final class CsvLib
 
 
     /**
-     * Write an output file safely: everything is written to a temporary file in the system's
-     * temporary directory first, and only copied into $outputFilepath once $writer has finished. So
+     * Write an output file safely: everything is written to a temporary file first (see
+     * $useSystemTempDir), and only replaces $outputFilepath once $writer has finished. So
      * if anything goes wrong part way through (including $writer throwing), an existing file is
      * left as it was, and nothing half-written is left behind. An existing file keeps its
      * permissions, owner and links (see Filesystem::replaceWithFile()), and a new one gets the

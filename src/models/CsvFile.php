@@ -319,6 +319,141 @@ final class CsvFile extends File
 
 
     /**
+     * Trim the whitespace from around every value in this CSV file, and (by default) remove any
+     * blank lines at the end. See CsvLib::trim(). The row and column counts are unchanged.
+     * @param bool $removeTrailingBlankLines - whether to also remove the blank lines at the end of
+     * the file. Defaults to true.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
+     * @return void
+     * @throws InvalidCsvException - if the file is no longer valid, e.g. because it was changed by
+     * something else since this CsvFile was created. The file is left unchanged if this happens.
+     * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
+     * this CsvFile was created).
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
+     * @throws FilesystemException - if the file could not be read, or could not be replaced.
+     */
+    public function trim(
+        bool $removeTrailingBlankLines = true,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
+    {
+        CsvLib::trim(
+            $this->m_filepath,
+            $this->m_delimiter,
+            $this->m_enclosure,
+            $this->m_escape,
+            $removeTrailingBlankLines,
+            $useSystemTempDir,
+            $preserveOwnership
+        );
+    }
+
+
+    /**
+     * Remove columns from this CSV file. See CsvLib::removeColumns(). Afterwards, there are that
+     * many fewer columns.
+     * @param array<int> $columnIndexes - the columns to remove, starting at 1. Duplicates are
+     * allowed.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
+     * @return void
+     * @throws InvalidCsvException - if the file doesn't have one of the columns, or is no longer
+     * valid (e.g. it was changed by something else since this CsvFile was created). The file is left
+     * unchanged if this happens.
+     * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
+     * this CsvFile was created).
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
+     * @throws FilesystemException - if the file could not be read, or could not be replaced.
+     */
+    public function removeColumns(
+        array $columnIndexes,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
+    {
+        CsvLib::removeColumns(
+            $this->m_filepath,
+            $columnIndexes,
+            $this->m_delimiter,
+            $this->m_enclosure,
+            $this->m_escape,
+            $useSystemTempDir,
+            $preserveOwnership
+        );
+
+        $this->m_columnCount -= count(array_unique($columnIndexes));
+    }
+
+
+    /**
+     * Remove rows from this CSV file. See CsvLib::removeRows(). Any header row counts as a row, so
+     * removing the first row removes the header, and hasHeader() is then false. Afterwards, there
+     * are that many fewer rows.
+     * @param array<int> $rowNumbers - the numbers of the rows to remove, e.g. [0, 4]. Duplicates are
+     * allowed, and the order doesn't matter.
+     * @param bool $startFromZero - whether the first row is row 0 (the default), or row 1 if false.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
+     * @return void
+     * @throws BadArgumentException - if any of $rowNumbers isn't an int, or isn't the number of a
+     * row in the file. The file is left unchanged if this happens.
+     * @throws InvalidCsvException - if the file is no longer valid, e.g. because it was changed by
+     * something else since this CsvFile was created. The file is left unchanged if this happens.
+     * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
+     * this CsvFile was created).
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
+     * @throws FilesystemException - if the file could not be read, or could not be replaced.
+     */
+    public function removeRows(
+        array $rowNumbers,
+        bool $startFromZero = true,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
+    {
+        CsvLib::removeRows(
+            $this->m_filepath,
+            $rowNumbers,
+            $startFromZero,
+            $this->m_delimiter,
+            $this->m_enclosure,
+            $this->m_escape,
+            $useSystemTempDir,
+            $preserveOwnership
+        );
+
+        $firstRow = $startFromZero ? 0 : 1;
+
+        if ($this->m_hasHeader && in_array($firstRow, $rowNumbers, true))
+        {
+            $this->m_hasHeader = false;
+        }
+
+        $this->m_rowCount -= count(array_unique($rowNumbers));
+
+        # Match what the constructor gives for a file with no rows.
+        if ($this->m_rowCount === 0)
+        {
+            $this->m_columnCount = 0;
+        }
+    }
+
+
+    /**
      * Read through the file, checking it is valid (see the constructor), and set the row and column
      * counts. The counts are only set once the whole file has been checked, so if this throws, they
      * are left as they were.

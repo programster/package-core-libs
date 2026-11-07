@@ -1024,10 +1024,10 @@ final class Filesystem
      * Filters a file using the provided callback, in a memory efficient way so that it can process
      * very large files. This is inspired by array_filter
      * (http://php.net/manual/en/function.array-filter.php) The kept lines are written to a
-     * temporary file in the system's temporary directory first, and only copied into the file being
-     * written once every line has been filtered, so a failure part way through (including the
-     * callback throwing) leaves it untouched. They are copied in place with replaceWithFile(), so
-     * an existing file keeps its permissions, owner and any links to it.
+     * temporary file first (see $useSystemTempDir), and only replace the file being written once
+     * every line has been filtered, so a failure part way through (including the callback throwing)
+     * leaves it untouched. An existing file keeps its owner and permissions (see
+     * replaceWithFile()).
      * @param string $inputFile - the path to the file to operate upon.
      * @param callable $filterCallback - the callback to execute on every line in the file to
      * determine if kept or not. It must return true to keep the line. Don't forget that this will
@@ -1694,10 +1694,9 @@ final class Filesystem
      *  2. If the file starts with a UTF-16 or UTF-32 byte order mark (BOM), it is converted from
      *     that encoding, and the BOM is removed. This overrides $sourceEncoding.
      *  3. Otherwise, the file is converted from $sourceEncoding.
-     * The converted contents are written to a temporary file in the system's temporary directory
-     * first, then copied back into the original, so the file keeps its permissions and owner, and
-     * only the file (not its directory) needs to be writable. See replaceWithFile() for what
-     * happens if that copy fails part way through.
+     * The converted contents are written to a temporary file first (see $useSystemTempDir), and
+     * only replace the original once complete, keeping its owner and permissions. See
+     * replaceWithFile() for how, and what happens if that fails part way through.
      *
      * @param string $inputFilepath - the path to the file to convert.
      * @param string $sourceEncoding - the encoding the file is in, if it is not UTF-8 and has no
@@ -2985,10 +2984,9 @@ final class Filesystem
 
 
     /**
-     * Replace the contents of a file. The new contents are written to a temporary file in the
-     * system's temporary directory first, then copied into the original with replaceWithFile(), so
-     * the file keeps its permissions, owner and any links to it, and only the file (not its
-     * directory) needs to be writable.
+     * Replace the contents of a file. The new contents are written to a temporary file first (see
+     * $useSystemTempDir), and then replace the original with replaceWithFile(), keeping its owner
+     * and permissions.
      * @param string $filepath - the path to the file to replace the contents of.
      * @param string $contents - the new contents for the file.
      * @param UseSystemTempDirEnum $useSystemTempDir - where to write them first.
