@@ -62,7 +62,7 @@ final class Filesystem
      * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
      * found by following a symlink under the symlink's path. A symlink found inside is still listed
      * as the link itself (under its directory's real path), rather than as what it points to.
-     * Defaults to false.
+     * Either way, the paths use "/" as the separator, including on Windows. Defaults to false.
      * @return array<string> - list of directories within the specified path, in no particular order.
      * @throws DirectoryDoesNotExistException - if there is no directory at $path.
      * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
@@ -88,7 +88,7 @@ final class Filesystem
         # List from the path as given, made absolute, so the paths given back keep any symlinks in it. The real path
         # is only used to spot symlinks pointing back up.
         $realPath = realpath($path);
-        $startPath = $resolveSymlinks ? $realPath : self::absolutePathKeepingSymlinks($path);
+        $startPath = $resolveSymlinks ? self::normalisePath($realPath) : self::absolutePathKeepingSymlinks($path);
         $directories = [];
 
         # The directories still to look in, each with the real paths of the directories it is inside in this
@@ -110,7 +110,7 @@ final class Filesystem
                     if (self::shouldGoInto($entryPath, $recursive, $followSymlinks, $ancestors))
                     {
                         $realEntryPath = realpath($entryPath);
-                        $listFrom = $resolveSymlinks ? $realEntryPath : $entryPath;
+                        $listFrom = $resolveSymlinks ? self::normalisePath($realEntryPath) : $entryPath;
                         $toList[] = [$listFrom, array_merge($ancestors, [$realEntryPath])];
                     }
                 }
@@ -138,7 +138,7 @@ final class Filesystem
      * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
      * found by following a symlink under the symlink's path. A symlink found inside is still listed
      * as the link itself (under its directory's real path), rather than as what it points to.
-     * Defaults to false.
+     * Either way, the paths use "/" as the separator, including on Windows. Defaults to false.
      * @return array<string> - list of directories within the specified path, in no particular order.
      * @throws DirectoryDoesNotExistException - if there is no directory at $path.
      * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
@@ -193,7 +193,7 @@ final class Filesystem
      * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
      * found by following a symlink under the symlink's path. A symlink found inside is still listed
      * as the link itself (under its directory's real path), rather than as what it points to.
-     * Defaults to false.
+     * Either way, the paths use "/" as the separator, including on Windows. Defaults to false.
      * @return array - the names of all the files/folders within the directory, in no particular order.
      * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
      * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
@@ -221,7 +221,7 @@ final class Filesystem
         # List from the path as given, made absolute, so the paths given back keep any symlinks in it. The real path
         # is only used to spot symlinks pointing back up.
         $realPath = realpath($dir);
-        $startPath = $resolveSymlinks ? $realPath : self::absolutePathKeepingSymlinks($dir);
+        $startPath = $resolveSymlinks ? self::normalisePath($realPath) : self::absolutePathKeepingSymlinks($dir);
         $fileNames = [];
 
         # The directories still to look in, each with the real paths of the directories it is inside in this
@@ -247,7 +247,7 @@ final class Filesystem
                     if ($isDirectory && self::shouldGoInto($entryPath, $recursive, $followSymlinks, $ancestors))
                     {
                         $realEntryPath = realpath($entryPath);
-                        $listFrom = $resolveSymlinks ? $realEntryPath : $entryPath;
+                        $listFrom = $resolveSymlinks ? self::normalisePath($realEntryPath) : $entryPath;
                         $toList[] = [$listFrom, array_merge($ancestors, [$realEntryPath])];
                     }
                 }
@@ -278,7 +278,7 @@ final class Filesystem
      * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
      * found by following a symlink under the symlink's path. A symlink found inside is still listed
      * as the link itself (under its directory's real path), rather than as what it points to.
-     * Defaults to false.
+     * Either way, the paths use "/" as the separator, including on Windows. Defaults to false.
      * @return array - the names of all the files/folders within the directory, in no particular order.
      * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
      * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
@@ -3815,8 +3815,9 @@ final class Filesystem
 
     /**
      * Make a path absolute without resolving its symlinks, for getDirectories(), getDirContents(),
-     * emptyDir() and deleteDir(), so the paths they give back are the ones the caller used. A relative path is taken from the
-     * current directory. "." parts and repeated or trailing slashes are removed. A ".." goes up a
+     * emptyDir() and deleteDir(), so the paths they give back are the ones the caller used. A
+     * relative path is taken from the current directory. "." parts and repeated or trailing slashes
+     * are removed. A ".." goes up a
      * part, unless what it goes up from is a symlink: the system goes up from the link's target
      * instead, so that part is resolved first, to keep the path pointing at the same place.
      * @param string $path - the path, which must exist.

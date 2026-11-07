@@ -600,3 +600,47 @@ $smoke->run("Directory moves with absolute symlinks", function () use ($dir) {
     }
 }, needsSymlinks: true, anySymlinks: false);
 
+$smoke->run("Directory moves with relative symlinks, as on each system", function () use ($dir) {
+    # PHP can't create a relative symlink on Windows, but Windows' own mklink can, so use that to set this up there.
+    $makeRelativeLink = function (string $target, string $linkPath): bool {
+        $made = false;
+
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            $command = "mklink " . escapeshellarg(str_replace("/", "\\", $linkPath)) . " " . escapeshellarg($target);
+            exec("cmd /c {$command} 2>NUL", $output, $exitCode);
+            $made = ($exitCode === 0);
+        }
+        else
+        {
+            $made = symlink($target, $linkPath);
+        }
+
+        return $made;
+    };
+
+    $base = realpath($dir) . "/relative-directory-links";
+    mkdir("{$base}/project", 0777, true);
+    mkdir("{$base}/archive");
+    file_put_contents("{$base}/outside.txt", "outside");
+    file_put_contents("{$base}/project/inside.txt", "inside");
+
+    $canTest = $makeRelativeLink("../outside.txt", "{$base}/project/to-outside")
+        && $makeRelativeLink("inside.txt", "{$base}/project/to-inside");
+
+    if (!$canTest)
+    {
+        SmokeTest::skip("Directory moves with relative symlinks, as on each system", "relative symlinks can't be made");
+    }
+    else
+    {
+        # Moved one level deeper on the same drive, both links still lead to the right files. On Windows, they are
+        # created again with absolute targets, as whether they were relative can't be told there.
+        (new Directory("{$base}/project"))->move("{$base}/archive");
+        $moved = "{$base}/archive/project";
+        assert(file_get_contents("{$moved}/to-outside") === "outside");
+        assert(file_get_contents("{$moved}/to-inside") === "inside");
+        SmokeTest::assertSamePath(Filesystem::resolvePath("{$moved}/to-inside"), "{$moved}/inside.txt");
+    }
+}, needsSymlinks: true, anySymlinks: false);
+

@@ -425,22 +425,19 @@ class Directory
 
                     if (is_link($path))
                     {
-                        $linkTarget = readlink($path);
+                        # On Windows, readlink() gives the fully resolved absolute path rather than the link's own
+                        # target, so whether a link is relative can't be told. So every link is created again,
+                        # pointing at the same place absolutely (see newSymlinkTarget()). A broken one can't be read
+                        # or created there, so is left as it is, as it is broken either way.
                         $onWindows = PHP_OS_FAMILY === "Windows";
-                        $newTarget = self::newSymlinkTarget($directory, $linkTarget, $oldRoot, $newRoot, $onWindows);
+                        $linkTarget = @readlink($path);
+                        $isReadable = $linkTarget !== false;
 
-                        # Windows can't create a symlink to something that doesn't exist, so a broken one can't be
-                        # updated.
-                        if ($newTarget !== $linkTarget && $onWindows && !file_exists($path))
-                        {
-                            $problems[] = new DirectoryMoveProblem(
-                                $path,
-                                DirectoryMoveProblemEnum::SYMLINK_NOT_CREATABLE_ON_WINDOWS,
-                                "{$path} needs updating, but it is broken, and Windows can't create a broken symlink."
-                            );
-                        }
+                        $newTarget = $isReadable
+                            ? self::newSymlinkTarget($directory, $linkTarget, $oldRoot, $newRoot, $onWindows)
+                            : $linkTarget;
 
-                        if ($newTarget !== $linkTarget)
+                        if ($isReadable && ($newTarget !== $linkTarget || $onWindows))
                         {
                             if (!is_writable($directory) || !Filesystem::canEnterDirectory($directory))
                             {

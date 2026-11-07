@@ -111,9 +111,10 @@ class File
      * a relative target is recreated in the new directory instead, with its target worked out again
      * from there (e.g. "data.txt" becomes "../data.txt" when moved into a subdirectory), and the
      * old link is removed. It stays relative, and points at the same place as before (even if that
-     * no longer exists). On Windows, where PHP can't create a relative symlink, it is recreated with
-     * an absolute target to the same place instead, and a broken one is refused, as Windows can't
-     * create a symlink to something that doesn't exist. The recreated symlink is owned by whoever
+     * no longer exists). On Windows, where PHP can't create a relative symlink, and readlink() gives
+     * the resolved absolute path (so a relative one can't be told apart), any symlink moved into
+     * another directory is recreated with an absolute target to the same place instead, and a
+     * broken one is refused, as Windows can't create a symlink to something that doesn't exist. The recreated symlink is owned by whoever
      * runs this, and their group, rather than the original's owner and group. A symlink's owner rarely matters, as its
      * permissions are ignored, but it does in a sticky directory (e.g. /tmp), where only its owner
      * (or the directory's) can delete or rename it, and in a sticky, world-writable directory with
@@ -274,13 +275,26 @@ class File
                     );
                 }
 
-                $linkTarget = is_link($currentPath) ? readlink($currentPath) : false;
+                # On Windows, readlink() gives the fully resolved absolute path rather than the link's own target (and
+                # fails for a broken link), so whether a link is relative can't be told. So every link moved into
+                # another directory is created again there, pointing at the same place.
+                $isLink = is_link($currentPath);
+                $linkTarget = $isLink ? @readlink($currentPath) : false;
+                $onWindows = PHP_OS_FAMILY === "Windows";
                 $isRelativeLink = $linkTarget !== false && !Filesystem::isAbsolutePath($linkTarget);
+                $movesDirectory = dirname($newPath) !== dirname($currentPath);
 
-                if ($isRelativeLink && dirname($newPath) !== dirname($currentPath))
+                if ($isLink && $movesDirectory && $onWindows && $linkTarget === false)
                 {
-                    # Moving it as it is would leave it pointing somewhere else, so recreate it with its target
-                    # adjusted.
+                    throw new FilesystemException(
+                        "Can't move {$this->m_filepath} to {$newPath}, as it is a broken symlink, which has to be " .
+                        "created again there, and Windows can't create a symlink to something that doesn't exist."
+                    );
+                }
+                elseif ($movesDirectory && ($isRelativeLink || ($isLink && $onWindows)))
+                {
+                    # Moving it as it is would leave a relative target pointing somewhere else, so recreate it with its
+                    # target adjusted.
                     self::moveRelativeSymlink($currentPath, $newPath, $linkTarget, $somethingExists);
                 }
                 else
@@ -297,10 +311,13 @@ class File
     /**
      * Move a symlink with a relative target into a different directory, by creating a new symlink
      * there whose relative target points at the same place, and then removing the old one. On
-     * Windows, the new symlink's target is absolute instead, as PHP can't create a relative one there.
+     * Windows, the new symlink's target is absolute instead, as PHP can't create a relative one there,
+     * and this is used for every symlink, as readlink() there gives the resolved absolute path, so a
+     * relative one can't be told apart.
      * @param string $currentPath - the symlink, with its directory's real path.
      * @param string $newPath - where the new symlink goes, with its directory's real path.
-     * @param string $linkTarget - the old symlink's relative target, e.g. "../shared/data.txt".
+     * @param string $linkTarget - the old symlink's relative target, e.g. "../shared/data.txt" (on
+     * Windows, the absolute path readlink() gives).
      * @param bool $replaceExisting - whether something at $newPath (already checked to be a file or
      * symlink that may be replaced) should be removed first.
      * @return void

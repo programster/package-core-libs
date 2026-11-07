@@ -2081,13 +2081,18 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
     symlink("{$base}/real", "{$base}/link");
     symlink("{$base}/elsewhere/target", "{$base}/link-to-target");
 
+    # The paths come back with "/" separators, which on Windows differ from $dir's "\", so compare them tidied.
+    $tidy = function (array $paths): array {
+        return array_map([Filesystem::class, "normalisePath"], $paths);
+    };
+
     # A symlink in the path given stays in the paths given back, rather than being resolved.
-    assert(Filesystem::getDirContents("{$base}/link") === ["{$base}/link/sub/f.txt"]);
-    assert(Filesystem::getDirectories("{$base}/link/") === ["{$base}/link/sub"]);
-    assert(Filesystem::getDirContents("{$base}/./link//sub") === ["{$base}/link/sub/f.txt"]);
+    assert(Filesystem::getDirContents("{$base}/link") === $tidy(["{$base}/link/sub/f.txt"]));
+    assert(Filesystem::getDirectories("{$base}/link/") === $tidy(["{$base}/link/sub"]));
+    assert(Filesystem::getDirContents("{$base}/./link//sub") === $tidy(["{$base}/link/sub/f.txt"]));
 
     # ".." after a real directory goes up from it, as written.
-    assert(Filesystem::getDirContents("{$base}/link/sub/..") === ["{$base}/link/sub/f.txt"]);
+    assert(Filesystem::getDirContents("{$base}/link/sub/..") === $tidy(["{$base}/link/sub/f.txt"]));
 
     # ".." straight after a symlink goes up from where it leads, as the system does, so the paths still point at the
     # right files.
@@ -2097,16 +2102,16 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
 
     # With $resolveSymlinks, the real paths are given instead, including for what is found through a followed symlink.
     $realBase = realpath($base);
-    assert(Filesystem::getDirContents("{$base}/link", resolveSymlinks: true) === ["{$realBase}/real/sub/f.txt"]);
-    assert(Filesystem::listDirectories("{$base}/link", resolveSymlinks: true) === ["{$realBase}/real/sub"]);
+    assert(Filesystem::getDirContents("{$base}/link", resolveSymlinks: true) === $tidy(["{$realBase}/real/sub/f.txt"]));
+    assert(Filesystem::listDirectories("{$base}/link", resolveSymlinks: true) === $tidy(["{$realBase}/real/sub"]));
     symlink("{$base}/elsewhere", "{$base}/real/sub/to-elsewhere");
     $followed = Filesystem::getDirContents("{$base}/link", followSymlinks: true, resolveSymlinks: true);
     sort($followed);
-    $expected = ["{$realBase}/elsewhere/beside-target.txt", "{$realBase}/real/sub/f.txt"];
+    $expected = $tidy(["{$realBase}/elsewhere/beside-target.txt", "{$realBase}/real/sub/f.txt"]);
     assert($followed === $expected, "getDirContents() resolving symlinks gave: " . implode(", ", $followed));
     $kept = Filesystem::getDirContents("{$base}/link", followSymlinks: true);
     sort($kept);
-    assert($kept === ["{$base}/link/sub/f.txt", "{$base}/link/sub/to-elsewhere/beside-target.txt"]);
+    assert($kept === $tidy(["{$base}/link/sub/f.txt", "{$base}/link/sub/to-elsewhere/beside-target.txt"]));
     unlink("{$base}/real/sub/to-elsewhere");
 
     # A relative path is made absolute, from the current directory.
@@ -2115,7 +2120,7 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
 
     try
     {
-        assert(Filesystem::getDirContents("link") === [getcwd() . "/link/sub/f.txt"]);
+        assert(Filesystem::getDirContents("link") === $tidy([getcwd() . "/link/sub/f.txt"]));
     }
     finally
     {
