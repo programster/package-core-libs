@@ -11,10 +11,21 @@ performance.
 
 ### Supported platforms
 Linux has first-class support: it is what this library is built and tested on, and every test runs on it
-automatically. Windows and macOS are meant to be supported too, but aren't held to passing every test, so some parts
-(especially the file and directory handling) may not work on them yet. The "Linux tests", "Windows tests" and "macOS
-tests" badges show how the tests do on each, which are run separately. Some methods are Linux only by nature, such
-as `Core::getMemory()`, which reads `/proc/meminfo`, and throw an exception saying so elsewhere.
+automatically. Windows and macOS are supported too, and their tests also run automatically (see the "Windows tests"
+and "macOS tests" badges), but a few things work differently, or not at all, there:
+
+| Method | On macOS | On Windows |
+|---|---|---|
+| `Core::getMemory()` | Only `TOTAL`, `AVAILABLE`, `FREE`, `USED` and the three `SWAP_` figures. The others throw `UnsupportedPlatformException`. `AVAILABLE` is worked out from `vm_stat`, so is an approximation | The same seven figures. `FREE` is the same as `AVAILABLE`, as Windows doesn't report them separately |
+| `Core::getNumProcRunning()` | As on Linux | Matches window titles, as that is what `Core::setCliTitle()` sets on Windows |
+| `Core::setClipboard()`, `getClipboard()` | Works, but untested | Works, but untested |
+| `CliLib::getPasswordFromUserInput()` | As on Linux | Typing is hidden using PowerShell. Untested on a real console |
+| `File` and `Directory` moves | As on Linux | With `PreserveOwnershipEnum::YES` (the default), a move to another drive is refused, as Windows can't keep a file's owner and ACLs when copying it. Pass `PREFERRED` or `NO` to allow it |
+| Anything that creates symlinks (`unzip()`, `Directory` moves, `File` moves of a symlink) | As on Linux | Needs admin rights or developer mode, as on any Windows program. PHP can't create a relative or broken symlink there, so `unzip()` creates absolute ones (or copies, with `$convertSymlinksOnWindows`), and refuses a zip with a broken one. Moving a `Directory` with relative symlinks inside that need updating doesn't work there yet |
+| Permissions and ownership (e.g. `Filesystem::mkdir()`'s `$permissions`, `fileperms()`) | As on Linux | Windows has no Unix permissions or owners, so these are mostly ignored. Only the read-only setting has an effect |
+| `Filesystem::isTmpfs()` | Reads the `mount` command's output | Always false, as Windows has no tmpfs |
+
+Each method's docblock gives the details.
 
 ### Recommended Extensions
 This package recommends various extensions such as mbstring in order to be able to perform some of
