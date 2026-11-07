@@ -2018,3 +2018,101 @@ $smoke->run("isTmpfs on each system", function () use ($dir) {
     assert($typeAt->invoke(null, "/tmpfile", $mounts) === "apfs");
 });
 
+$smoke->run("getDirectories / getDirContents with an unreadable subfolder", function () use ($dir) {
+    if (SmokeTest::canTestPermissions("getDirectories / getDirContents with an unreadable subfolder"))
+    {
+        $base = "{$dir}/list-unreadable";
+        mkdir("{$base}/readable", 0777, true);
+        mkdir("{$base}/locked/inner", 0777, true);
+        touch("{$base}/readable/a.txt");
+        touch("{$base}/locked/hidden.txt");
+        chmod("{$base}/locked", 0000);
+
+        try
+        {
+            # By default, an incomplete list is refused, and the message says which folder and how to allow it.
+            $listContents = function () use ($base): void {
+                Filesystem::getDirContents($base);
+            };
+
+            $listDirectories = function () use ($base): void {
+                Filesystem::getDirectories($base, true);
+            };
+
+            SmokeTest::expectException(FilesystemException::class, $listContents, "Pass \$skipUnreadable as true");
+            SmokeTest::expectException(FilesystemException::class, $listDirectories, "{$base}/locked");
+
+            # Asked to, it leaves out what can't be read. The locked folder itself is still listed.
+            $files = Filesystem::getDirContents($base, includePath: false, skipUnreadable: true);
+            assert($files === ["a.txt"], "getDirContents() gave: " . implode(", ", $files));
+            $directories = Filesystem::getDirectories($base, true, false, skipUnreadable: true);
+            sort($directories);
+            assert($directories === ["locked", "readable"], "getDirectories() gave: " . implode(", ", $directories));
+            $aliasFiles = Filesystem::listDirContents($base, includePath: false, skipUnreadable: true);
+            assert($aliasFiles === ["a.txt"]);
+
+            # The folder asked for must always be readable, even when skipping.
+            $listLocked = function () use ($base): void {
+                Filesystem::getDirContents("{$base}/locked", skipUnreadable: true);
+            };
+
+            SmokeTest::expectException(FilesystemException::class, $listLocked);
+        }
+        finally
+        {
+            chmod("{$base}/locked", 0755);
+        }
+    }
+});
+
+$smoke->run("getDirContents / getDirectories paths keep symlinks", function () use ($dir) {
+    $base = "{$dir}/list-paths";
+    mkdir("{$base}/real/sub", 0777, true);
+    mkdir("{$base}/elsewhere/target", 0777, true);
+    touch("{$base}/real/sub/f.txt");
+    touch("{$base}/elsewhere/beside-target.txt");
+    symlink("{$base}/real", "{$base}/link");
+    symlink("{$base}/elsewhere/target", "{$base}/link-to-target");
+
+    # A symlink in the path given stays in the paths given back, rather than being resolved.
+    assert(Filesystem::getDirContents("{$base}/link") === ["{$base}/link/sub/f.txt"]);
+    assert(Filesystem::getDirectories("{$base}/link/") === ["{$base}/link/sub"]);
+    assert(Filesystem::getDirContents("{$base}/./link//sub") === ["{$base}/link/sub/f.txt"]);
+
+    # ".." after a real directory goes up from it, as written.
+    assert(Filesystem::getDirContents("{$base}/link/sub/..") === ["{$base}/link/sub/f.txt"]);
+
+    # ".." straight after a symlink goes up from where it leads, as the system does, so the paths still point at the
+    # right files.
+    $upFromLink = Filesystem::getDirContents("{$base}/link-to-target/..", false);
+    assert(count($upFromLink) === 1 && str_ends_with($upFromLink[0], "/elsewhere/beside-target.txt"));
+    assert(file_exists($upFromLink[0]));
+
+    # With $resolveSymlinks, the real paths are given instead, including for what is found through a followed symlink.
+    $realBase = realpath($base);
+    assert(Filesystem::getDirContents("{$base}/link", resolveSymlinks: true) === ["{$realBase}/real/sub/f.txt"]);
+    assert(Filesystem::listDirectories("{$base}/link", resolveSymlinks: true) === ["{$realBase}/real/sub"]);
+    symlink("{$base}/elsewhere", "{$base}/real/sub/to-elsewhere");
+    $followed = Filesystem::getDirContents("{$base}/link", followSymlinks: true, resolveSymlinks: true);
+    sort($followed);
+    $expected = ["{$realBase}/elsewhere/beside-target.txt", "{$realBase}/real/sub/f.txt"];
+    assert($followed === $expected, "getDirContents() resolving symlinks gave: " . implode(", ", $followed));
+    $kept = Filesystem::getDirContents("{$base}/link", followSymlinks: true);
+    sort($kept);
+    assert($kept === ["{$base}/link/sub/f.txt", "{$base}/link/sub/to-elsewhere/beside-target.txt"]);
+    unlink("{$base}/real/sub/to-elsewhere");
+
+    # A relative path is made absolute, from the current directory.
+    $previousDirectory = getcwd();
+    chdir($base);
+
+    try
+    {
+        assert(Filesystem::getDirContents("link") === [getcwd() . "/link/sub/f.txt"]);
+    }
+    finally
+    {
+        chdir($previousDirectory);
+    }
+}, needsSymlinks: true, anySymlinks: false);
+

@@ -478,8 +478,12 @@ $smoke->run("CSV methods", function () use ($dir) {
     SmokeTest::expectException(InvalidCsvException::class, $reloadWithBlankLine, "blank line at row 2");
     assert($reloadCsv->getRowCount() === 3 && $reloadCsv->getColumnCount() === 3);
 
-    # Outside code can't change a CsvFile's details directly.
-    SmokeTest::expectException(\Error::class, function () use ($reloadCsv) { $reloadCsv->m_rowCount = 99; });
+    # Outside code can't change a CsvFile's details directly, as none of its properties (or File's) are public.
+    foreach ((new ReflectionClass(CsvFile::class))->getProperties() as $property)
+    {
+        assert(!$property->isPublic(), "CsvFile::\${$property->getName()} is public");
+    }
+
     clearstatcache();
     SmokeTest::assertPermissions("{$dir}/trailing.csv", 0640);
 

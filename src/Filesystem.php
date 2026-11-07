@@ -49,19 +49,33 @@ final class Filesystem
      * @param string $path - the path to the directory that we want to search.
      * @param bool $recursive - whether to recursively loop through the directories to find more.
      * @param bool $includePath - set to true to include the full path to the dir, not just the dir
-     * name. Directories found by following a symlink are given under the symlink's path.
+     * name. The paths are absolute (a relative $path is taken from the current directory), and keep
+     * any symlinks in $path, rather than being resolved to the real path. Directories found by
+     * following a symlink are given under the symlink's path.
      * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
+     * Defaults to false.
+     * @param bool $skipUnreadable - with $recursive, whether to leave out the contents of any
+     * subdirectory that can't be read, rather than throwing. Defaults to false, so that an
+     * incomplete list is never returned without the caller asking for one. The directory given is
+     * always read, or this throws.
+     * @param bool $resolveSymlinks - whether to give the paths under their real paths (with
+     * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
+     * found by following a symlink under the symlink's path. A symlink found inside is still listed
+     * as the link itself (under its directory's real path), rather than as what it points to.
      * Defaults to false.
      * @return array<string> - list of directories within the specified path, in no particular order.
      * @throws DirectoryDoesNotExistException - if there is no directory at $path.
-     * @throws FilesystemException - if the directory (or, if $recursive, one of the subdirectories
-     * gone into) can't be opened, e.g. because it can't be read.
+     * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
+     * or (with $recursive, unless $skipUnreadable is true) one of the subdirectories gone into
+     * can't be, so the list would be incomplete.
      */
     public static function getDirectories(
         string $path,
         bool $recursive = false,
         bool $includePath = true,
-        bool $followSymlinks = false
+        bool $followSymlinks = false,
+        bool $skipUnreadable = false,
+        bool $resolveSymlinks = false
     ): array
     {
         # Throw rather than returning an empty list (with a warning), so that a missing or unreadable directory
@@ -71,18 +85,21 @@ final class Filesystem
             throw new DirectoryDoesNotExistException("There is no directory at {$path}.");
         }
 
+        # List from the path as given, made absolute, so the paths given back keep any symlinks in it. The real path
+        # is only used to spot symlinks pointing back up.
         $realPath = realpath($path);
+        $startPath = $resolveSymlinks ? $realPath : self::absolutePathKeepingSymlinks($path);
         $directories = [];
 
         # The directories still to look in, each with the real paths of the directories it is inside in this
         # listing, so that a symlink back up to one of them isn't gone into.
-        $toList = [[$realPath, [$realPath]]];
+        $toList = [[$startPath, [$realPath]]];
 
         while (count($toList) > 0)
         {
             [$directory, $ancestors] = array_shift($toList);
 
-            foreach (self::readDirectoryEntries($directory) as $entry)
+            foreach (self::readListedDirectory($directory, $directory !== $startPath, $skipUnreadable) as $entry)
             {
                 $entryPath = "{$directory}/{$entry}";
 
@@ -92,7 +109,9 @@ final class Filesystem
 
                     if (self::shouldGoInto($entryPath, $recursive, $followSymlinks, $ancestors))
                     {
-                        $toList[] = [$entryPath, array_merge($ancestors, [realpath($entryPath)])];
+                        $realEntryPath = realpath($entryPath);
+                        $listFrom = $resolveSymlinks ? $realEntryPath : $entryPath;
+                        $toList[] = [$listFrom, array_merge($ancestors, [$realEntryPath])];
                     }
                 }
             }
@@ -111,19 +130,38 @@ final class Filesystem
      * name.
      * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
      * Defaults to false.
+     * @param bool $skipUnreadable - with $recursive, whether to leave out the contents of any
+     * subdirectory that can't be read, rather than throwing. Defaults to false, so that an
+     * incomplete list is never returned without the caller asking for one. The directory given is
+     * always read, or this throws.
+     * @param bool $resolveSymlinks - whether to give the paths under their real paths (with
+     * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
+     * found by following a symlink under the symlink's path. A symlink found inside is still listed
+     * as the link itself (under its directory's real path), rather than as what it points to.
+     * Defaults to false.
      * @return array<string> - list of directories within the specified path, in no particular order.
      * @throws DirectoryDoesNotExistException - if there is no directory at $path.
-     * @throws FilesystemException - if the directory (or, if $recursive, one of the subdirectories
-     * gone into) can't be opened, e.g. because it can't be read.
+     * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
+     * or (with $recursive, unless $skipUnreadable is true) one of the subdirectories gone into
+     * can't be, so the list would be incomplete.
      */
     public static function listDirectories(
         string $path,
         bool $recursive = false,
         bool $includePath = true,
-        bool $followSymlinks = false
+        bool $followSymlinks = false,
+        bool $skipUnreadable = false,
+        bool $resolveSymlinks = false
     ): array
     {
-        return self::getDirectories($path, $recursive, $includePath, $followSymlinks);
+        return self::getDirectories(
+            $path,
+            $recursive,
+            $includePath,
+            $followSymlinks,
+            $skipUnreadable,
+            $resolveSymlinks
+        );
     }
 
 
@@ -139,17 +177,28 @@ final class Filesystem
      * @param string $dir - the path to the directory you wish to find the contents of.
      * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
      * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
-     * instead of just 'text.txt'. Entries found by following a symlink are given under the symlink's
-     * path.
+     * instead of just 'text.txt'. The paths are absolute (a relative $dir is taken from the current
+     * directory), and keep any symlinks in $dir, rather than being resolved to the real path.
+     * Entries found by following a symlink are given under the symlink's path.
      * @param bool $onlyFiles - whether to leave the directories themselves out of the returned list
      * @param bool $includeHiddenFilesAndFolders - if false, then this will not include hidden files
      * and folders (those starting with '.')
      * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
      * Defaults to false.
+     * @param bool $skipUnreadable - with $recursive, whether to leave out the contents of any
+     * subdirectory that can't be read, rather than throwing. Defaults to false, so that an
+     * incomplete list is never returned without the caller asking for one. The directory given is
+     * always read, or this throws.
+     * @param bool $resolveSymlinks - whether to give the paths under their real paths (with
+     * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
+     * found by following a symlink under the symlink's path. A symlink found inside is still listed
+     * as the link itself (under its directory's real path), rather than as what it points to.
+     * Defaults to false.
      * @return array - the names of all the files/folders within the directory, in no particular order.
      * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
-     * @throws FilesystemException - if the directory (or, if $recursive, one of the subdirectories
-     * gone into) can't be opened, e.g. because it can't be read.
+     * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
+     * or (with $recursive, unless $skipUnreadable is true) one of the subdirectories gone into
+     * can't be, so the list would be incomplete.
      */
     public static function getDirContents(
         string $dir,
@@ -157,7 +206,9 @@ final class Filesystem
         bool $includePath = true,
         bool $onlyFiles   = true,
         bool $includeHiddenFilesAndFolders = true,
-        bool $followSymlinks = false
+        bool $followSymlinks = false,
+        bool $skipUnreadable = false,
+        bool $resolveSymlinks = false
     ): array
     {
         # Throw rather than returning an empty list (with a warning), so that a missing or unreadable directory
@@ -167,18 +218,21 @@ final class Filesystem
             throw new DirectoryDoesNotExistException("There is no directory at {$dir}.");
         }
 
+        # List from the path as given, made absolute, so the paths given back keep any symlinks in it. The real path
+        # is only used to spot symlinks pointing back up.
         $realPath = realpath($dir);
+        $startPath = $resolveSymlinks ? $realPath : self::absolutePathKeepingSymlinks($dir);
         $fileNames = [];
 
         # The directories still to look in, each with the real paths of the directories it is inside in this
         # listing, so that a symlink back up to one of them isn't gone into.
-        $toList = [[$realPath, [$realPath]]];
+        $toList = [[$startPath, [$realPath]]];
 
         while (count($toList) > 0)
         {
             [$directory, $ancestors] = array_shift($toList);
 
-            foreach (self::readDirectoryEntries($directory) as $entry)
+            foreach (self::readListedDirectory($directory, $directory !== $startPath, $skipUnreadable) as $entry)
             {
                 if ($includeHiddenFilesAndFolders || !str_starts_with($entry, "."))
                 {
@@ -192,7 +246,9 @@ final class Filesystem
 
                     if ($isDirectory && self::shouldGoInto($entryPath, $recursive, $followSymlinks, $ancestors))
                     {
-                        $toList[] = [$entryPath, array_merge($ancestors, [realpath($entryPath)])];
+                        $realEntryPath = realpath($entryPath);
+                        $listFrom = $resolveSymlinks ? $realEntryPath : $entryPath;
+                        $toList[] = [$listFrom, array_merge($ancestors, [$realEntryPath])];
                     }
                 }
             }
@@ -214,10 +270,20 @@ final class Filesystem
      * and folders (those starting with '.')
      * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
      * Defaults to false.
+     * @param bool $skipUnreadable - with $recursive, whether to leave out the contents of any
+     * subdirectory that can't be read, rather than throwing. Defaults to false, so that an
+     * incomplete list is never returned without the caller asking for one. The directory given is
+     * always read, or this throws.
+     * @param bool $resolveSymlinks - whether to give the paths under their real paths (with
+     * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
+     * found by following a symlink under the symlink's path. A symlink found inside is still listed
+     * as the link itself (under its directory's real path), rather than as what it points to.
+     * Defaults to false.
      * @return array - the names of all the files/folders within the directory, in no particular order.
      * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
-     * @throws FilesystemException - if the directory (or, if $recursive, one of the subdirectories
-     * gone into) can't be opened, e.g. because it can't be read.
+     * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
+     * or (with $recursive, unless $skipUnreadable is true) one of the subdirectories gone into
+     * can't be, so the list would be incomplete.
      */
     public static function listDirContents(
         string $dir,
@@ -225,7 +291,9 @@ final class Filesystem
         bool $includePath = true,
         bool $onlyFiles   = true,
         bool $includeHiddenFilesAndFolders = true,
-        bool $followSymlinks = false
+        bool $followSymlinks = false,
+        bool $skipUnreadable = false,
+        bool $resolveSymlinks = false
     ): array
     {
         return self::getDirContents(
@@ -234,7 +302,9 @@ final class Filesystem
             $includePath,
             $onlyFiles,
             $includeHiddenFilesAndFolders,
-            $followSymlinks
+            $followSymlinks,
+            $skipUnreadable,
+            $resolveSymlinks
         );
     }
 
@@ -3753,6 +3823,110 @@ final class Filesystem
     {
         return str_starts_with($path, "\\") || preg_match('/^[A-Za-z]:[\\\\\/]/', $path) === 1;
     }
+
+    /**
+     * Make a path absolute without resolving its symlinks, for getDirectories() and getDirContents(),
+     * so the paths they give back are the ones the caller used. A relative path is taken from the
+     * current directory. "." parts and repeated or trailing slashes are removed. A ".." goes up a
+     * part, unless what it goes up from is a symlink: the system goes up from the link's target
+     * instead, so that part is resolved first, to keep the path pointing at the same place.
+     * @param string $path - the path, which must exist.
+     * @return string - the absolute path.
+     */
+    private static function absolutePathKeepingSymlinks(string $path): string
+    {
+        # Use "/" throughout, which Windows accepts too, so there is one separator to deal with.
+        $toSlashes = function (string $text): string {
+            return (PHP_OS_FAMILY === "Windows") ? str_replace("\\", "/", $text) : $text;
+        };
+
+        $workingDirectory = $toSlashes(getcwd());
+        $slashed = $toSlashes($path);
+        $drive = (preg_match('#^[A-Za-z]:#', $workingDirectory) === 1) ? substr($workingDirectory, 0, 2) : "";
+
+        # A path from the root of the current drive (only on Windows, e.g. "/data") gets the drive, and a relative one
+        # is taken from the current directory.
+        $full = match (true) {
+            preg_match('#^[A-Za-z]:/#', $slashed) === 1 => $slashed,
+            str_starts_with($slashed, "/") => (PHP_OS_FAMILY === "Windows") ? $drive . $slashed : $slashed,
+            default => "{$workingDirectory}/{$slashed}",
+        };
+
+        # The root ("" for "/", or e.g. "C:"), then each part added on. Neither ever ends with "/".
+        $hasDrive = preg_match('#^[A-Za-z]:/#', $full) === 1;
+        $absolute = $hasDrive ? substr($full, 0, 2) : "";
+        $parts = explode("/", $hasDrive ? substr($full, 3) : $full);
+
+        $goUp = function (string $current) use ($toSlashes): string {
+            return rtrim($toSlashes(dirname($current)), "/");
+        };
+
+        # Whether it is just the root, which ".." can't go above.
+        $isRoot = function (string $current): bool {
+            return $current === "" || preg_match('#^[A-Za-z]:$#', $current) === 1;
+        };
+
+        foreach ($parts as $part)
+        {
+            if ($part === ".." && is_link($absolute))
+            {
+                # The system goes up from where the link leads, so follow it first.
+                $absolute = $goUp(rtrim($toSlashes(realpath($absolute)), "/"));
+            }
+            elseif ($part === "..")
+            {
+                $absolute = $isRoot($absolute) ? $absolute : $goUp($absolute);
+            }
+            elseif ($part !== "" && $part !== ".")
+            {
+                $absolute = "{$absolute}/{$part}";
+            }
+        }
+
+        # The root on its own needs its slash back.
+        return $isRoot($absolute) ? "{$absolute}/" : $absolute;
+    }
+
+
+    /**
+     * Read the entries of a directory being listed by getDirectories() or getDirContents().
+     * @param string $directory - the directory to read.
+     * @param bool $isSubdirectory - false for the directory the listing was asked for, which must
+     * always be read, and true for one gone into with $recursive.
+     * @param bool $skipUnreadable - whether to give no entries for a subdirectory that can't be read,
+     * rather than throwing.
+     * @return array<string> - the names of the entries, without "." and "..".
+     * @throws FilesystemException - if the directory can't be read (unless it is a subdirectory, and
+     * $skipUnreadable is true).
+     */
+    private static function readListedDirectory(string $directory, bool $isSubdirectory, bool $skipUnreadable): array
+    {
+        $entries = [];
+
+        try
+        {
+            $entries = self::readDirectoryEntries($directory);
+        }
+        catch (FilesystemException $e)
+        {
+            if (!$isSubdirectory)
+            {
+                throw $e;
+            }
+            elseif (!$skipUnreadable)
+            {
+                throw new FilesystemException(
+                    "Failed to open {$directory}, e.g. because it can't be read, so the list would be incomplete. " .
+                    "Pass \$skipUnreadable as true to leave out what can't be read instead.",
+                    0,
+                    $e
+                );
+            }
+        }
+
+        return $entries;
+    }
+
 
     /**
      * Read the names of the entries in a directory, apart from "." and "..".
