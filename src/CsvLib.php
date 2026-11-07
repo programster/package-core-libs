@@ -680,6 +680,8 @@ final class CsvLib
      * @throws InvalidCsvException - if the file isn't valid (see the CsvFile constructor), e.g. it
      * has a blank line in the middle (blank lines at the very end are allowed, and are kept), or it
      * doesn't have one of the columns being removed. The file is left untouched if this happens.
+     * @throws BadArgumentException - if $columnIndexes has every column in the file, which would
+     * leave only blank rows. The file is left untouched if this happens.
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
      * @throws FilesystemException - if the file could not be read, or its new contents could not be
@@ -709,6 +711,15 @@ final class CsvLib
                     "removeColumns: {$filepath} does not have a column {$columnHumanIndex}, as it has {$columnCount}."
                 );
             }
+        }
+
+        # Removing every column would leave only blank rows, which isn't a valid CSV.
+        if ($columnCount > 0 && count(array_unique($columnIndexes)) === $columnCount)
+        {
+            throw new BadArgumentException(
+                "removeColumns: can't remove all {$columnCount} columns of {$filepath}, as that would leave only " .
+                "blank rows. To empty the file, truncate it instead."
+            );
         }
 
         # Suppress the warning, as we throw an exception instead.

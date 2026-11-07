@@ -947,6 +947,15 @@ $smoke->run("CsvFile trim, removeColumns and removeRows", function () use ($dir)
     $csvFile = new CsvFile("{$base}/b.csv", true);
     SmokeTest::expectException(InvalidCsvException::class, fn() => $csvFile->removeColumns([3]));
     SmokeTest::expectException(BadArgumentException::class, fn() => $csvFile->removeRows([5]));
+
+    # Removing every column (even listed twice) would leave only blank rows, so is refused.
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => $csvFile->removeColumns([2, 1, 2]),
+        "can't remove all 2 columns"
+    );
+
+    assert(file_get_contents("{$base}/b.csv") === "h1,h2\n1,2\n");
     assert($csvFile->getColumnCount() === 2 && $csvFile->getRowCount() === 2 && $csvFile->hasHeader());
 });
 

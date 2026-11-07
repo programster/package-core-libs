@@ -370,6 +370,8 @@ final class CsvFile extends File
      * @throws InvalidCsvException - if the file doesn't have one of the columns, or is no longer
      * valid (e.g. it was changed by something else since this CsvFile was created). The file is left
      * unchanged if this happens.
+     * @throws BadArgumentException - if $columnIndexes has every column, which would leave only
+     * blank rows. The file is left unchanged if this happens.
      * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
      * this CsvFile was created).
      * @throws BadFilePermissionsException - if the file can't be both read and written.
