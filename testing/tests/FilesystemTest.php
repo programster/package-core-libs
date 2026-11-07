@@ -1083,6 +1083,23 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
 
     assert(scandir("{$base}/out-escaping") === [".", ".."]);
 
+    # As is one that only escapes through a symlink already in the destination, which leads outside it.
+    mkdir("{$base}/out-through-link");
+    symlink("{$base}/outside", "{$base}/out-through-link/existing-link");
+    $throughZip = new ZipArchive();
+    $throughZip->open("{$base}/through.zip", ZipArchive::CREATE);
+    $throughZip->addFromString("escape", "existing-link/o.txt");
+    $throughZip->setExternalAttributesName("escape", ZipArchive::OPSYS_UNIX, 0120777 << 16);
+    $throughZip->close();
+
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::unzip("{$base}/through.zip", "{$base}/out-through-link", false),
+        "pointing to existing-link/o.txt, which is outside"
+    );
+
+    assert(!file_exists("{$base}/out-through-link/escape") && !is_link("{$base}/out-through-link/escape"));
+
     # A trusted unzip allows them.
     Filesystem::unzip("{$base}/outside.zip", "{$base}/out-trusted", false, true);
     assert(readlink("{$base}/out-trusted/project/outside-dir") === "{$base}/outside");
@@ -1354,5 +1371,71 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
         SmokeTest::assertOwnedByOtherUser("{$base}/owned.txt", "replaceWithFile() renaming");
         assert(file_get_contents("{$base}/owned.txt") === "new");
     }
+});
+
+$smoke->run("path helpers", function () use ($dir) {
+    # normalisePath() keeps absolute paths absolute, and relative ones relative.
+    $normalised = [
+        "/a/./b/../c/" => "/a/c",
+        "/../a" => "/a",
+        "//a//b" => "/a/b",
+        "/" => "/",
+        "a/./b/../c" => "a/c",
+        "a/../../b" => "../b",
+        "../../a" => "../../a",
+        "a/.." => ".",
+        "" => ".",
+    ];
+
+    foreach ($normalised as $path => $expected)
+    {
+        assert(Filesystem::normalisePath($path) === $expected, "normalisePath({$path}) gave " . Filesystem::normalisePath($path));
+    }
+
+    # relativePathBetween() works between two absolute paths, or two relative ones.
+    assert(Filesystem::relativePathBetween("/srv/a/b", "/srv/c/d.txt") === "../../c/d.txt");
+    assert(Filesystem::relativePathBetween("/srv/a", "/srv/a") === ".");
+    assert(Filesystem::relativePathBetween("/srv", "/srv/a/b.txt") === "a/b.txt");
+    assert(Filesystem::relativePathBetween("project/a", "project/b.txt") === "../b.txt");
+    assert(Filesystem::relativePathBetween(".", "real/f.txt") === "real/f.txt");
+
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => Filesystem::relativePathBetween("/srv/a", "b.txt"),
+        "must both be absolute, or both be relative"
+    );
+
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => Filesystem::relativePathBetween("../a", "b.txt"),
+        "goes above where it starts"
+    );
+
+    # isWithinDirectory() doesn't count a directory whose name only starts the same.
+    assert(Filesystem::isWithinDirectory("/a/b/c", "/a/b") && Filesystem::isWithinDirectory("/a/b", "/a/b/"));
+    assert(!Filesystem::isWithinDirectory("/a/bc", "/a/b") && Filesystem::isWithinDirectory("/anything", "/"));
+
+    # resolveLinkTarget() works out where a symlink's target leads, even for a broken one.
+    mkdir("{$dir}/path-helpers/sub", 0777, true);
+    $real = realpath("{$dir}/path-helpers");
+    assert(Filesystem::resolveLinkTarget("{$real}/sub", "../x.txt") === "{$real}/x.txt");
+    assert(Filesystem::resolveLinkTarget("{$real}/sub", "/elsewhere/./y.txt") === "/elsewhere/y.txt");
+
+    # resolvePath() follows the symlinks in the part of a path that exists, and tidies the rest.
+    mkdir("{$real}/data");
+    symlink("{$real}/data", "{$real}/link");
+    assert(Filesystem::resolvePath("{$real}/link/new/../file.txt") === "{$real}/data/file.txt");
+    assert(Filesystem::resolvePath("{$real}/sub") === "{$real}/sub");
+
+    # isWithinDirectory() follows symlinks by default, so a path through a link is where the link leads.
+    assert(Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/data"));
+    assert(!Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/sub"));
+    assert(Filesystem::isWithinDirectory("{$real}/data/file.txt", "{$real}/link"));
+
+    # Without resolving, only the paths as written are compared.
+    assert(!Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/data", false));
+
+    # canEnterDirectory() and canListDirectory() are true for a normal directory.
+    assert(Filesystem::canEnterDirectory($real) && Filesystem::canListDirectory($real));
 });
 

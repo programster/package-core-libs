@@ -30,13 +30,10 @@ use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Models\Directory;
 use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
-use Programster\CoreLibs\Models\SymlinkPathsTrait;
 use ZipArchive;
 
 final class Filesystem
 {
-    use SymlinkPathsTrait;
-
     # The file type and permissions of a symlink (S_IFLNK and 0777), as stored in zip entries.
     private const int SYMLINK_MODE = 0120777;
 
@@ -1213,7 +1210,8 @@ final class Filesystem
 
             # The path is on the mount with the longest mount point that contains it. A later line for the same mount
             # point is mounted over the earlier one, so wins.
-            $contains = ($mountPoint !== "") && self::isWithinDirectory($realPath, $mountPoint);
+            # Don't follow symlinks in the mount points, which could set off automounts, or hang on a network mount.
+            $contains = ($mountPoint !== "") && self::isWithinDirectory($realPath, $mountPoint, false);
 
             if ($contains && strlen($mountPoint) >= strlen($longestMountPoint))
             {
@@ -1933,6 +1931,218 @@ final class Filesystem
 
 
     /**
+     * Tidy a path from the path alone (without checking the filesystem): remove "." parts, apply
+     * ".." parts, and remove repeated or trailing slashes, e.g. "/a/./b/../c/" gives "/a/c". An
+     * absolute path stays absolute, and a ".." at its root is dropped (as "/.." is "/"). A relative
+     * path stays relative, keeping any ".." parts that go above where it starts, e.g. "a/../../b"
+     * gives "../b", and one that comes to nothing gives ".". Only "/" is treated as a separator.
+     * As the filesystem isn't checked, ".." after a symlink goes up from the link's own location,
+     * which isn't where the system would go (see resolveLinkTarget()).
+     * @param string $path - the path to tidy.
+     * @return string - the tidied path.
+     */
+    public static function normalisePath(string $path): string
+    {
+        $isAbsolute = str_starts_with($path, "/");
+        $parts = [];
+
+        foreach (explode("/", $path) as $part)
+        {
+            $canGoUp = count($parts) > 0 && end($parts) !== "..";
+
+            if ($part === ".." && $canGoUp)
+            {
+                array_pop($parts);
+            }
+            elseif ($part === ".." && !$isAbsolute)
+            {
+                $parts[] = "..";
+            }
+            elseif ($part !== "" && $part !== "." && $part !== "..")
+            {
+                $parts[] = $part;
+            }
+        }
+
+        $joined = implode("/", $parts);
+        return $isAbsolute ? "/{$joined}" : (($joined === "") ? "." : $joined);
+    }
+
+
+    /**
+     * Build the relative path from one directory to a path, e.g. from "/srv/a/b" to "/srv/c/d.txt"
+     * gives "../../c/d.txt". Both can instead be relative, as long as they are relative to the same
+     * place (e.g. paths inside a zip file): from "project/a" to "project/b.txt" gives "../b.txt".
+     * Only the paths are used, without checking the filesystem.
+     * @param string $fromDirectory - the directory to start from.
+     * @param string $toPath - the path to get to.
+     * @return string - the relative path, or "." if they are the same.
+     * @throws BadArgumentException - if one path is absolute and the other isn't, or a relative
+     * $fromDirectory goes above where it starts (e.g. "../a"), so the way back down isn't known.
+     */
+    public static function relativePathBetween(string $fromDirectory, string $toPath): string
+    {
+        $normalisedFrom = self::normalisePath($fromDirectory);
+
+        if (self::isAbsolutePath($fromDirectory) !== self::isAbsolutePath($toPath))
+        {
+            throw new BadArgumentException(
+                "relativePathBetween: {$fromDirectory} and {$toPath} must both be absolute, or both be relative."
+            );
+        }
+
+        if ($normalisedFrom === ".." || str_starts_with($normalisedFrom, "../"))
+        {
+            throw new BadArgumentException(
+                "relativePathBetween: {$fromDirectory} goes above where it starts, so the way back down isn't known."
+            );
+        }
+
+        $isPart = function (string $part): bool {
+            return $part !== "" && $part !== ".";
+        };
+
+        $fromParts = array_values(array_filter(explode("/", $normalisedFrom), $isPart));
+        $toParts = array_values(array_filter(explode("/", self::normalisePath($toPath)), $isPart));
+        $commonCount = 0;
+
+        while (
+               $commonCount < count($fromParts)
+            && $commonCount < count($toParts)
+            && $fromParts[$commonCount] === $toParts[$commonCount]
+        )
+        {
+            $commonCount++;
+        }
+
+        $upParts = array_fill(0, count($fromParts) - $commonCount, "..");
+        $relativeParts = array_merge($upParts, array_slice($toParts, $commonCount));
+
+        return (count($relativeParts) === 0) ? "." : implode("/", $relativeParts);
+    }
+
+
+    /**
+     * Check whether a path is a directory, or is inside it. By default, symlinks in both paths are
+     * followed first (see resolvePath()), so this answers where they really lead: e.g. with
+     * "/srv/link" pointing at "/data", "/srv/link/file" is inside "/data". That is what a check such
+     * as "is this inside the uploads directory?" needs, as reading or writing the path goes wherever
+     * its symlinks lead. A path that is itself a symlink is judged by where it points, so to check
+     * where a symlink itself is, check its dirname() instead. Neither path needs to exist.
+     * @param string $path - the path to check.
+     * @param string $directory - the directory.
+     * @param bool $resolveSymlinks - true (the default) to follow symlinks first. False to compare
+     * the paths as they are written (after tidying them with normalisePath()), without checking the
+     * filesystem, e.g. for paths that are already real, or the targets of symlinks themselves.
+     * @return bool - true if $path is $directory, or anywhere inside it.
+     */
+    public static function isWithinDirectory(string $path, string $directory, bool $resolveSymlinks = true): bool
+    {
+        $comparedPath = $resolveSymlinks ? self::resolvePath($path) : self::normalisePath($path);
+        $comparedDirectory = $resolveSymlinks ? self::resolvePath($directory) : self::normalisePath($directory);
+
+        # Compare with a trailing slash, so that e.g. /a/bc doesn't count as being inside /a/b.
+        return $comparedPath === $comparedDirectory
+            || str_starts_with($comparedPath . "/", rtrim($comparedDirectory, "/") . "/");
+    }
+
+
+    /**
+     * Get the real absolute path of a path, following its symlinks, as far as it exists: the
+     * longest part of it that exists is resolved with realpath(), and the rest (which doesn't exist
+     * yet) is added on and tidied with normalisePath(). So unlike realpath(), this works for a path
+     * that doesn't exist yet, e.g. "/srv/link/new/file.txt" with "/srv/link" pointing at "/data"
+     * gives "/data/new/file.txt". A relative path is relative to the current working directory. A
+     * broken symlink at the end can't be followed, so is left as the link's own path.
+     * @param string $path - the path to resolve.
+     * @return string - the absolute path, with the symlinks in its existing part followed.
+     */
+    public static function resolvePath(string $path): string
+    {
+        $absolutePath = self::isAbsolutePath($path) ? $path : getcwd() . "/" . $path;
+        $existingPart = $absolutePath;
+        $missingPart = "";
+
+        # Go up until reaching a part that exists. The root always exists, so this always stops.
+        while (realpath($existingPart) === false && dirname($existingPart) !== $existingPart)
+        {
+            $missingPart = "/" . basename($existingPart) . $missingPart;
+            $existingPart = dirname($existingPart);
+        }
+
+        $realPart = realpath($existingPart);
+        return self::normalisePath((($realPart === false) ? $existingPart : $realPart) . $missingPart);
+    }
+
+
+    /**
+     * Check whether a path is absolute, rather than relative to some other directory: one starting
+     * with "/". On Windows, this also accepts the absolute forms of a Windows path: one starting
+     * with a drive letter (e.g. "C:\data" or "C:/data"), a UNC path (e.g. "\\server\share"), or
+     * one starting with "\" (the root of the current drive). A drive letter without a slash
+     * after it (e.g. "C:data") is relative to that drive's current directory, so isn't absolute.
+     * Elsewhere, "C:\data" and "\data" are just unusual relative names, so they aren't absolute.
+     * @param string $path - the path to check.
+     * @return bool - true if it is absolute.
+     */
+    public static function isAbsolutePath(string $path): bool
+    {
+        $isWindowsAbsolute = PHP_OS_FAMILY === "Windows" && self::isWindowsAbsolutePath($path);
+        return str_starts_with($path, "/") || $isWindowsAbsolute;
+    }
+
+
+    /**
+     * Work out the absolute path a symlink's target points to, as the operating system would (e.g.
+     * from readlink()), even if the link is broken. The
+     * directory part is resolved with realpath() where it exists, as the system follows any
+     * symlinks in it before applying "..". Where it doesn't exist (e.g. for a broken link), it is
+     * worked out from the path alone.
+     * @param string $linkDirectory - the absolute path of the directory the symlink is in.
+     * @param string $linkTarget - the symlink's target, e.g. "../shared/data.txt". An absolute
+     * target is resolved in the same way, ignoring $linkDirectory.
+     * @return string - the absolute path it points to, e.g. "/srv/shared/data.txt".
+     */
+    public static function resolveLinkTarget(string $linkDirectory, string $linkTarget): string
+    {
+        # Don't tidy the ".." parts out first: for "sub/../x.txt" where "sub" is itself a symlink, the
+        # system goes up from wherever "sub" leads, which only realpath() on the path as written gets right.
+        $joined = self::isAbsolutePath($linkTarget) ? $linkTarget : "{$linkDirectory}/{$linkTarget}";
+        $realParent = realpath(dirname($joined));
+
+        return ($realParent === false)
+            ? self::normalisePath($joined)
+            : self::normalisePath($realParent . "/" . basename($joined));
+    }
+
+
+    /**
+     * Check whether a directory can be entered (to list it, or to reach or create what is in it),
+     * which on Unix needs its execute permission. Windows has no execute permission for directories,
+     * and is_executable() is always false for one there, so on Windows this is always true (whether
+     * it can be read or written is checked separately).
+     * @param string $directory - the directory to check.
+     * @return bool - true if it can be entered.
+     */
+    public static function canEnterDirectory(string $directory): bool
+    {
+        return PHP_OS_FAMILY === "Windows" || is_executable($directory);
+    }
+
+
+    /**
+     * Check whether a directory can be listed and entered, which is needed to find, delete or copy
+     * what is in it.
+     * @param string $directory - the directory to check.
+     * @return bool - true if it can be.
+     */
+    public static function canListDirectory(string $directory): bool
+    {
+        return is_readable($directory) && self::canEnterDirectory($directory);
+    }
+
+
+    /**
      * Add everything in a directory to a zip, for zipDir(), going into subdirectories. Symlinks are
      * added by addSymlinkToZip().
      * @param ZipArchive $zip - the zip being written.
@@ -2015,9 +2225,11 @@ final class Filesystem
             ? $realTarget
             : self::resolveLinkTarget(dirname($linkPath), $rawTarget);
 
-        if (self::isWithinDirectory($resolvedTarget, $root['source']))
+        # The target has already been resolved, so compare it as it is.
+        if (self::isWithinDirectory($resolvedTarget, $root['source'], false))
         {
-            $targetZipPath = $root['zip'] . substr($resolvedTarget, strlen($root['source']));
+            # Without a folder at the top of the zip, its paths have nothing in front of them, not even a "/".
+            $targetZipPath = ltrim($root['zip'] . substr($resolvedTarget, strlen($root['source'])), "/");
             self::addZipSymlink($zip, $zipPath, self::relativePathBetween(dirname($zipPath), $targetZipPath));
         }
         elseif (!$root['followSymlinks'] || $realTarget === false)
@@ -2174,7 +2386,7 @@ final class Filesystem
     {
         $problems = [];
 
-        if (!is_writable($destination) || !is_executable($destination))
+        if (!is_writable($destination) || !self::canEnterDirectory($destination))
         {
             $problems[] = "{$destination} can't be written to.";
         }
@@ -2285,7 +2497,7 @@ final class Filesystem
         # The new contents aren't known yet, so judge the room needed by the original's size.
         $neededBytes = is_file($filepath) ? (int)filesize($filepath) : 0;
         $systemTmpDirectory = sys_get_temp_dir();
-        $isWritable = is_writable($directory) && is_executable($directory);
+        $isWritable = is_writable($directory) && self::canEnterDirectory($directory);
         $hasRoom = $isWritable && self::hasFreeSpace($directory, $neededBytes);
         $systemIsTmpfs = self::isTmpfsIfKnown($systemTmpDirectory);
 
@@ -2443,7 +2655,7 @@ final class Filesystem
             && $details['nlink'] === 1
             && $isRenamableFromThere
             && is_writable($directory)
-            && is_executable($directory);
+            && self::canEnterDirectory($directory);
     }
 
 
@@ -2519,7 +2731,8 @@ final class Filesystem
 
         # Write over the old contents first, then cut off whatever is left of them, so the file is only ever
         # shortened once the new contents are all in place.
-        $succeeded = stream_copy_to_stream($source, $target) === $newSize
+        # stream_copy_to_stream() returns false for nothing to copy on Windows, so an empty file needs no copying.
+        $succeeded = ($newSize === 0 || stream_copy_to_stream($source, $target) === $newSize)
             && ftruncate($target, $newSize)
             && fflush($target);
 
@@ -2586,37 +2799,6 @@ final class Filesystem
         }
 
         return $leftBehind;
-    }
-
-
-    /**
-     * Read the names of the entries in a directory, apart from "." and "..".
-     * @param string $directory - the directory to read.
-     * @return array<string> - the names, in the order the system gives them.
-     * @throws FilesystemException - if the directory can't be opened.
-     */
-    private static function readDirectoryEntries(string $directory): array
-    {
-        # Suppress the warning, as we throw an exception instead.
-        $handle = @opendir($directory);
-
-        if ($handle === false)
-        {
-            throw new FilesystemException("Failed to open the directory {$directory}, e.g. because it can't be read.");
-        }
-
-        $entries = [];
-
-        while (($entry = readdir($handle)) !== false)
-        {
-            if ($entry !== "." && $entry !== "..")
-            {
-                $entries[] = $entry;
-            }
-        }
-
-        closedir($handle);
-        return $entries;
     }
 
 
@@ -2763,15 +2945,13 @@ final class Filesystem
         if (count($problems) < self::MAX_DELETION_PROBLEMS)
         {
             # A directory has to be listed (readable) and opened (executable) to find and delete what's in it.
-            $entries = (is_readable($dir) && is_executable($dir)) ? @scandir($dir) : false;
-
-            if ($entries === false)
+            if (!self::canListDirectory($dir))
             {
                 $problems[] = new FileDeletionProblem($dir, $dir, FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE);
             }
             else
             {
-                $entries = array_values(array_diff($entries, ['.', '..']));
+                $entries = self::readDirectoryEntries($dir);
 
                 for ($i = 0; $i < count($entries) && count($problems) < self::MAX_DELETION_PROBLEMS; $i++)
                 {
@@ -2959,7 +3139,7 @@ final class Filesystem
      */
     private static function findDeletionProblem(string $parentDir, string $path, array &$problems): void
     {
-        if (!is_writable($parentDir) || !is_executable($parentDir))
+        if (!is_writable($parentDir) || !self::canEnterDirectory($parentDir))
         {
             $problems[] = new FileDeletionProblem($path, $parentDir, FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE);
         }
@@ -3018,5 +3198,48 @@ final class Filesystem
         }
 
         self::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
+    }
+
+
+    /**
+     * Check whether a path is in one of the absolute forms of a Windows path (see isAbsolutePath()),
+     * whatever system this is running on.
+     * @param string $path - the path to check.
+     * @return bool - true if it starts with a drive letter and a slash, or with "\".
+     */
+    private static function isWindowsAbsolutePath(string $path): bool
+    {
+        return str_starts_with($path, "\\") || preg_match('/^[A-Za-z]:[\\\\\/]/', $path) === 1;
+    }
+
+    /**
+     * Read the names of the entries in a directory, apart from "." and "..".
+     * @param string $directory - the directory to read.
+     * @return array<string> - the names, in the order the system gives them.
+     * @throws FilesystemException - if the directory can't be opened.
+     */
+    private static function readDirectoryEntries(string $directory): array
+    {
+        # Suppress the warning, as we throw an exception instead.
+        $handle = @opendir($directory);
+
+        if ($handle === false)
+        {
+            throw new FilesystemException("Failed to open the directory {$directory}, e.g. because it can't be read.");
+        }
+
+        # Read one at a time, rather than with scandir(), which also sorts them, as the order doesn't matter.
+        $entries = [];
+
+        while (($entry = readdir($handle)) !== false)
+        {
+            if ($entry !== "." && $entry !== "..")
+            {
+                $entries[] = $entry;
+            }
+        }
+
+        closedir($handle);
+        return $entries;
     }
 }

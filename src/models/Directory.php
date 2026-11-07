@@ -21,8 +21,6 @@ use Programster\CoreLibs\Exceptions\FilesystemException;
 
 class Directory
 {
-    use SymlinkPathsTrait;
-
     # Moves stop looking for problems once they have found this many.
     private const MAX_PROBLEMS = 100;
 
@@ -223,8 +221,8 @@ class Directory
     private function resolvePath(string $path): string
     {
         $parent = dirname($this->m_path);
-        $resolved = self::isAbsolutePath($path) ? $path : "{$parent}/{$path}";
-        return self::isAbsolutePath($resolved) ? $resolved : getcwd() . "/" . $resolved;
+        $resolved = Filesystem::isAbsolutePath($path) ? $path : "{$parent}/{$path}";
+        return Filesystem::isAbsolutePath($resolved) ? $resolved : getcwd() . "/" . $resolved;
     }
 
 
@@ -256,7 +254,7 @@ class Directory
 
         # Resolve the destination's parent where it exists, so symlinks in its path are followed as the system would.
         $realParent = realpath(dirname($targetPath));
-        $newParent = ($realParent !== false) ? $realParent : self::normalisePath(dirname($targetPath));
+        $newParent = ($realParent !== false) ? $realParent : Filesystem::normalisePath(dirname($targetPath));
         $newPath = rtrim($newParent, "/") . "/" . basename($targetPath);
 
         if ($newPath !== $currentPath)
@@ -316,7 +314,7 @@ class Directory
      */
     private function checkCanMoveTo(string $currentPath, string $newPath): bool
     {
-        if (self::isWithinDirectory($newPath, $currentPath))
+        if (Filesystem::isWithinDirectory($newPath, $currentPath))
         {
             throw new BadArgumentException("Can't move {$currentPath} to {$newPath}, as that is inside itself.");
         }
@@ -386,10 +384,8 @@ class Directory
     {
         if (count($problems) < self::MAX_PROBLEMS)
         {
-            # Suppress the warning, as an unreadable directory is reported as a problem instead.
-            $entries = (is_readable($directory) && is_executable($directory)) ? @scandir($directory) : false;
-
-            if ($entries === false)
+            # A directory that can't be listed is reported as a problem.
+            if (!Filesystem::canListDirectory($directory))
             {
                 $problems[] = new DirectoryMoveProblem(
                     $directory,
@@ -399,7 +395,7 @@ class Directory
             }
             else
             {
-                $entries = array_values(array_diff($entries, ['.', '..']));
+                $entries = Filesystem::getDirContents($directory, false, false, false);
 
                 for ($i = 0; $i < count($entries) && count($problems) < self::MAX_PROBLEMS; $i++)
                 {
@@ -412,7 +408,7 @@ class Directory
 
                         if ($newTarget !== $linkTarget)
                         {
-                            if (!is_writable($directory) || !is_executable($directory))
+                            if (!is_writable($directory) || !Filesystem::canEnterDirectory($directory))
                             {
                                 $problems[] = new DirectoryMoveProblem(
                                     $path,
@@ -452,9 +448,11 @@ class Directory
         string $newRoot
     ): string
     {
-        $isAbsolute = self::isAbsolutePath($linkTarget);
-        $pointsAt = self::resolveLinkTarget($linkDirectory, $linkTarget);
-        $isInside = self::isWithinDirectory($pointsAt, $oldRoot);
+        $isAbsolute = Filesystem::isAbsolutePath($linkTarget);
+        $pointsAt = Filesystem::resolveLinkTarget($linkDirectory, $linkTarget);
+        # Compare the target as it is, without following it: a link to another link inside counts as inside, even if
+        # that one points outside.
+        $isInside = Filesystem::isWithinDirectory($pointsAt, $oldRoot, false);
 
         # Where it should point once the directory has moved.
         $shouldPointAt = $isInside ? $newRoot . substr($pointsAt, strlen($oldRoot)) : $pointsAt;
@@ -468,11 +466,11 @@ class Directory
         else
         {
             # Keep a relative target as it is if it still works from the new location, otherwise work it out again.
-            $wouldPointAt = self::normalisePath("{$newLinkDirectory}/{$linkTarget}");
+            $wouldPointAt = Filesystem::normalisePath("{$newLinkDirectory}/{$linkTarget}");
 
             $newTarget = ($wouldPointAt === $shouldPointAt)
                 ? $linkTarget
-                : self::relativePathBetween($newLinkDirectory, $shouldPointAt);
+                : Filesystem::relativePathBetween($newLinkDirectory, $shouldPointAt);
         }
 
         return $newTarget;
@@ -640,7 +638,7 @@ class Directory
                     "{$path} can't be read, so it can't be copied."
                 );
             }
-            elseif ($isDirectory && (!is_writable($path) || !is_executable($path)))
+            elseif ($isDirectory && (!is_writable($path) || !Filesystem::canEnterDirectory($path)))
             {
                 # The original is deleted after copying, which means removing everything in each directory.
                 $problems[] = new DirectoryMoveProblem(
@@ -655,9 +653,9 @@ class Directory
                 $totalBytes += $stats['size'];
             }
 
-            if ($isDirectory && is_readable($path) && is_executable($path))
+            if ($isDirectory && Filesystem::canListDirectory($path))
             {
-                $entries = array_values(array_diff(scandir($path), ['.', '..']));
+                $entries = Filesystem::getDirContents($path, false, false, false);
 
                 for ($i = 0; $i < count($entries) && count($problems) < self::MAX_PROBLEMS; $i++)
                 {
@@ -785,7 +783,7 @@ class Directory
 
         $directoriesToFinish[] = [$destination, lstat($source)];
 
-        foreach (array_diff(scandir($source), ['.', '..']) as $entry)
+        foreach (Filesystem::getDirContents($source, false, false, false) as $entry)
         {
             $from = "{$source}/{$entry}";
             $to = "{$destination}/{$entry}";

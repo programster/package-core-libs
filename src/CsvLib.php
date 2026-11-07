@@ -83,7 +83,9 @@ final class CsvLib
             }
 
             $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR | ($compressed ? 0 : JSON_PRETTY_PRINT);
-            $separator = $compressed ? "," : "," . PHP_EOL;
+            # Use "\n" rather than PHP_EOL (which is "\r\n" on Windows), as json_encode() always uses "\n", so the
+            # output is the same everywhere.
+            $separator = $compressed ? "," : ",\n";
 
             try
             {
@@ -91,7 +93,7 @@ final class CsvLib
                 self::skipByteOrderMark($csvHandle);
                 $headers = fgetcsv($csvHandle, 0, $delimiter, $enclosure, $escape);
                 $hasWrittenObject = false;
-                self::writeToOutput($jsonFile, $compressed ? "[" : "[" . PHP_EOL);
+                self::writeToOutput($jsonFile, $compressed ? "[" : "[\n");
 
                 # Read with fgetcsv(), so a quoted value can contain line breaks. Blank lines can only be at the end,
                 # as the file has been validated, so are skipped.
@@ -111,7 +113,7 @@ final class CsvLib
                         if (!$compressed)
                         {
                             # Indent each object by four spaces, as it is inside the array.
-                            $jsonString = "    " . str_replace(PHP_EOL, PHP_EOL . "    ", $jsonString);
+                            $jsonString = "    " . str_replace("\n", "\n    ", $jsonString);
                         }
 
                         self::writeToOutput($jsonFile, ($hasWrittenObject ? $separator : "") . $jsonString);
@@ -911,8 +913,11 @@ final class CsvLib
                 }
             }
 
-            # Keep anything after the last row (i.e. any blank lines at the end) exactly as it was.
-            if (stream_copy_to_stream($fileHandle, $tmpFile) === false)
+            # Keep anything after the last row (i.e. any blank lines at the end) exactly as it was. Only copy if there
+            # is something left, as stream_copy_to_stream() returns false for nothing to copy on Windows.
+            $remainingBytes = fstat($fileHandle)['size'] - ftell($fileHandle);
+
+            if ($remainingBytes > 0 && stream_copy_to_stream($fileHandle, $tmpFile) !== $remainingBytes)
             {
                 throw new FilesystemException("removeRows: Failed to write to the temporary file.");
             }

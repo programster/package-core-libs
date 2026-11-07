@@ -407,3 +407,17 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
     }
 });
 
+$smoke->run("Directory move keeping a link to a link", function () use ($dir) {
+    # "to-b" points at "b" inside the directory, and "b" points outside it. Moving the directory must keep "to-b"
+    # pointing at "b" (judged by its own target, not by following "b" outside), so it still works afterwards.
+    $base = "{$dir}/link-chain";
+    mkdir("{$base}/project", 0777, true);
+    mkdir("{$base}/elsewhere");
+    file_put_contents("{$base}/outside.txt", "outside");
+    symlink("{$base}/outside.txt", "{$base}/project/b");
+    symlink("{$base}/project/b", "{$base}/project/to-b");
+    (new Directory("{$base}/project"))->move("{$base}/elsewhere");
+    assert(readlink("{$base}/elsewhere/project/to-b") === "{$base}/elsewhere/project/b");
+    assert(file_get_contents("{$base}/elsewhere/project/to-b") === "outside");
+});
+

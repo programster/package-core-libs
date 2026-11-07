@@ -8,6 +8,7 @@ namespace Programster\CoreLibs;
 
 
 use Programster\CoreLibs\Exceptions\CommandFailedException;
+use Programster\CoreLibs\Exceptions\CoreLibsException;
 use Programster\CoreLibs\Exceptions\MissingExtensionException;
 use Programster\CoreLibs\Exceptions\NetworkInterfaceDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
@@ -143,14 +144,16 @@ final class Network
         # Check against the kernel's own list of interfaces, rather than relying on the ip command's error message.
         # Comparing against the list (rather than checking if /sys/class/net/{$interface} exists) also means names
         # like ".." can't match.
-        $interfaces = scandir("/sys/class/net");
-
-        if ($interfaces === false)
+        try
         {
-            throw new FilesystemException("Failed to read the list of network interfaces from /sys/class/net.");
+            $interfaces = Filesystem::getDirContents("/sys/class/net", false, false, false);
+        }
+        catch (CoreLibsException $e)
+        {
+            throw new FilesystemException("Failed to read the list of network interfaces from /sys/class/net.", 0, $e);
         }
 
-        if (!in_array($interface, array_diff($interfaces, [".", ".."]), true))
+        if (!in_array($interface, $interfaces, true))
         {
             throw new NetworkInterfaceDoesNotExistException($interface);
         }

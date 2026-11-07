@@ -20,8 +20,6 @@ use Programster\CoreLibs\Exceptions\FilesystemException;
 
 class File
 {
-    use SymlinkPathsTrait;
-
     # Updated when the file is renamed or moved.
     protected string $m_filepath;
 
@@ -191,7 +189,7 @@ class File
      */
     private function resolvePath(string $path): string
     {
-        return self::isAbsolutePath($path) ? $path : dirname($this->m_filepath) . "/" . $path;
+        return Filesystem::isAbsolutePath($path) ? $path : dirname($this->m_filepath) . "/" . $path;
     }
 
 
@@ -258,7 +256,7 @@ class File
             }
 
             $linkTarget = is_link($currentPath) ? readlink($currentPath) : false;
-            $isRelativeLink = $linkTarget !== false && !self::isAbsolutePath($linkTarget);
+            $isRelativeLink = $linkTarget !== false && !Filesystem::isAbsolutePath($linkTarget);
 
             if ($isRelativeLink && dirname($newPath) !== dirname($currentPath))
             {
@@ -296,8 +294,8 @@ class File
         bool $replaceExisting
     ): void
     {
-        $absoluteTarget = self::resolveLinkTarget(dirname($currentPath), $linkTarget);
-        $newLinkTarget = self::relativePathBetween(dirname($newPath), $absoluteTarget);
+        $absoluteTarget = Filesystem::resolveLinkTarget(dirname($currentPath), $linkTarget);
+        $newLinkTarget = Filesystem::relativePathBetween(dirname($newPath), $absoluteTarget);
 
         # Suppress the warnings, as we throw exceptions instead.
         if ($replaceExisting && !@unlink($newPath))

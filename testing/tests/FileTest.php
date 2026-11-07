@@ -302,23 +302,22 @@ $smoke->run("File moves never replacing a file created during the move", functio
 });
 
 $smoke->run("absolute paths, including Windows ones", function () {
-    $isAbsolutePath = new ReflectionMethod(File::class, "isAbsolutePath");
-    $isWindowsAbsolutePath = new ReflectionMethod(File::class, "isWindowsAbsolutePath");
+    $isWindowsAbsolutePath = new ReflectionMethod(Filesystem::class, "isWindowsAbsolutePath");
 
     # The Windows forms, which are only absolute on Windows.
     foreach (["C:\\data\\bob.txt", "c:/data", "\\\\server\\share\\x", "\\data"] as $path)
     {
         assert($isWindowsAbsolutePath->invoke(null, $path) === true, "{$path} should be a Windows absolute path");
-        assert($isAbsolutePath->invoke(null, $path) === (PHP_OS_FAMILY === "Windows"), "{$path} on " . PHP_OS_FAMILY);
+        assert(Filesystem::isAbsolutePath($path) === (PHP_OS_FAMILY === "Windows"), "{$path} on " . PHP_OS_FAMILY);
     }
 
     # A drive letter without a slash is relative to that drive's current directory.
     foreach (["C:data", "data\\bob.txt", "bob.txt", "../bob.txt"] as $path)
     {
         assert($isWindowsAbsolutePath->invoke(null, $path) === false, "{$path} shouldn't be a Windows absolute path");
-        assert($isAbsolutePath->invoke(null, $path) === false, "{$path} shouldn't be absolute");
+        assert(Filesystem::isAbsolutePath($path) === false, "{$path} shouldn't be absolute");
     }
 
-    assert($isAbsolutePath->invoke(null, "/srv/bob.txt") === true);
+    assert(Filesystem::isAbsolutePath("/srv/bob.txt") === true);
 });
 
