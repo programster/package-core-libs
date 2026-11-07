@@ -630,6 +630,9 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
         }
     }
 
+    # Make it writable again, as Windows won't let a read-only file be deleted, so the clean-up couldn't remove it.
+    chmod("{$dir}/in-place/read-only.csv", 0644);
+
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => CsvLib::trim("{$dir}/in-place/nope.csv"));
 });
 

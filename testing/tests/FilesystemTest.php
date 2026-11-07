@@ -159,6 +159,9 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
         );
         assert(file_get_contents("{$dir}/utf8-dir/read-only.txt") === "\xE6");
     }
+
+    # Make it writable again, as Windows won't let a read-only file be deleted, so the clean-up couldn't remove it.
+    chmod("{$dir}/utf8-dir/read-only.txt", 0644);
 });
 
 $smoke->run("replacing file contents in place", function () use ($dir) {
@@ -201,6 +204,9 @@ $smoke->run("replacing file contents in place", function () use ($dir) {
             fn() => Filesystem::checkCanChangeFile("{$dir}/replace.txt")
         );
     }
+
+    # Make it writable again, as Windows won't let a read-only file be deleted, so the clean-up couldn't remove it.
+    chmod("{$dir}/replace.txt", 0644);
 });
 
 $smoke->run("downloadFile", function () use ($dir) {
@@ -322,22 +328,23 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
     # The destination is only created once the zip has opened, so an invalid zip doesn't leave it behind.
     assert(!file_exists("{$dir}/bad"));
 
-    if (SmokeTest::canCreateSymlinks("deleteDir() refusing a symlink"))
+    # These only need an absolute symlink to a folder that exists, which Windows can create too.
+    if (SmokeTest::canCreateSymlinks("deleteDir() and zipDir() through a symlink", false))
     {
         # deleteDir() through a symlink used to empty the folder it points to, so it must now refuse, and touch nothing.
         symlink("{$dir}/ziptest", "{$dir}/ziplink");
         SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink"));
         SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink/"));
         assert(file_exists("{$dir}/ziptest/sub/a.txt") && is_link("{$dir}/ziplink"));
-    }
 
-    # zipDir() with $deleteOnComplete on a symlink zips the folder, then removes only the link, keeping the folder.
-    Filesystem::zipDir("{$dir}/ziplink/", "{$dir}/link.zip", true);
-    assert(!is_link("{$dir}/ziplink") && file_exists("{$dir}/ziptest/sub/a.txt"));
-    $linkZip = new ZipArchive();
-    $linkZip->open("{$dir}/link.zip");
-    assert($linkZip->locateName("ziplink/sub/a.txt") !== false);
-    $linkZip->close();
+        # zipDir() with $deleteOnComplete on a symlink zips the folder, then removes only the link, keeping the folder.
+        Filesystem::zipDir("{$dir}/ziplink/", "{$dir}/link.zip", true);
+        assert(!is_link("{$dir}/ziplink") && file_exists("{$dir}/ziptest/sub/a.txt"));
+        $linkZip = new ZipArchive();
+        $linkZip->open("{$dir}/link.zip");
+        assert($linkZip->locateName("ziplink/sub/a.txt") !== false);
+        $linkZip->close();
+    }
 
     # The zip is only written when it is closed, so this checks that a failed close() is caught.
     SmokeTest::expectException(
@@ -1297,7 +1304,15 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
 
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::isTmpfs("{$base}/missing"));
 
-    assert($hasFreeMemory->invoke(null, 0) === true && $hasFreeMemory->invoke(null, PHP_INT_MAX) === false);
+    assert($hasFreeMemory->invoke(null, 0) === true);
+
+    # Where the free memory can't be read (anywhere but Linux), it counts as enough, so this can only be checked on
+    # Linux.
+    if (PHP_OS_FAMILY === "Linux")
+    {
+        assert($hasFreeMemory->invoke(null, PHP_INT_MAX) === false);
+    }
+
 
     # /proc/mounts writes a space in a mount point as \040, which is turned back into a space.
     $decodeOctalEscape = new ReflectionMethod(Filesystem::class, "decodeOctalEscape");
