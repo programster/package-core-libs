@@ -18,6 +18,14 @@ use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 final class Network
 {
+    # Lists every network interface ("IF") and IPv4 address ("IP") on Windows, one per line, separated by tabs, for
+    # getIps(). It lists them all, so that no interface name has to be put into the command.
+    private const string WINDOWS_IPS_COMMAND = 'powershell -NoProfile -NonInteractive -Command "'
+        . 'Get-NetIPInterface -AddressFamily IPv4 | ForEach-Object { \'IF\' + [char]9 + $_.InterfaceAlias }; '
+        . 'Get-NetIPAddress -AddressFamily IPv4 | ForEach-Object { '
+        . '\'IP\' + [char]9 + $_.InterfaceAlias + [char]9 + $_.IPAddress }"';
+
+
     /**
      * Send a message to a server over a direct TCP socket connection, and read back its response.
      * Both the message and the response are a single line, ending with a newline. This supports
@@ -129,50 +137,36 @@ final class Network
     /**
      * Fetches this computer's IPv4 addresses on the specified network interface. Please note that
      * you may wish to run getPublicIp instead which may return a different IP address depending on
-     * your network.
+     * your network. This uses the usual tool on each system: the ip command on Linux, ifconfig on
+     * macOS and BSD, and PowerShell's Get-NetIPAddress on Windows. Interface names differ between
+     * them, e.g. the loopback interface is "lo" on Linux, "lo0" on macOS, and "Loopback
+     * Pseudo-Interface 1" on Windows.
      * @param string $interface - the network interface that we want the IPs of.
      * @return array<string> - list of the IPv4 addresses of this machine on that interface, in the
-     * order the ip command lists them. Will be empty if the interface exists but has no IPv4
-     * addresses.
+     * order the system lists them. Will be empty if the interface exists but has no IPv4 addresses.
      * @throws NetworkInterfaceDoesNotExistException - if there is no network interface with that
      * name.
-     * @throws UnsupportedPlatformException - if there is no /sys/class/net, as this isn't Linux.
+     * @throws UnsupportedPlatformException - on a system other than Linux, macOS, BSD or Windows, or
+     * Linux without /sys/class/net.
      * @throws FilesystemException - if the list of network interfaces could not be read from
      * /sys/class/net.
-     * @throws CommandFailedException - if the ip command failed.
+     * @throws CommandFailedException - if the command listing them failed.
      */
     public static function getIps(string $interface): array
     {
-        # Check against the kernel's own list of interfaces, rather than relying on the ip command's error message.
-        # Comparing against the list (rather than checking if /sys/class/net/{$interface} exists) also means names
-        # like ".." can't match.
-        if (!is_dir("/sys/class/net"))
-        {
-            throw new UnsupportedPlatformException("getIps: this needs /sys/class/net, so only works on Linux.");
-        }
+        $ipsByInterface = match (PHP_OS_FAMILY) {
+            "Linux" => self::getLinuxIps($interface),
+            "Darwin", "BSD" => self::parseIfconfigIps(Core::runCommand("ifconfig")),
+            "Windows" => self::parseWindowsIps(Core::runCommand(self::WINDOWS_IPS_COMMAND)),
+            default => throw new UnsupportedPlatformException("getIps: unsupported OS " . PHP_OS_FAMILY),
+        };
 
-        try
-        {
-            $interfaces = Filesystem::getDirContents("/sys/class/net", false, false, false);
-        }
-        catch (CoreLibsException $e)
-        {
-            throw new FilesystemException("Failed to read the list of network interfaces from /sys/class/net.", 0, $e);
-        }
-
-        if (!in_array($interface, $interfaces, true))
+        if (!array_key_exists($interface, $ipsByInterface))
         {
             throw new NetworkInterfaceDoesNotExistException($interface);
         }
 
-        # We deliberately don't use a pipeline (e.g. into awk) here, as a pipeline's exit code is only that of its
-        # last command, which would hide the ip command failing (e.g. because the interface doesn't exist).
-        $output = Core::runCommand("ip -o -4 addr list " . escapeshellarg($interface));
-
-        # Each line looks like: "2: eth0    inet 192.168.1.5/24 brd 192.168.1.255 scope global eth0 ..."
-        preg_match_all('/\binet ([0-9.]+)\//', $output, $matches);
-        $ips = $matches[1];
-        return $ips;
+        return $ipsByInterface[$interface];
     }
 
 
@@ -283,6 +277,110 @@ final class Network
 
         $isPrivate = ($publicIp === false);
         return $isPrivate;
+    }
+
+
+    /**
+     * Get the IPv4 addresses of a network interface on Linux, for getIps(), with the ip command.
+     * @param string $interface - the network interface.
+     * @return array<string, array<string>> - the interface mapped to its addresses, or nothing if
+     * there is no such interface.
+     * @throws UnsupportedPlatformException - if there is no /sys/class/net.
+     * @throws FilesystemException - if the list of interfaces in /sys/class/net couldn't be read.
+     * @throws CommandFailedException - if the ip command failed.
+     */
+    private static function getLinuxIps(string $interface): array
+    {
+        # Check against the kernel's own list of interfaces, rather than relying on the ip command's error message.
+        # Comparing against the list (rather than checking if /sys/class/net/{$interface} exists) also means names
+        # like ".." can't match.
+        if (!is_dir("/sys/class/net"))
+        {
+            throw new UnsupportedPlatformException("getIps: this needs /sys/class/net on Linux.");
+        }
+
+        try
+        {
+            $interfaces = Filesystem::getDirContents("/sys/class/net", false, false, false);
+        }
+        catch (CoreLibsException $e)
+        {
+            throw new FilesystemException("Failed to read the list of network interfaces from /sys/class/net.", 0, $e);
+        }
+
+        $ipsByInterface = [];
+
+        if (in_array($interface, $interfaces, true))
+        {
+            # We deliberately don't use a pipeline (e.g. into awk) here, as a pipeline's exit code is only that of its
+            # last command, which would hide the ip command failing.
+            $output = Core::runCommand("ip -o -4 addr list " . escapeshellarg($interface));
+
+            # Each line looks like: "2: eth0    inet 192.168.1.5/24 brd 192.168.1.255 scope global eth0 ..."
+            preg_match_all('/\binet ([0-9.]+)\//', $output, $matches);
+            $ipsByInterface[$interface] = $matches[1];
+        }
+
+        return $ipsByInterface;
+    }
+
+
+    /**
+     * Read every network interface's IPv4 addresses from the output of ifconfig (macOS and BSD), for
+     * getIps(). Each interface's block starts with its name and a colon at the start of a line (e.g.
+     * "en0: flags=..."), and its IPv4 addresses are on indented "inet" lines.
+     * @param string $output - what ifconfig printed.
+     * @return array<string, array<string>> - each interface mapped to its IPv4 addresses.
+     */
+    private static function parseIfconfigIps(string $output): array
+    {
+        $ipsByInterface = [];
+        $current = null;
+
+        foreach (explode("\n", $output) as $line)
+        {
+            if (preg_match('/^([^\s:]+):\s/', $line, $nameMatch) === 1)
+            {
+                $current = $nameMatch[1];
+                $ipsByInterface[$current] = [];
+            }
+            elseif ($current !== null && preg_match('/^\s+inet ([0-9.]+)\s/', $line, $ipMatch) === 1)
+            {
+                $ipsByInterface[$current][] = $ipMatch[1];
+            }
+        }
+
+        return $ipsByInterface;
+    }
+
+
+    /**
+     * Read every network interface's IPv4 addresses from the output of WINDOWS_IPS_COMMAND, for
+     * getIps(). It prints a tab-separated "IF" line for each interface, and an "IP" line for each
+     * address, e.g. "IF\tEthernet" and "IP\tEthernet\t192.168.1.5".
+     * @param string $output - what the command printed.
+     * @return array<string, array<string>> - each interface mapped to its IPv4 addresses.
+     */
+    private static function parseWindowsIps(string $output): array
+    {
+        $ipsByInterface = [];
+
+        foreach (explode("\n", str_replace("\r", "", $output)) as $line)
+        {
+            $fields = explode("\t", $line);
+
+            if ($fields[0] === "IF" && count($fields) === 2)
+            {
+                $ipsByInterface[$fields[1]] ??= [];
+            }
+            elseif ($fields[0] === "IP" && count($fields) === 3)
+            {
+                $ipsByInterface[$fields[1]] ??= [];
+                $ipsByInterface[$fields[1]][] = $fields[2];
+            }
+        }
+
+        return $ipsByInterface;
     }
 
 

@@ -4,6 +4,7 @@
  * Smoke tests for Network. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
+use Programster\CoreLibs\Exceptions\NetworkInterfaceDoesNotExistException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\NetworkException;
@@ -55,15 +56,15 @@ $smoke->run("isPrivateIp / isPortOpen / getIps", function () {
     SmokeTest::expectException(BadArgumentException::class, fn() => Network::isPrivateIp("[::1]"));
     assert(!Network::isPortOpen("127.0.0.1", 1, timeout: 1));
 
-    # getIps() reads /sys/class/net, so only works on Linux, and says so elsewhere.
-    if (PHP_OS_FAMILY === "Linux")
-    {
-        assert(in_array("127.0.0.1", Network::getIps("lo"), true));
-    }
-    else
-    {
-        SmokeTest::expectException(UnsupportedPlatformException::class, fn() => Network::getIps("lo"));
-    }
+    # The loopback interface has 127.0.0.1, but is named differently on each system.
+    $loopback = match (PHP_OS_FAMILY) {
+        "Windows" => "Loopback Pseudo-Interface 1",
+        "Darwin", "BSD" => "lo0",
+        default => "lo",
+    };
+
+    assert(in_array("127.0.0.1", Network::getIps($loopback), true), "{$loopback} doesn't have 127.0.0.1");
+    SmokeTest::expectException(NetworkInterfaceDoesNotExistException::class, fn() => Network::getIps("no-such-if"));
 });
 
 $smoke->run("sendTcpRequest", function () {
@@ -135,3 +136,28 @@ $smoke->run("getCurrentUrl() / isHttps()", function () {
         $_SERVER = $originalServer;
     }
 });
+
+$smoke->run("getIps() reading macOS and Windows output", function () {
+    # These only run on macOS and Windows, so check them here with sample output.
+    $ifconfig = new ReflectionMethod(Network::class, "parseIfconfigIps");
+    $windows = new ReflectionMethod(Network::class, "parseWindowsIps");
+
+    $ifconfigOutput = "lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384\n" .
+        "\tinet 127.0.0.1 netmask 0xff000000\n" .
+        "\tinet6 ::1 prefixlen 128\n" .
+        "en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500\n" .
+        "\tether 00:11:22:33:44:55\n" .
+        "\tinet 192.168.1.5 netmask 0xffffff00 broadcast 192.168.1.255\n" .
+        "\tinet 10.0.0.2 netmask 0xff000000\n" .
+        "utun0: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 1380\n";
+
+    $expected = ["lo0" => ["127.0.0.1"], "en0" => ["192.168.1.5", "10.0.0.2"], "utun0" => []];
+    assert($ifconfig->invoke(null, $ifconfigOutput) === $expected);
+
+    $windowsOutput = "IF\tEthernet\r\nIF\tLoopback Pseudo-Interface 1\r\nIF\tWi-Fi\r\n" .
+        "IP\tEthernet\t192.168.1.5\r\nIP\tLoopback Pseudo-Interface 1\t127.0.0.1\r\n";
+
+    $expected = ["Ethernet" => ["192.168.1.5"], "Loopback Pseudo-Interface 1" => ["127.0.0.1"], "Wi-Fi" => []];
+    assert($windows->invoke(null, $windowsOutput) === $expected);
+});
+
