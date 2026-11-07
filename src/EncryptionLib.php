@@ -126,7 +126,8 @@ final class EncryptionLib
      * @param string $key - the key it was encrypted with.
      *
      * @param string $initializationVector - the 16 byte initialization vector it was encrypted
-     * with.
+     * with. A shorter one is padded with zero bytes (without PHP's warning), as version 2 did, so
+     * data encrypted with one still decrypts.
      *
      * @return string - the decrypted text.
      *
