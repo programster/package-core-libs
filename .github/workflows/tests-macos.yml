@@ -9,9 +9,9 @@ on:
         branches:
             - master
             - main
-            # TEMPORARY: also run on the overhaul branch, to find and fix what fails on macOS. Remove this line
-            # once that is done, so it only runs on the main branch, like tests.yml.
-            - overhaul
+            # TEMPORARY: also run on the 3.x branch, where version 3 is developed until it is released.
+            # Remove this line once 3.x has been merged into the main branch.
+            - "3.x"
         tags:
             - "*"
     pull_request:

@@ -10,9 +10,9 @@ on:
         branches:
             - master
             - main
-            # TEMPORARY: also run on the overhaul branch while it is being worked on, so its results show. Remove this
-            # line once it has been merged, so it only runs on the main branch again.
-            - overhaul
+            # TEMPORARY: also run on the 3.x branch, where version 3 is developed until it is released.
+            # Remove this line once 3.x has been merged into the main branch.
+            - "3.x"
         tags:
             - "*"
     # Pull requests into the main branch, so they are tested before being merged.
