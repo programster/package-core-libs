@@ -10,6 +10,9 @@ on:
         branches:
             - master
             - main
+            # TEMPORARY: also run on the overhaul branch while it is being worked on, so its results show. Remove this
+            # line once it has been merged, so it only runs on the main branch again.
+            - overhaul
         tags:
             - "*"
     # Pull requests into the main branch, so they are tested before being merged.
