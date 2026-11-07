@@ -3896,8 +3896,9 @@ final class Filesystem
     /**
      * Make a path absolute without resolving its symlinks, for getDirectories(), getDirContents(),
      * emptyDir() and deleteDir(), so the paths they give back are the ones the caller used. A
-     * relative path is taken from the current directory. "." parts and repeated or trailing slashes
-     * are removed. A ".." goes up a
+     * relative path is taken from the current directory. On Windows, a UNC path (e.g.
+     * "\\wsl.localhost\Ubuntu\home", for WSL's files) is already absolute, and ".." never goes
+     * above its share. "." parts and repeated or trailing slashes are removed. A ".." goes up a
      * part, unless what it goes up from is a symlink: the system goes up from the link's target
      * instead, so that part is resolved first, to keep the path pointing at the same place.
      * @param string $path - the path, which must exist.
@@ -3910,42 +3911,47 @@ final class Filesystem
             return (PHP_OS_FAMILY === "Windows") ? str_replace("\\", "/", $text) : $text;
         };
 
+        $onWindows = PHP_OS_FAMILY === "Windows";
         $workingDirectory = $toSlashes(getcwd());
         $slashed = $toSlashes($path);
         $drive = (preg_match('#^[A-Za-z]:#', $workingDirectory) === 1) ? substr($workingDirectory, 0, 2) : "";
+        $isUnc = $onWindows && str_starts_with($slashed, "//");
 
         # A path from the root of the current drive (only on Windows, e.g. "/data") gets the drive, and a relative one
-        # is taken from the current directory.
+        # is taken from the current directory. A UNC path (e.g. "//wsl.localhost/Ubuntu/home") is already absolute.
         $full = match (true) {
-            preg_match('#^[A-Za-z]:/#', $slashed) === 1 => $slashed,
-            str_starts_with($slashed, "/") => (PHP_OS_FAMILY === "Windows") ? $drive . $slashed : $slashed,
+            $isUnc || preg_match('#^[A-Za-z]:/#', $slashed) === 1 => $slashed,
+            str_starts_with($slashed, "/") => $onWindows ? $drive . $slashed : $slashed,
             default => "{$workingDirectory}/{$slashed}",
         };
 
-        # The root ("" for "/", or e.g. "C:"), then each part added on. Neither ever ends with "/".
-        $hasDrive = preg_match('#^[A-Za-z]:/#', $full) === 1;
-        $absolute = $hasDrive ? substr($full, 0, 2) : "";
-        $parts = explode("/", $hasDrive ? substr($full, 3) : $full);
+        # The root, which ".." can't go above: "" for "/", a drive (e.g. "C:"), or on Windows, a UNC path's server and
+        # share (e.g. "//wsl.localhost/Ubuntu"). Then each part is added on. Neither ever ends with "/".
+        $uncRoot = $onWindows && preg_match('#^//[^/]+/[^/]+#', $full, $uncMatch) === 1 ? $uncMatch[0] : "";
+
+        $root = match (true) {
+            $uncRoot !== "" => $uncRoot,
+            preg_match('#^[A-Za-z]:/#', $full) === 1 => substr($full, 0, 2),
+            default => "",
+        };
+
+        $absolute = $root;
+        $parts = explode("/", substr($full, strlen($root)));
 
         $goUp = function (string $current) use ($toSlashes): string {
             return rtrim($toSlashes(dirname($current)), "/");
         };
 
-        # Whether it is just the root, which ".." can't go above.
-        $isRoot = function (string $current): bool {
-            return $current === "" || preg_match('#^[A-Za-z]:$#', $current) === 1;
-        };
-
         foreach ($parts as $part)
         {
-            if ($part === ".." && is_link($absolute))
+            if ($part === ".." && $absolute !== $root && is_link($absolute))
             {
                 # The system goes up from where the link leads, so follow it first.
                 $absolute = $goUp(rtrim($toSlashes(realpath($absolute)), "/"));
             }
             elseif ($part === "..")
             {
-                $absolute = $isRoot($absolute) ? $absolute : $goUp($absolute);
+                $absolute = ($absolute === $root) ? $absolute : $goUp($absolute);
             }
             elseif ($part !== "" && $part !== ".")
             {
@@ -3953,8 +3959,8 @@ final class Filesystem
             }
         }
 
-        # The root on its own needs its slash back.
-        return $isRoot($absolute) ? "{$absolute}/" : $absolute;
+        # "/" and a drive on their own need their slash back. A UNC share doesn't need one.
+        return ($absolute === $root && $uncRoot === "") ? "{$absolute}/" : $absolute;
     }
 
 

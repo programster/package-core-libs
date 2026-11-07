@@ -2240,3 +2240,35 @@ $smoke->run("deleteDir() failing part way through", function () use ($dir) {
     assert(!file_exists("{$base}/first.txt") && is_dir($base));
 });
 
+$smoke->run("UNC paths, as used for WSL's files from Windows", function () use ($dir) {
+    # From Windows, WSL's files are reached with UNC paths (e.g. \\wsl.localhost\Ubuntu\home). The admin share
+    # (\\localhost\C$\...) is a UNC path to the same files as C:\..., so use that to check them here.
+    $base = Filesystem::normalisePath(realpath($dir)) . "/unc-paths";
+    $unc = (preg_match('#^([A-Za-z]):/(.*)$#', $base, $match) === 1) ? "//localhost/{$match[1]}$/{$match[2]}" : "";
+
+    if (PHP_OS_FAMILY !== "Windows" || $unc === "" || !is_dir(dirname($unc)))
+    {
+        SmokeTest::skip("UNC paths, as used for WSL's files from Windows", "needs Windows, and its admin share");
+    }
+    else
+    {
+        mkdir("{$base}/real/sub", 0777, true);
+        touch("{$base}/real/sub/f.txt");
+        mkdir("{$base}/to-empty");
+        touch("{$base}/to-empty/x.txt");
+
+        # The paths given back stay on the share, rather than being turned into a path on the current drive.
+        $files = Filesystem::getDirContents("{$unc}/real");
+        assert($files === ["{$unc}/real/sub/f.txt"], "getDirContents() gave: " . implode(", ", $files));
+        $backslashed = str_replace("/", "\\", "{$unc}/real/sub/..");
+        $tidied = Filesystem::getDirContents($backslashed);
+        assert($tidied === ["{$unc}/real/sub/f.txt"], "getDirContents() with \\ gave: " . implode(", ", $tidied));
+
+        # And deleting through one works on the share's files.
+        Filesystem::emptyDir("{$unc}/to-empty");
+        assert(!file_exists("{$base}/to-empty/x.txt") && is_dir("{$base}/to-empty"));
+        Filesystem::deleteDir("{$unc}/to-empty");
+        assert(!file_exists("{$base}/to-empty"));
+    }
+});
+
