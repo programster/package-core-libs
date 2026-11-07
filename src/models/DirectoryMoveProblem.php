@@ -19,9 +19,12 @@ final readonly class DirectoryMoveProblem
 
     /**
      * Create the details of something that stops a directory being moved.
+     *
      * @param string $path - the file or directory with the problem (for NOT_ENOUGH_SPACE, the
      * directory on the other filesystem whose free space was checked).
+     *
      * @param DirectoryMoveProblemEnum $reason - why it stops the move.
+     *
      * @param string $description - a description of the problem, for people, e.g. "/srv/a.txt is
      * owned by user 0, so a copy (owned by user 1000) would change its owner".
      */

@@ -21,9 +21,13 @@ class DirectoryNotMovableException extends BadFilePermissionsException
 
     /**
      * Create the exception.
+     *
      * @param string $message - the message for the exception.
+     *
      * @param array<DirectoryMoveProblem> $problems - one for each problem found.
+     *
      * @param int $code - optionally specify the exception code.
+     *
      * @param \Throwable|null $previous - optionally specify the previous exception, if this was
      * caused by another.
      */

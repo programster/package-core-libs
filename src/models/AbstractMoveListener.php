@@ -38,9 +38,12 @@ abstract class AbstractMoveListener implements MoveListenerInterface
 
     /**
      * Called after each chunk (8 MiB) of a file is copied (see MoveListenerInterface).
+     *
      * @param MoveProgress $progress - how far the move has got, including the bytes of this file
      * copied so far.
+     *
      * @param string $path - the file's original path.
+     *
      * @return void
      */
     public function onBytesCopied(MoveProgress $progress, string $path): void

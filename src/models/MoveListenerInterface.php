@@ -46,9 +46,12 @@ interface MoveListenerInterface
      * Called after each chunk (8 MiB) of a file is copied, so progress can be shown during a big
      * file. Only called when copying to another filesystem, and not after the last chunk, as
      * onFileMoved() is called then.
+     *
      * @param MoveProgress $progress - how far the move has got, including the bytes of this file
      * copied so far.
+     *
      * @param string $path - the file's original path.
+     *
      * @return void
      */
     public function onBytesCopied(MoveProgress $progress, string $path): void;

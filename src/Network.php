@@ -34,27 +34,37 @@ final class Network
      *
      * @param string $host - who to send the request to. This can be a hostname, an IPv4 address, or
      * an IPv6 address (with or without square brackets, e.g. "::1" or "[::1]").
+     *
      * @param int $port - the port number to make the connection on.
+     *
      * @param string|\Stringable $request - the message to send. This is sent as-is, followed by a
      * newline so that the receiver knows it has reached the end of the message. If the server
      * expects a format such as JSON, it is up to you to encode it. This must not contain any
      * newlines (\n or \r).
+     *
      * @param int $bufferSize - optionally define the maximum size (in bytes) of the response,
      * including its newline. If the response is larger than this, an exception is thrown. 10485760
      * = 10 MiB
+     *
      * @param int $timeout - (optional, default 2) the number of seconds to wait for each of:
      * connecting, sending the request, and receiving the complete response, before giving up. Must
      * be at least 1.
+     *
      * @param int $attemptsLimit - (optional, default 5) the number of times to try to connect
      * before giving up, with a one second pause between attempts. Must be at least 1.
+     *
      * @param bool $stripEndline - (optional, default true) whether to remove the newline that marks
      * the end of the server's response. Set to false to get the response exactly as it was
      * received.
+     *
      * @return string - the raw response from the server, read up until the first newline. If you
      * are expecting a format such as JSON, it is up to you to decode it.
+     *
      * @throws MissingExtensionException - if the sockets extension isn't installed.
+     *
      * @throws BadArgumentException - if the request contains a newline, or $timeout or
      * $attemptsLimit is below 1.
+     *
      * @throws NetworkException - if we failed to connect, send the request, or read a complete
      * response (e.g. if the server closed the connection without responding, or the response was
      * larger than $bufferSize).
@@ -125,6 +135,7 @@ final class Network
      * Behind a proxy or load balancer that handles HTTPS, the web server only sees plain HTTP, so
      * this is false unless the web server is set up to report it. (The X-Forwarded-Proto header
      * isn't used, as the client can set it.)
+     *
      * @return bool - true if it was made over HTTPS, and false if not, or there is no web request.
      */
     public static function isHttps(): bool
@@ -141,15 +152,21 @@ final class Network
      * macOS and BSD, and PowerShell's Get-NetIPAddress on Windows. Interface names differ between
      * them, e.g. the loopback interface is "lo" on Linux, "lo0" on macOS, and "Loopback
      * Pseudo-Interface 1" on Windows.
+     *
      * @param string $interface - the network interface that we want the IPs of.
+     *
      * @return array<string> - list of the IPv4 addresses of this machine on that interface, in the
      * order the system lists them. Will be empty if the interface exists but has no IPv4 addresses.
+     *
      * @throws NetworkInterfaceDoesNotExistException - if there is no network interface with that
      * name.
+     *
      * @throws UnsupportedPlatformException - on a system other than Linux, macOS, BSD or Windows, or
      * Linux without /sys/class/net.
+     *
      * @throws FilesystemException - if the list of network interfaces could not be read from
      * /sys/class/net.
+     *
      * @throws CommandFailedException - if the command listing them failed.
      */
     public static function getIps(string $interface): array
@@ -176,9 +193,12 @@ final class Network
      * method that relies on icanhazip.com remaining the same so use with caution. This uses HTTPS,
      * so that the answer can't be tampered with on the way, which needs the openssl extension. It
      * may return an IPv6 address, if that is how this computer connects to icanhazip.com.
+     *
      * @param float $timeout - optionally specify how many seconds to wait for icanhazip.com to
      * respond. Defaults to 5.
+     *
      * @return string - the public ip address of this computer.
+     *
      * @throws NetworkException - if we failed to get a response from icanhazip.com, or the response
      * wasn't an IP address.
      */
@@ -219,12 +239,17 @@ final class Network
      * Checks to see if the specified TCP port is open, by trying to connect to it. UDP ports aren't
      * supported, as there is no way to reliably check whether one is open (UDP has no connection
      * handshake, so "connecting" succeeds whether anything is listening or not).
+     *
      * @param string $host - the host to check against. If empty, this machine's public IP is used.
+     *
      * @param int $port - the port to check
+     *
      * @param float $timeout - optionally specify how many seconds to wait for a connection before
      * deciding the port isn't open. Hosts behind firewalls often silently drop packets rather than
      * refuse the connection, in which case this is how long the check will take.
+     *
      * @return bool - true if the port is open, false if not.
+     *
      * @throws NetworkException - if $host is empty and we failed to fetch this machine's public IP.
      */
     public static function isPortOpen(string $host, int $port, float $timeout = 5.0): bool
@@ -255,9 +280,12 @@ final class Network
      * 192.168.0.0 – 192.168.255.255, 172.16.0.0 – 172.31.255.255, or 10.0.0.0 – 10.255.255.255.
      * Reserved ranges, such as 127.0.0.0/8 (loopback) and 169.254.0.0/16 (link-local), also count.
      * This also applies to IPv6 though.
+     *
      * @param string $ip - the IP address to check, e.g. "192.168.1.5" or "fd00::1". IPv6 addresses
      * must not be in square brackets.
+     *
      * @return bool - true if a private/reserved IP, false if not.
+     *
      * @throws BadArgumentException - if $ip is not a valid IPv4 or IPv6 address.
      */
     public static function isPrivateIp(string $ip): bool
@@ -282,9 +310,12 @@ final class Network
 
     /**
      * Get the IPv4 addresses of a network interface on Linux, for getIps(), with the ip command.
+     *
      * @param string $interface - the network interface.
+     *
      * @return array<string, array<string>> - the interface mapped to its addresses, or nothing if
      * there is no such interface.
+     *
      * @throws UnsupportedPlatformException - if there is no /sys/class/net.
      * @throws FilesystemException - if the list of interfaces in /sys/class/net couldn't be read.
      * @throws CommandFailedException - if the ip command failed.
@@ -329,7 +360,9 @@ final class Network
      * Read every network interface's IPv4 addresses from the output of ifconfig (macOS and BSD), for
      * getIps(). Each interface's block starts with its name and a colon at the start of a line (e.g.
      * "en0: flags=..."), and its IPv4 addresses are on indented "inet" lines.
+     *
      * @param string $output - what ifconfig printed.
+     *
      * @return array<string, array<string>> - each interface mapped to its IPv4 addresses.
      */
     private static function parseIfconfigIps(string $output): array
@@ -358,7 +391,9 @@ final class Network
      * Read every network interface's IPv4 addresses from the output of WINDOWS_IPS_COMMAND, for
      * getIps(). It prints a tab-separated "IF" line for each interface, and an "IP" line for each
      * address, e.g. "IF\tEthernet" and "IP\tEthernet\t192.168.1.5".
+     *
      * @param string $output - what the command printed.
+     *
      * @return array<string, array<string>> - each interface mapped to its IPv4 addresses.
      */
     private static function parseWindowsIps(string $output): array
@@ -387,13 +422,19 @@ final class Network
     /**
      * Connect a TCP socket to a host, trying every address the host resolves to (IPv6 and IPv4),
      * and retrying up to $attemptsLimit times with a one second pause between attempts.
+     *
      * @param string $host - the hostname, IPv4 address, or IPv6 address (with or without square
      * brackets).
+     *
      * @param int $port - the port to connect to.
+     *
      * @param int $timeout - the number of seconds to wait for each connection attempt, and for
      * later reads/writes.
+     *
      * @param int $attemptsLimit - the number of times to try to connect before giving up.
+     *
      * @return \Socket - the connected socket.
+     *
      * @throws NetworkException - if we could not connect after $attemptsLimit attempts. The message
      * lists every error.
      */
@@ -492,10 +533,15 @@ final class Network
      * timeout, so it would wait forever for a server that never responds. Instead, we wait for data
      * with socket_select(), which does respect a deadline, and read whatever is available until we
      * have a newline.
+     *
      * @param \Socket $socket - the connected socket to read from.
+     *
      * @param int $maxBytes - the maximum size of the line (including its newline).
+     *
      * @param int $timeout - the maximum number of seconds to wait for the whole line.
+     *
      * @return string - the line, including the newline at the end.
+     *
      * @throws NetworkException - if reading fails, times out, the server closes the connection
      * before sending a newline, or the line is larger than $maxBytes.
      */
@@ -579,9 +625,13 @@ final class Network
     /**
      * Write all of the data to a socket. socket_write() may only send part of the data, so keep
      * writing until everything has been sent.
+     *
      * @param \Socket $socket - the connected socket to write to.
+     *
      * @param string $data - the data to send.
+     *
      * @return void
+     *
      * @throws NetworkException - if writing to the socket fails.
      */
     private static function writeToSocket(\Socket $socket, string $data): void

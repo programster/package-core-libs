@@ -44,10 +44,6 @@ enum DirectoryMoveProblemEnum : string
     # A directory can't be written to, so after copying it to another filesystem, the original couldn't be deleted.
     case ORIGINAL_NOT_DELETABLE = 'original_not_deletable';
 
-    # On Windows, a copy on another drive belongs to whoever makes it, with the ACLs of the directory it is copied into,
-    # and PHP can't read or copy the original's, so ownership can't be kept. Only with PreserveOwnershipEnum::YES.
-    case OWNERSHIP_NOT_KEEPABLE_ON_WINDOWS = 'ownership_not_keepable_on_windows';
-
     # On Windows, a symlink that has to be created again (to update its target, or when copying to another drive) is
     # broken, and Windows can't create a symlink to something that doesn't exist.
     case SYMLINK_NOT_CREATABLE_ON_WINDOWS = 'symlink_not_creatable_on_windows';

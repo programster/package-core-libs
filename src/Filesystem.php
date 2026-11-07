@@ -57,25 +57,34 @@ final class Filesystem
      * A symlink to a directory is listed as a directory. With $recursive, it is only gone into if
      * $followSymlinks is true, and even then, never if it points back up to a directory it is inside
      * (e.g. ".."), which would otherwise go round in circles.
+     *
      * @param string $path - the path to the directory that we want to search.
+     *
      * @param bool $recursive - whether to recursively loop through the directories to find more.
+     *
      * @param bool $includePath - set to true to include the full path to the dir, not just the dir
      * name. The paths are absolute (a relative $path is taken from the current directory), and keep
      * any symlinks in $path, rather than being resolved to the real path. Directories found by
      * following a symlink are given under the symlink's path.
+     *
      * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
      * Defaults to false.
+     *
      * @param bool $skipUnreadable - with $recursive, whether to leave out the contents of any
      * subdirectory that can't be read, rather than throwing. Defaults to false, so that an
      * incomplete list is never returned without the caller asking for one. The directory given is
      * always read, or this throws.
+     *
      * @param bool $resolveSymlinks - whether to give the paths under their real paths (with
      * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
      * found by following a symlink under the symlink's path. A symlink found inside is still listed
      * as the link itself (under its directory's real path), rather than as what it points to.
      * Either way, the paths use "/" as the separator, including on Windows. Defaults to false.
+     *
      * @return array<string> - list of directories within the specified path, in no particular order.
+     *
      * @throws DirectoryDoesNotExistException - if there is no directory at $path.
+     *
      * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
      * or (with $recursive, unless $skipUnreadable is true) one of the subdirectories gone into
      * can't be, so the list would be incomplete.
@@ -135,23 +144,32 @@ final class Filesystem
     /**
      * An alias for getDirectories(), for those who look for "list" (as with ls) rather than "get".
      * See getDirectories() for how it works.
+     *
      * @param string $path - the path to the directory that we want to search.
+     *
      * @param bool $recursive - whether to recursively loop through the directories to find more.
+     *
      * @param bool $includePath - set to true to include the full path to the dir, not just the dir
      * name.
+     *
      * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
      * Defaults to false.
+     *
      * @param bool $skipUnreadable - with $recursive, whether to leave out the contents of any
      * subdirectory that can't be read, rather than throwing. Defaults to false, so that an
      * incomplete list is never returned without the caller asking for one. The directory given is
      * always read, or this throws.
+     *
      * @param bool $resolveSymlinks - whether to give the paths under their real paths (with
      * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
      * found by following a symlink under the symlink's path. A symlink found inside is still listed
      * as the link itself (under its directory's real path), rather than as what it points to.
      * Either way, the paths use "/" as the separator, including on Windows. Defaults to false.
+     *
      * @return array<string> - list of directories within the specified path, in no particular order.
+     *
      * @throws DirectoryDoesNotExistException - if there is no directory at $path.
+     *
      * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
      * or (with $recursive, unless $skipUnreadable is true) one of the subdirectories gone into
      * can't be, so the list would be incomplete.
@@ -185,28 +203,39 @@ final class Filesystem
      * A symlink to a directory is treated as a directory. With $recursive, it is only gone into if
      * $followSymlinks is true, and even then, never if it points back up to a directory it is inside
      * (e.g. ".."), which would otherwise go round in circles.
+     *
      * @param string $dir - the path to the directory you wish to find the contents of.
+     *
      * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
+     *
      * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
      * instead of just 'text.txt'. The paths are absolute (a relative $dir is taken from the current
      * directory), and keep any symlinks in $dir, rather than being resolved to the real path.
      * Entries found by following a symlink are given under the symlink's path.
+     *
      * @param bool $onlyFiles - whether to leave the directories themselves out of the returned list
+     *
      * @param bool $includeHiddenFilesAndFolders - if false, then this will not include hidden files
      * and folders (those starting with '.')
+     *
      * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
      * Defaults to false.
+     *
      * @param bool $skipUnreadable - with $recursive, whether to leave out the contents of any
      * subdirectory that can't be read, rather than throwing. Defaults to false, so that an
      * incomplete list is never returned without the caller asking for one. The directory given is
      * always read, or this throws.
+     *
      * @param bool $resolveSymlinks - whether to give the paths under their real paths (with
      * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
      * found by following a symlink under the symlink's path. A symlink found inside is still listed
      * as the link itself (under its directory's real path), rather than as what it points to.
      * Either way, the paths use "/" as the separator, including on Windows. Defaults to false.
+     *
      * @return array - the names of all the files/folders within the directory, in no particular order.
+     *
      * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
+     *
      * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
      * or (with $recursive, unless $skipUnreadable is true) one of the subdirectories gone into
      * can't be, so the list would be incomplete.
@@ -272,26 +301,37 @@ final class Filesystem
     /**
      * An alias for getDirContents(), for those who look for "list" (as with ls) rather than "get".
      * See getDirContents() for how it works.
+     *
      * @param string $dir - the path to the directory you wish to find the contents of.
+     *
      * @param bool $recursive - whether we go through into each subfolder and retrieve its contents.
+     *
      * @param bool $includePath - whether we output the path to the entry such as '/folder/text.txt'
      * instead of just 'text.txt'.
+     *
      * @param bool $onlyFiles - whether to leave the directories themselves out of the returned list
+     *
      * @param bool $includeHiddenFilesAndFolders - if false, then this will not include hidden files
      * and folders (those starting with '.')
+     *
      * @param bool $followSymlinks - with $recursive, whether to go into symlinks to directories too.
      * Defaults to false.
+     *
      * @param bool $skipUnreadable - with $recursive, whether to leave out the contents of any
      * subdirectory that can't be read, rather than throwing. Defaults to false, so that an
      * incomplete list is never returned without the caller asking for one. The directory given is
      * always read, or this throws.
+     *
      * @param bool $resolveSymlinks - whether to give the paths under their real paths (with
      * symlinks resolved), rather than keeping any symlinks in the path given, and giving what was
      * found by following a symlink under the symlink's path. A symlink found inside is still listed
      * as the link itself (under its directory's real path), rather than as what it points to.
      * Either way, the paths use "/" as the separator, including on Windows. Defaults to false.
+     *
      * @return array - the names of all the files/folders within the directory, in no particular order.
+     *
      * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
+     *
      * @throws FilesystemException - if the directory can't be opened, e.g. because it can't be read,
      * or (with $recursive, unless $skipUnreadable is true) one of the subdirectories gone into
      * can't be, so the list would be incomplete.
@@ -326,16 +366,19 @@ final class Filesystem
      * parent directories.
      *
      * @param string $dirPath - the path to the directory we wish to create
+     *
      * @param string $perms - the permissions to set for the directory, as 3 or 4 octal digits,
      * optionally with a leading 0 or 0o, e.g. "0700", "755" or "0o755". Defaults to "0777", to
      * match PHP's own mkdir(). This relies on the umask to reduce it to what is appropriate for the
      * system, which in most cases (with the usual umask of 022) gives 0755. Pass a stricter value,
      * e.g. "0700", for a directory that must stay private whatever the umask is.
+     *
      * @param bool $recursive - whether to also create any missing parent directories. Defaults to
      * false, so a mistyped path fails rather than creating a chain of unexpected directories. If
      * true, every directory created, including the parents, gets the same $perms, which may not be
      * what you want for the parents (e.g. a private "0700" directory inside parents that other
      * users need to get into).
+     *
      * @param bool $overrideUmask - by default, as with PHP's mkdir(), $perms is reduced by the
      * umask (e.g. "0775" usually gives 0755). Set this to true to give every directory this call
      * creates (including any parents, if $recursive) exactly $perms instead. Directories that
@@ -343,8 +386,10 @@ final class Filesystem
      * the directory writable by everyone, so pass $perms as well.
      *
      * @return void
+     *
      * @throws BadArgumentException - if $perms is not 3 or 4 octal digits, optionally with a
      * leading 0 or 0o.
+     *
      * @throws FilesystemException - if the directory doesn't exist and could not be created, or
      * $overrideUmask is set and its permissions could not be set.
      */
@@ -423,33 +468,46 @@ final class Filesystem
      * name taken from $destination, so see that for what is checked and how the symlinks are
      * updated. Unlike Directory, a relative path
      * here is relative to the current working directory, as with PHP's own functions.
+     *
      * @param string $source - the directory to move.
+     *
      * @param string $destination - the path it should have afterwards. Its parent must already
      * exist, and nothing may already exist at it.
+     *
      * @param bool $overrideUmask - when moving to a different filesystem, where everything has to
      * be copied: whether to give the copies exactly the original permissions, rather than reducing
      * them by the umask (and stopping the move if that can't be done). On the same filesystem,
      * nothing is copied, so permissions are always kept exactly and this has no effect. Defaults to
      * false.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem: how
      * hard to try to keep everything's owner and group. Defaults to YES, which stops the move if
      * they can't all be kept (see Directory::move()).
+     *
      * @param MoveListenerInterface|null $listener - optionally, something to tell how the move is
      * going, e.g. to show progress while copying to another disk, which can also cancel it (see
      * MoveListenerInterface). Defaults to null.
+     *
      * @param bool $resumable - when moving to a different filesystem: whether to keep a partial copy
      * if the move fails, is cancelled or is interrupted (e.g. a network filesystem dropping out,
      * or a timeout), so that moving it again carries on from there (see Directory::move()).
      * Defaults to false, which removes a partial copy.
+     *
      * @return void
+     *
      * @throws MoveCancelledException - if $listener cancelled the move.
+     *
      * @throws BadArgumentException - if $source is a symlink, or $destination is empty or inside
      * $source.
+     *
      * @throws DirectoryDoesNotExistException - if there is no directory at $source, or
      * $destination's parent doesn't exist.
+     *
      * @throws FileAlreadyExistsException - if something already exists at $destination.
+     *
      * @throws DirectoryNotMovableException - if anything would stop the move or the symlink updates.
      * getProblems() lists them. Nothing is moved if this happens.
+     *
      * @throws FilesystemException - if the move or copy failed, or the original couldn't be deleted
      * after a copy to a different filesystem.
      */
@@ -476,25 +534,35 @@ final class Filesystem
      * replaced with $overwriteExistingFile, and a symlink is moved as the link itself (a relative
      * one is recreated so that it still points at the same place). Unlike File, a relative path
      * here is relative to the current working directory, as with PHP's own functions.
+     *
      * @param string $source - the file to move.
+     *
      * @param string $destination - the path it should have afterwards. The directory it is in must
      * already exist.
+     *
      * @param bool $overwriteExistingFile - whether to replace a file (or symlink) that already
      * exists at $destination. Defaults to false. A directory is never replaced.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem: how
      * hard to try to keep the file's owner and group. Defaults to YES, which doesn't move it if they
      * can't be kept (see File::move()).
+     *
      * @param MoveListenerInterface|null $listener - optionally, something to tell how the move is
      * going, which can also cancel it (see MoveListenerInterface). Defaults to null.
+     *
      * @return void
+     *
      * @throws MoveCancelledException - if $listener cancelled the move.
      * @throws BadArgumentException - if $destination is empty, or ends with a "/".
      * @throws FileDoesNotExistException - if there is no file at $source.
      * @throws DirectoryDoesNotExistException - if $destination's directory doesn't exist.
+     *
      * @throws FileAlreadyExistsException - if there is a directory at $destination, there is a file
      * there and $overwriteExistingFile is false, or it is the same file as $source.
+     *
      * @throws BadFilePermissionsException - with $preserveOwnership set to YES, if moving it to a
      * different filesystem couldn't keep its owner and group. Nothing is changed if this happens.
+     *
      * @throws FilesystemException - if the file could not be moved.
      */
     public static function moveFile(
@@ -528,19 +596,26 @@ final class Filesystem
      * nothing is deleted twice, however many symlinks lead to it. Everything is checked before
      * anything is deleted (see emptyDir()), so if anything can't be deleted, nothing is. This
      * includes anything that would be deleted by following symlinks.
+     *
      * @param string $dir - the path to the directory you wish to delete
+     *
      * @param bool $followSymlinks - whether to follow symlinks, and delete what they point to as
      * well as the links. Defaults to false.
+     *
      * @return void
+     *
      * @throws BadArgumentException - if $dir is a symlink and $followSymlinks is false, or $dir is
      * a symlink to a directory that contains it (so following it would delete the link's own
      * parent).
+     *
      * @throws DirectoryDoesNotExistException - if a directory does not exist at the path specified.
+     *
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted,
      * including $dir itself (e.g. because its parent directory can't be written to). Its
      * getProblems() says what, and why, with paths starting with $dir made absolute, but keeping
      * any symlinks in it, apart from what it found by following symlinks. Nothing is deleted if this
      * happens. This extends BadFilePermissionsException.
+     *
      * @throws FilesystemException - if deleting something still failed part way through, despite
      * the checks (see emptyDir()).
      */
@@ -612,15 +687,21 @@ final class Filesystem
      * filesystem, or another process changing the directory while it is being deleted. If one of
      * those happens, this throws a FilesystemException part way through, and some of the contents
      * will already have been deleted.
+     *
      * @param string $dir - the path to the directory one wishes to empty, or a symlink to it.
+     *
      * @param bool $followSymlinks - whether to follow symlinks inside the directory, and delete
      * what they point to as well as the links. Defaults to false.
+     *
      * @return void
+     *
      * @throws DirectoryDoesNotExistException - if a directory does not exist at the path specified.
+     *
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted.
      * Its getProblems() says what, and why (stopping at 100), with paths starting with $dir made
      * absolute, but keeping any symlinks in it, as in deleteDir(). Nothing is deleted if this happens. This extends
      * BadFilePermissionsException.
+     *
      * @throws FilesystemException - if deleting something still failed part way through, despite
      * the checks.
      */
@@ -651,13 +732,18 @@ final class Filesystem
      * immediately if the lock can't be obtained. If true, it waits until the lock can be obtained.
      * Note that this only allows other processes to see that you have locked it and does not
      * actually guarantee that it cannot be edited at the same time on Linux.
+     *
      * @param string $filePath - the full path to the file that we wish to lock
+     *
      * @param bool $isWriteLock - if false this will get a shared read lock, if true this will get
      * an exclusive write lock.
+     *
      * @param bool $isBlocking - if true will wait to get lock.
+     *
      * @return bool - true if we managed to lock the file. False is only returned when $isBlocking
      * is false and something else already holds a conflicting lock, so a blocking lock always
      * returns true.
+     *
      * @throws FilesystemException - if the file could not be opened, or locking it failed for any
      * other reason.
      */
@@ -736,11 +822,15 @@ final class Filesystem
      * On Linux, this uses the du command, which is the fastest way. Elsewhere (e.g. macOS, whose du
      * can't give exact sizes, or Windows, which has no du), or if du isn't available (e.g. the
      * BusyBox version on Alpine), it adds the sizes up in PHP, which gives the same result.
+     *
      * @param string $dirPath - the path to the directory (or file) we wish to get the size of.
+     *
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults
      * to bytes.
+     *
      * @return float - the size of the directory and all its contents, in the specified unit. E.g.
      * 1.5 for 1536 bytes in KiB.
+     *
      * @throws FileDoesNotExistException - if there is nothing at $dirPath.
      * @throws FilesystemException - if a directory in it couldn't be read.
      */
@@ -764,13 +854,18 @@ final class Filesystem
      * Fetch the size of a file. Unlike PHP's filesize(), this throws an exception rather than
      * returning false if it fails, and it always gets the file's current size, rather than one PHP
      * may have cached earlier in the script.
+     *
      * @param string $filepath - the path to the file to get the size of.
+     *
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults
      * to bytes.
+     *
      * @return float - the size of the file in the specified unit. E.g. 1.5 for a 1536 byte file in
      * KiB.
+     *
      * @throws FileDoesNotExistException - if there is no file at $filepath, or it is a directory
      * (use getDirSize()).
+     *
      * @throws FilesystemException - if the size of the file could not be determined.
      */
     public static function getFileSize(string $filepath, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
@@ -816,26 +911,36 @@ final class Filesystem
      * they are, unless $followSymlinks is set. A broken symlink (pointing at something that doesn't
      * exist) stops the zip being made, and no zip file is left behind, as it can't be recreated on
      * Windows, and isn't much use anywhere.
+     *
      * @param string $sourceFolder - path to the folder we wish to zip up.
+     *
      * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
+     *
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed
      * files after they have been zipped. If $sourceFolder is a symlink, only the symlink is
      * deleted, and the folder it points to (and the files in it) are kept.
+     *
      * @param bool $includeFolder - true (the default) to put the folder itself at the top of the zip,
      * so extracting it gives a folder of the same name in the destination. False to only zip what
      * is in it, so extracting it puts those straight into the destination.
+     *
      * @param bool $followSymlinks - true to zip what symlinks pointing outside $sourceFolder point
      * to (their files, or their folders and everything in them), in place of the symlinks, so the
      * zip doesn't depend on anything outside it. Symlinks pointing inside $sourceFolder are still
      * stored as symlinks. Nothing outside $sourceFolder is deleted by $deleteOnComplete either way.
+     *
      * @return void
+     *
      * @throws FileAlreadyExistsException - if there is already a file at $dest.
      * @throws DirectoryDoesNotExistException - if there is no folder at $sourceFolder.
      * @throws MissingExtensionException - if the zip extension isn't installed.
+     *
      * @throws DirectoryNotDeletableException - with $deleteOnComplete, if the zip was created, but
      * $sourceFolder can't be deleted. Nothing is deleted if this happens (see deleteDir()).
+     *
      * @throws BadArgumentException - with $deleteOnComplete, if $sourceFolder was replaced by a
      * symlink while it was being zipped, so isn't deleted.
+     *
      * @throws FilesystemException - if the zip file could not be created or written, a symlink
      * couldn't be read or is broken, or (with $followSymlinks) following a symlink would go round in
      * circles. No zip file is left behind if this happens.
@@ -982,22 +1087,30 @@ final class Filesystem
      * whose target won't exist (a broken symlink) is refused there, before anything is moved.
      * $convertSymlinksOnWindows replaces the symlinks that point inside the zip with copies of what
      * they point at instead, so nothing depends on where the destination is.
+     *
      * @param string $sourceZip - zip file to unzip.
+     *
      * @param string $destinationFolder - path to the folder we wish to unzip into.
+     *
      * @param bool $deleteOnComplete - whether to delete the zip file once its contents have been
      * extracted. Defaults to true.
+     *
      * @param bool $trusted - true to allow symlinks that point outside $destinationFolder. Only set
      * this for zips from a source you trust. Defaults to false.
+     *
      * @param bool $convertSymlinksOnWindows - on Windows, true to replace each symlink that points
      * inside the zip with a copy of the file or folder it points at, rather than an absolute
      * symlink, e.g. if the destination will be moved afterwards. Copies take more space, and a
      * symlink to a folder above itself is refused, as copying it would never end. Symlinks pointing
      * outside the zip (only allowed with $trusted) are never copied. Has no effect elsewhere.
      * Defaults to false.
+     *
      * @return void
+     *
      * @throws MissingExtensionException - if PHP's zip extension isn't installed.
      * @throws FileDoesNotExistException - if there is no file at $sourceZip.
      * @throws BadArgumentException - if $destinationFolder exists, but isn't a directory.
+     *
      * @throws FilesystemException - if the zip file could not be opened or extracted, the destination
      * could not be created, the contents clash with what is already in the destination, it has a
      * symlink pointing outside the destination (without $trusted), or (with
@@ -1161,9 +1274,13 @@ final class Filesystem
     /**
      * Applies the user-defined callback function to each line of a file. This is inspired by
      * array_walk (http://php.net/manual/en/function.array-walk.php)
+     *
      * @param string $filepath - path to the file to open and loop over.
+     *
      * @param callable $callback - callback to execute on every line in the file.
+     *
      * @return void
+     *
      * @throws FilesystemException - if the file could not be opened.
      */
     public static function fileWalk(string $filepath, callable $callback): void
@@ -1194,24 +1311,33 @@ final class Filesystem
      * every line has been filtered, so a failure part way through (including the callback throwing)
      * leaves it untouched. An existing file keeps its owner and permissions (see
      * replaceWithFile()).
+     *
      * @param string $inputFile - the path to the file to operate upon.
+     *
      * @param callable $filterCallback - the callback to execute on every line in the file to
      * determine if kept or not. It must return true to keep the line. Don't forget that this will
      * include its line ending, so you may wish to use trim() before analysis.
+     *
      * @param string|null $outputFilepath - optionally specify an output filepath to place the
      * filtered content into. If this is not specified (or is the same file as $inputFile), then the
      * existing file will be modified in-place. If the output file doesn't exist, it is created,
      * with the default permissions for a new file.
+     *
      * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
      * replace the output file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
      * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
      * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the output file's owner and
      * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
+     *
      * @return void
+     *
      * @throws FileDoesNotExistException - if there is no file at $inputFile.
+     *
      * @throws BadFilePermissionsException - if $inputFile can't be read, or the file to write can't
      * be written (or created, for a new output file). This is checked before filtering.
+     *
      * @throws FilesystemException - if the filtered content could not be written.
      */
     public static function fileFilter(
@@ -1320,9 +1446,13 @@ final class Filesystem
      * something can be moved between them with rename(), rather than having to be copied. A path that
      * doesn't exist yet is checked using the nearest directory above it that does, as that is where it
      * would be created. Symlinks are followed, so a symlink is checked by what it points to.
+     *
      * @param string $path1 - an absolute path.
+     *
      * @param string $path2 - another absolute path.
+     *
      * @return bool - true if they are on the same filesystem.
+     *
      * @throws BadArgumentException - if either path isn't absolute.
      */
     public static function isOnSameFilesystem(string $path1, string $path2): bool
@@ -1345,11 +1475,16 @@ final class Filesystem
      * when the system restarts. This reads /proc/mounts on Linux, and the output of the mount command
      * on macOS and BSD (macOS doesn't normally use tmpfs, but BSD does). Windows has no tmpfs, so this
      * is always false there. Symlinks are followed, so a symlink is checked by what it points to.
+     *
      * @param string $path - the file or directory to check.
+     *
      * @return bool - true if it is on a tmpfs.
+     *
      * @throws FileDoesNotExistException - if there is nothing at $path.
+     *
      * @throws UnsupportedPlatformException - on a system other than Linux, macOS, BSD or Windows, or
      * Linux without a readable /proc/mounts.
+     *
      * @throws CommandFailedException - if the mount command failed (macOS and BSD).
      */
     public static function isTmpfs(string $path): bool
@@ -1376,11 +1511,15 @@ final class Filesystem
      * Remove a symlink itself, leaving what it points to alone. On Windows, a symlink to a directory
      * has to be removed with rmdir() rather than unlink(), so this does whichever is needed, which
      * unlink() on its own doesn't.
+     *
      * @param string $path - the symlink to remove. A trailing slash is ignored, as "link/" would
      * otherwise mean what it points to.
+     *
      * @return void
+     *
      * @throws BadArgumentException - if $path isn't a symlink, so that a real file or directory is
      * never removed by mistake.
+     *
      * @throws FilesystemException - if the symlink couldn't be removed.
      */
     public static function removeSymlink(string $path): void
@@ -1403,9 +1542,12 @@ final class Filesystem
      * Converts a permissions string, such as "0755", into the int that PHP's mkdir() and chmod()
      * expect. Unlike octdec(), this throws for anything that isn't valid, rather than silently
      * ignoring invalid characters and giving the wrong permissions.
+     *
      * @param string $permissions - 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g.
      * "755", "0755", "0o755" or "1777".
+     *
      * @return int - the permissions as an int, e.g. 493 (0755) for "0755".
+     *
      * @throws BadArgumentException - if $permissions is not in one of the forms above.
      */
     public static function permissionsStringToInt(string $permissions): int
@@ -1429,15 +1571,20 @@ final class Filesystem
      * directory is always a new one made by this call, never one that already existed: mkdir()
      * fails if anything already exists at the path, so another process can't create it first. If
      * the random name is already taken, another is tried.
+     *
      * @param string $mode - the permissions the new temporary directory will have, as for mkdir().
      * As with mkdir(), these are reduced by the umask, so e.g. the default "0777" usually gives
      * 0755.
+     *
      * @param bool $overrideUmask - set to true to give the directory exactly $mode instead,
      * ignoring the umask. Note that with the default $mode of "0777", that makes it writable by
      * everyone.
+     *
      * @return string - the full path to the temporary directory, which is empty.
+     *
      * @throws BadArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading
      * 0 or 0o, e.g. "755", "0755", "0o755" or "1777".
+     *
      * @throws FilesystemException - if the temporary directory could not be created, e.g. because
      * the system's temporary directory can't be written to, or $overrideUmask is set and its
      * permissions could not be set.
@@ -1510,9 +1657,13 @@ final class Filesystem
      * WARNING: if the URL comes from a user, check its host first. This can still reach anything the
      * server can, including services that are only meant to be reachable from inside the network
      * (e.g. http://127.0.0.1/, or a cloud provider's metadata service at http://169.254.169.254/).
+     *
      * @param string $url - the http:// or https:// URL of the file to download.
+     *
      * @return string - the full filepath to the downloaded file on the server.
+     *
      * @throws BadArgumentException - if $url isn't an http:// or https:// URL.
+     *
      * @throws FilesystemException - if the temporary file could not be created/written to, or the
      * download failed (including a redirect to anything other than http:// or https://). The
      * temporary file is removed if this happens.
@@ -1619,8 +1770,11 @@ final class Filesystem
      * "S", "S" and "T" when that "x" isn't set), as ls -l shows them.
      * A symlink is reported as the link itself (e.g. "lrwxrwxrwx"), rather than what it points to,
      * as ls -l does, so this works for a broken symlink too.
+     *
      * @param string $filepath - the path to the file, directory or symlink.
+     *
      * @return string - the type and permissions, e.g. "-rw-r--r--" or "drwxr-xr-x".
+     *
      * @throws FileDoesNotExistException - if there is nothing at $filepath.
      * @throws FilesystemException - if its details could not be read.
      */
@@ -1690,8 +1844,11 @@ final class Filesystem
      * "/var/v1.2/README" has no extension). The extension's case is kept as it is (e.g. "JPG"). As
      * with PHP's pathinfo(), a name that starts with a dot and has no other dots, such as
      * ".bashrc", is treated as having that extension ("bashrc").
+     *
      * @param string $filename - the name of the file or the full file path
+     *
      * @return string - the file extension, without the dot.
+     *
      * @throws NoFileExtensionException - if there is no file extension, such as "README", "file."
      * or "dir/".
      */
@@ -1710,21 +1867,28 @@ final class Filesystem
 
     /**
      * Serve up a file to the user. This is particularly useful for CSV/PDF report downloads etc.
+     *
      * @param string $filepath - the path to the file you wish to serve up as a download
+     *
      * @param string $downloadFilename - the filename the browser should use for the file, e.g. if
      * the user saves it. This can contain any characters, including spaces, punctuation and
      * non-ASCII characters such as "résumé.pdf".
+     *
      * @param ?string $mimetype - optionally manually specify the mimetype. Can be null to force not
      * setting mimetype on download. Defaults to "auto" which will have PHP try to dynamically
      * figure out the mimetype of the file.
+     *
      * @param bool $asAttachment - specify whether the file should be downloaded as an attachment in
      * the browser (default), or set to false for the file to be "inline" so it just appears in the
      * webview rather than being downloaded. E.g. for a PDF, the PDF could just be shown in the
      * browser and not automatically downloaded, with the user choosing to download the file if they
      * wish
+     *
      * @return void
+     *
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file exists but cannot be read.
+     *
      * @throws FilesystemException - if the mimetype or size of the file could not be determined, or
      * the file could not be read. These are checked before any headers are sent, apart from the
      * file failing to be read.
@@ -1784,14 +1948,20 @@ final class Filesystem
 
     /**
      * Returns whether the file specified contains only valid UTF-8 character encoding or not.
+     *
      * @param string $filepath - the path to the file that we wish to check.
+     *
      * @param int $chunkSize - the size of each chunk to check at a time. This is a balance between
      * memory and performance.
+     *
      * @return bool - true if valid, false if it contains non-UTF-8 characters.
+     *
      * @throws BadFilePermissionsException - if file exists but cannot be read.
      * @throws FileDoesNotExistException - if file does not exist.
+     *
      * @throws FilesystemException - if something goes wrong with getting a file handle even though
      * file exists and can be read, or reading the file fails part way through.
+     *
      * @throws BadArgumentException - if $chunkSize is less than 1.
      */
     public static function isValidUtf8File(string $filepath, int $chunkSize = 8192): bool
@@ -1873,26 +2043,36 @@ final class Filesystem
      * replaceWithFile() for how, and what happens if that fails part way through.
      *
      * @param string $inputFilepath - the path to the file to convert.
+     *
      * @param string $sourceEncoding - the encoding the file is in, if it is not UTF-8 and has no
      * BOM. This must be an encoding that the mbstring extension supports, e.g. "Windows-1252" (the
      * default, common for Western European text), "Windows-1251" (Cyrillic), "ISO-8859-2" (Central
      * European), "ISO-8859-15" (Western European with the euro sign) or "SJIS" (Japanese). Note
      * that mbstring does NOT support "Windows-1250".
+     *
      * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
      * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
      * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
      * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
      * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
+     *
      * @return void
+     *
      * @throws BadArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
+     *
      * @throws BadFilePermissionsException - if the file exists but can't be read, or needs
      * converting but can't be written.
+     *
      * @throws FileDoesNotExistException - if input file does not exist.
+     *
      * @throws MissingExtensionException - if missing the mbstring extension which is required for
      * this function.
+     *
      * @throws FilesystemException - if the file is not valid in the encoding it is being converted
      * from, or anything else goes wrong that is not covered by the other specific exceptions.
+     *
      * @throws DirectoryDoesNotExistException - if the directory the file is in disappears while it
      * is being converted.
      */
@@ -1980,8 +2160,11 @@ final class Filesystem
      * Check that a file can be changed in place (e.g. with replaceWithFile()), before any work is
      * done on it. Only the file itself needs to be readable and writable, not the directory it is
      * in, as the new contents are written back into the same file.
+     *
      * @param string $filepath - the path of the file that will be changed.
+     *
      * @return void
+     *
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
      */
@@ -2008,16 +2191,22 @@ final class Filesystem
      * (e.g. ".corelibs-tmp-AbC123"), as $useSystemTempDir says. replaceWithFile() renames it over the
      * original rather than copying it back where that is safe, which needs it to be on the same
      * filesystem (see replaceWithFile()).
+     *
      * @param string $filepath - the path of the file it will replace (which needn't exist yet).
+     *
      * @param UseSystemTempDirEnum $useSystemTempDir - where to put it (see UseSystemTempDirEnum).
      * Defaults to AUTO, which picks the fastest place that will work, which can be next to the
      * original. Pass ALWAYS to keep it in the system's temporary directory, e.g. if the original's
      * directory is served to the public (e.g. by a web server).
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - only used by AUTO: what will be passed to
      * replaceWithFile(), which decides whether it could rename the file over the original.
+     *
      * @return string - the path of the temporary file.
+     *
      * @throws DirectoryDoesNotExistException - if the directory $filepath is in doesn't exist.
      * @throws FilesystemException - if the temporary file could not be created.
+     *
      * @throws BadArgumentException - never in practice: only if the system's temporary directory
      * weren't an absolute path.
      */
@@ -2081,17 +2270,23 @@ final class Filesystem
      * directory) needs to be writable. This isn't atomic: if it fails part way through (e.g. the
      * disk fills up), the original may be left half-written. The temporary file is kept in that
      * case, and its path is given in the exception, so that the new contents aren't lost.
+     *
      * @param string $filepath - the path of the file to replace the contents of.
+     *
      * @param string $tmpFilepath - the path of the temporary file with the new contents. It must
      * already be closed.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
      * group (see PreserveOwnershipEnum). With NO, the file is renamed whenever it can be, even if it
      * then belongs to whoever is running this. With PREFERRED (the default) or YES, it is only
      * renamed if the owner and group can be kept (as root, or if it already belongs to whoever is
      * running this), and otherwise copied back, which is slower for a large file. Copying back
      * always keeps them, so YES never has to throw here, and behaves the same as PREFERRED.
+     *
      * @return void
+     *
      * @throws FilesystemException - if the contents could not be copied across.
+     *
      * @throws BadArgumentException - never in practice: only if the system's temporary directory
      * weren't an absolute path.
      */
@@ -2121,24 +2316,33 @@ final class Filesystem
      * the change is atomic, so nothing reading the file ever sees half of the new contents.
      * Unlike file_put_contents(), this doesn't create a file that doesn't exist, so a mistyped path
      * is an error rather than a new file.
+     *
      * @param string $filepath - the path to the file to replace the contents of.
+     *
      * @param string|array<string> $contents - the new contents, as a string, or (like
      * file_put_contents()) an array of strings, which are joined together as they are, with nothing
      * added between them. So each line in an array needs its own line ending, as the lines from
      * file() have.
+     *
      * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents first (see
      * UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place that will work, which
      * can be a hidden, private file next to it for a moment. Pass ALWAYS to keep it in the system's
      * temporary directory, e.g. for a directory served to the public.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
      * group (see replaceWithFile()). Defaults to PREFERRED.
+     *
      * @return void
+     *
      * @throws BadArgumentException - if $contents is an array with something other than a string in
      * it.
+     *
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
+     *
      * @throws FilesystemException - if the new contents could not be written. See replaceWithFile()
      * for what happens if this fails part way through copying them into the original.
+     *
      * @throws DirectoryDoesNotExistException - if the directory $filepath is in doesn't exist.
      */
     public static function replaceFileContents(
@@ -2180,9 +2384,13 @@ final class Filesystem
      * rename looks like a move onto something that already exists, as the new path already "exists",
      * so code checking for that needs to allow it. On a case-sensitive filesystem (e.g. Linux), the
      * two are different names, so this is false.
+     *
      * @param string $currentPath - the path of the existing file or directory.
+     *
      * @param string $newPath - the path it is being renamed to.
+     *
      * @return bool - true if only the case of the name changes, and they are the same thing.
+     *
      * @throws FilesystemException - if the directory $newPath is in can't be read.
      */
     public static function isCaseOnlyRename(string $currentPath, string $newPath): bool
@@ -2219,7 +2427,9 @@ final class Filesystem
      * built with "/" come out the same, e.g. "C:\a\..\b" gives "C:/b". Elsewhere, only "/" is.
      * As the filesystem isn't checked, ".." after a symlink goes up from the link's own location,
      * which isn't where the system would go (see resolvePath()).
+     *
      * @param string $path - the path to tidy.
+     *
      * @return string - the tidied path.
      */
     public static function normalisePath(string $path): string
@@ -2273,9 +2483,13 @@ final class Filesystem
      * gives "../../c/d.txt". Both can instead be relative, as long as they are relative to the same
      * place (e.g. paths inside a zip file): from "project/a" to "project/b.txt" gives "../b.txt".
      * Only the paths are used, without checking the filesystem.
+     *
      * @param string $fromDirectory - the directory to start from.
+     *
      * @param string $toPath - the path to get to.
+     *
      * @return string - the relative path, or "." if they are the same.
+     *
      * @throws BadArgumentException - if one path is absolute and the other isn't, or a relative
      * $fromDirectory goes above where it starts (e.g. "../a"), so the way back down isn't known.
      */
@@ -2328,11 +2542,15 @@ final class Filesystem
      * as "is this inside the uploads directory?" needs, as reading or writing the path goes wherever
      * its symlinks lead. A path that is itself a symlink is judged by where it points, so to check
      * where a symlink itself is, check its dirname() instead. Neither path needs to exist.
+     *
      * @param string $path - the path to check.
+     *
      * @param string $directory - the directory.
+     *
      * @param bool $resolveSymlinks - true (the default) to follow symlinks first. False to compare
      * the paths as they are written (after tidying them with normalisePath()), without checking the
      * filesystem, e.g. for paths that are already real, or the targets of symlinks themselves.
+     *
      * @return bool - true if $path is $directory, or anywhere inside it.
      */
     public static function isWithinDirectory(string $path, string $directory, bool $resolveSymlinks = true): bool
@@ -2355,7 +2573,9 @@ final class Filesystem
      * that doesn't exist yet, e.g. "/srv/link/new/file.txt" with "/srv/link" pointing at "/data"
      * gives "/data/new/file.txt". A relative path is relative to the current working directory. A
      * broken symlink at the end can't be followed, so is left as the link's own path.
+     *
      * @param string $path - the path to resolve.
+     *
      * @return string - the absolute path, with the symlinks in its existing part followed.
      */
     public static function resolvePath(string $path): string
@@ -2383,7 +2603,9 @@ final class Filesystem
      * one starting with "\" (the root of the current drive). A drive letter without a slash
      * after it (e.g. "C:data") is relative to that drive's current directory, so isn't absolute.
      * Elsewhere, "C:\data" and "\data" are just unusual relative names, so they aren't absolute.
+     *
      * @param string $path - the path to check.
+     *
      * @return bool - true if it is absolute.
      */
     public static function isAbsolutePath(string $path): bool
@@ -2399,9 +2621,12 @@ final class Filesystem
      * directory part is resolved with realpath() where it exists, as the system follows any
      * symlinks in it before applying "..". Where it doesn't exist (e.g. for a broken link), it is
      * worked out from the path alone.
+     *
      * @param string $linkDirectory - the absolute path of the directory the symlink is in.
+     *
      * @param string $linkTarget - the symlink's target, e.g. "../shared/data.txt". An absolute
      * target is resolved in the same way, ignoring $linkDirectory.
+     *
      * @return string - the absolute path it points to, e.g. "/srv/shared/data.txt".
      */
     public static function resolveLinkTarget(string $linkDirectory, string $linkTarget): string
@@ -2422,7 +2647,9 @@ final class Filesystem
      * which on Unix needs its execute permission. Windows has no execute permission for directories,
      * and is_executable() is always false for one there, so on Windows this is always true (whether
      * it can be read or written is checked separately).
+     *
      * @param string $directory - the directory to check.
+     *
      * @return bool - true if it can be entered.
      */
     public static function canEnterDirectory(string $directory): bool
@@ -2437,7 +2664,9 @@ final class Filesystem
      * WSL, reached through \\wsl.localhost), so when it says no there, this tries creating (and
      * then deleting) a hidden file in it instead. Elsewhere, it is is_writable(). Either way, on
      * Unix, the directory must also be entered to use it (see canEnterDirectory()).
+     *
      * @param string $directory - the directory to check.
+     *
      * @return bool - true if it can be written to.
      */
     public static function canWriteToDirectory(string $directory): bool
@@ -2474,7 +2703,9 @@ final class Filesystem
      * Check whether a directory can be listed and entered, which is needed to find, delete or copy
      * what is in it. On Windows, is_readable() can be false for a directory that can be listed
      * (e.g. one in WSL, reached through \\wsl.localhost), so there, this tries opening it instead.
+     *
      * @param string $directory - the directory to check.
+     *
      * @return bool - true if it can be.
      */
     public static function canListDirectory(string $directory): bool
@@ -2506,6 +2737,7 @@ final class Filesystem
      * renamed in from another directory keeps that directory's label, and may then be refused
      * access where it ends up. On systems without SELinux (including macOS and Windows), this is
      * false.
+     *
      * @return bool - true if it is enabled.
      */
     public static function isSelinuxEnabled(): bool
@@ -2517,19 +2749,28 @@ final class Filesystem
     /**
      * Add everything in a directory to a zip, for zipDir(), going into subdirectories. Symlinks are
      * added by addSymlinkToZip().
+     *
      * @param ZipArchive $zip - the zip being written.
+     *
      * @param string $directory - the real path of the directory whose contents to add.
+     *
      * @param string $zipDirectory - the path in the zip to add them under, or "" for the top.
+     *
      * @param array{source: string, zip: string, followSymlinks: bool} $root - the real path of the
      * folder being zipped, its path in the zip ("" if its contents are at the top), and whether to
      * follow symlinks pointing outside it.
+     *
      * @param array<string> $ancestors - the real paths of the directories above this one that are
      * being zipped (including $directory), so following a symlink can't go round in circles.
+     *
      * @param array<string> $brokenLinks - descriptions of the broken symlinks found, which aren't
      * added, and which this adds to.
+     *
      * @return void
+     *
      * @throws FilesystemException - if a directory or symlink couldn't be read, or following a
      * symlink would go round in circles.
+     *
      * @throws BadArgumentException - only if the paths in the zip are a mix of absolute and
      * relative, which they never are.
      */
@@ -2570,16 +2811,25 @@ final class Filesystem
      * Add a symlink to a zip, for zipDir(). One pointing inside the folder being zipped is stored as
      * a symlink, relative to itself, so it still works wherever the zip is extracted. One pointing
      * outside it is stored as it is, or, when following symlinks, replaced by what it points to.
+     *
      * @param ZipArchive $zip - the zip being written.
+     *
      * @param string $linkPath - the path of the symlink.
+     *
      * @param string $zipPath - the path in the zip to add it at.
+     *
      * @param array{source: string, zip: string, followSymlinks: bool} $root - see addDirectoryToZip().
+     *
      * @param array<string> $ancestors - see addDirectoryToZip().
+     *
      * @param array<string> $brokenLinks - see addDirectoryToZip(). A broken symlink is added to this,
      * rather than to the zip.
+     *
      * @return void
+     *
      * @throws FilesystemException - if the symlink couldn't be read, or following it would go round
      * in circles.
+     *
      * @throws BadArgumentException - only if the paths in the zip are a mix of absolute and
      * relative, which they never are.
      */
@@ -2637,10 +2887,15 @@ final class Filesystem
     /**
      * Add a symlink to a zip: an entry holding its target, marked as a symlink in the way unzip
      * tools (and unzip()) recognise.
+     *
      * @param ZipArchive $zip - the zip being written.
+     *
      * @param string $zipPath - the path in the zip to add it at.
+     *
      * @param string $target - where the symlink points.
+     *
      * @return void
+     *
      * @throws FilesystemException - if it couldn't be added.
      */
     private static function addZipSymlink(ZipArchive $zip, string $zipPath, string $target): void
@@ -2688,11 +2943,16 @@ final class Filesystem
     /**
      * Check the symlinks unzip() extracted, which ZipArchive::extractTo() writes as files holding
      * their targets: that each is a valid symlink, and (unless $trusted) points inside $destination.
+     *
      * @param string $tmpDirectory - where the zip was extracted.
+     *
      * @param string $destination - the real path of where it will be moved, which the symlinks'
      * targets are checked against.
+     *
      * @param array<string> $entries - the names of the zip's symlink entries.
+     *
      * @param bool $trusted - true to allow symlinks pointing outside $destination.
+     *
      * @return array{problems: array<string>, targets: array<string, string>} - descriptions of the
      * problems found, and each valid symlink's entry name mapped to its target.
      */
@@ -2743,8 +3003,11 @@ final class Filesystem
     /**
      * Turn the checked symlinks unzip() extracted back into symlinks, where they are in the temporary
      * directory, on systems that can create any symlink (i.e. not Windows).
+     *
      * @param string $tmpDirectory - where the zip was extracted.
+     *
      * @param array<string, string> $targets - each symlink's entry name mapped to its target.
+     *
      * @return array<string> - descriptions of the symlinks that couldn't be created.
      */
     private static function recreateExtractedSymlinks(string $tmpDirectory, array $targets): array
@@ -2774,11 +3037,16 @@ final class Filesystem
      * symlinks), that none would take the place of an existing directory, and (with $copy) that
      * none points at a folder above itself. Only if there are no problems are the files holding
      * their targets removed from the temporary directory, so they aren't moved into place.
+     *
      * @param string $tmpDirectory - where the zip was extracted.
+     *
      * @param string $destination - the real path of where it will be moved.
+     *
      * @param array<string, string> $targets - each symlink's entry name mapped to its target.
+     *
      * @param bool $copy - whether to copy what symlinks inside the zip point at, rather than link
      * to it.
+     *
      * @return array{problems: array<string>, links: array<string, array{target: string, copy: bool}>}
      * - descriptions of the problems found, and each symlink's final path mapped to its absolute
      * target, and whether to copy it.
@@ -2838,11 +3106,16 @@ final class Filesystem
     /**
      * Work out where a path in the destination will lead once unzip() has put everything in place,
      * for planWindowsSymlinks(), following the planned symlinks it goes through.
+     *
      * @param string $path - the absolute path to follow.
+     *
      * @param array<string, array{target: string, copy: bool}> $links - the planned symlinks, by their
      * final paths (normalised).
+     *
      * @param string $tmpDirectory - where the zip was extracted.
+     *
      * @param string $destination - the destination's real path, normalised.
+     *
      * @return string - the path it leads to, or "" if that won't exist (or the symlinks go round in
      * circles).
      */
@@ -2889,9 +3162,12 @@ final class Filesystem
      * else is in place. One whose target is another symlink waits until that one exists. Anything
      * already at a symlink's path (a file, as directories were checked for) is replaced, as files
      * are by unzipping.
+     *
      * @param array<string, array{target: string, copy: bool}> $links - each symlink's final path
      * mapped to its absolute target, and whether to copy it.
+     *
      * @return void
+     *
      * @throws FilesystemException - if a symlink couldn't be created, despite the checks. The rest of
      * the zip's contents are in place if this happens.
      */
@@ -2963,8 +3239,11 @@ final class Filesystem
      * (and fails for a broken link), so this asks PowerShell there, which takes around half a
      * second, so only call it when the stored target is needed. It gives the target with "/" as
      * the separator there.
+     *
      * @param string $linkPath - the symlink.
+     *
      * @return string - its target, e.g. "../shared/data.txt".
+     *
      * @throws FilesystemException - if it couldn't be read.
      */
     private static function readLinkTarget(string $linkPath): string
@@ -3016,7 +3295,9 @@ final class Filesystem
      * Tidy a symlink target that Windows stored, for readLinkTarget(): remove the "\\?\" that
      * marks a long path (e.g. "\\?\C:\data", or "\\?\UNC\server\share" for "\\server\share"), and
      * use "/" as the separator, which Windows accepts too, and other systems need.
+     *
      * @param string $target - the target as Windows stored it.
+     *
      * @return string - the tidied target.
      */
     private static function tidyWindowsLinkTarget(string $target): string
@@ -3034,9 +3315,13 @@ final class Filesystem
     /**
      * Copy a file or a directory and everything in it, for createWindowsSymlink(). Symlinks inside
      * are copied as symlinks.
+     *
      * @param string $source - the file or directory to copy.
+     *
      * @param string $destination - where to copy it, where nothing is.
+     *
      * @return bool - true if everything was copied.
+     *
      * @throws FilesystemException - if a directory couldn't be read.
      */
     private static function copyRecursively(string $source, string $destination): bool
@@ -3069,9 +3354,13 @@ final class Filesystem
      * Find anything that would stop mergeDirectoryInto() moving everything from $source into
      * $destination: a file where $destination has a directory, a directory where it has a file (or
      * a symlink), or an existing directory that can't be written to.
+     *
      * @param string $source - the directory whose contents would be moved.
+     *
      * @param string $destination - the directory they would be moved into.
+     *
      * @return array<string> - descriptions of the problems found, which is empty if there are none.
+     *
      * @throws FilesystemException - if one of the directories in $source can't be opened.
      */
     private static function findMergeProblems(string $source, string $destination): array
@@ -3111,9 +3400,13 @@ final class Filesystem
      * Move everything in $source into $destination, merging directories that already exist there,
      * and replacing files that do (as ZipArchive::extractTo() would). Each emptied directory in
      * $source is removed as it goes. findMergeProblems() should have found no problems first.
+     *
      * @param string $source - the directory to move everything out of.
+     *
      * @param string $destination - the directory to move it into.
+     *
      * @return void
+     *
      * @throws FilesystemException - if something couldn't be moved. Anything already moved stays
      * moved, and the rest stays in $source.
      */
@@ -3146,7 +3439,9 @@ final class Filesystem
     /**
      * Get the device number of the filesystem a path is on, using the nearest directory above it that
      * exists if the path itself doesn't.
+     *
      * @param string $path - an absolute path.
+     *
      * @return int - the device number, which is the same for every path on the same filesystem.
      */
     private static function filesystemDeviceOf(string $path): int
@@ -3177,11 +3472,15 @@ final class Filesystem
      *     either way.
      *  5. otherwise next to the original, if that has room (and the system's temporary directory if
      *     neither does, which will then fail with the reason).
+     *
      * @param string $filepath - the file it will replace (which needn't exist yet, but its directory
      * must).
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - what will be passed to replaceWithFile().
+     *
      * @return bool - true to use the system's temporary directory, or false to put it next to the
      * original.
+     *
      * @throws BadArgumentException - never in practice: only if the system's temporary directory
      * weren't an absolute path.
      */
@@ -3225,8 +3524,11 @@ final class Filesystem
      * Check whether replaceWithFile() could rename a file next to $filepath over it (see
      * canReplaceByRenaming()), including whether it could keep the owner and group, as far as can
      * be told before the file exists.
+     *
      * @param string $filepath - the original file.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - what will be passed to replaceWithFile().
+     *
      * @return bool - true if it could.
      */
     private static function couldRenameOver(string $filepath, PreserveOwnershipEnum $preserveOwnership): bool
@@ -3253,8 +3555,10 @@ final class Filesystem
 
     /**
      * Read the mounted filesystems from /proc/mounts on Linux, for isTmpfs().
+     *
      * @return array<array{0: string, 1: string}> - each mount's mount point and filesystem type, in
      * the order they were mounted.
+     *
      * @throws UnsupportedPlatformException - if /proc/mounts can't be read.
      */
     private static function readLinuxMounts(): array
@@ -3286,7 +3590,9 @@ final class Filesystem
      * Read the mounted filesystems from the output of the mount command on macOS and BSD, for
      * isTmpfs(). Each line looks like "/dev/disk3s1 on / (apfs, local, journaled)", or
      * "tmpfs on /tmp (tmpfs, local)", where the mount point can contain spaces.
+     *
      * @param string $output - what the mount command printed.
+     *
      * @return array<array{0: string, 1: string}> - each mount's mount point and filesystem type, in
      * the order they were listed.
      */
@@ -3310,8 +3616,11 @@ final class Filesystem
      * Find the type of the filesystem a path is on, for isTmpfs(): that of the mount with the
      * longest mount point that contains it. A later mount on the same mount point is mounted over
      * an earlier one, so wins.
+     *
      * @param string $realPath - the real path to look up.
+     *
      * @param array<array{0: string, 1: string}> $mounts - each mount's mount point and type.
+     *
      * @return string - the filesystem type, or "" if no mount contains it.
      */
     private static function filesystemTypeAt(string $realPath, array $mounts): string
@@ -3338,7 +3647,9 @@ final class Filesystem
     /**
      * Check whether a directory is on a tmpfs, for UseSystemTempDirEnum::AUTO, treating "can't tell"
      * as no (see isTmpfs()).
+     *
      * @param string $directory - the directory.
+     *
      * @return bool - true if it is known to be on a tmpfs.
      */
     private static function isTmpfsIfKnown(string $directory): bool
@@ -3389,8 +3700,11 @@ final class Filesystem
 
     /**
      * Check whether a directory's filesystem has at least a number of bytes free.
+     *
      * @param string $directory - the directory.
+     *
      * @param int $bytes - how many bytes are needed.
+     *
      * @return bool - true if there is room, or if it can't be told (so the choice isn't based on a
      * guess).
      */
@@ -3408,9 +3722,13 @@ final class Filesystem
      * if SELinux is enabled (so it has the same SELinux label as a new file there would get), the
      * original must be a regular file, not a symlink, with no other hard links (which would keep
      * the old contents), and the directory must be writable.
+     *
      * @param string $filepath - the original file.
+     *
      * @param string $tmpFilepath - the temporary file with the new contents.
+     *
      * @return bool - true if it could be renamed, as far as can be told before trying.
+     *
      * @throws BadArgumentException - only if given relative paths, which the callers never do.
      */
     private static function canReplaceByRenaming(string $filepath, string $tmpFilepath): bool
@@ -3442,10 +3760,14 @@ final class Filesystem
     /**
      * Rename a temporary file over the original for replaceWithFile(), after giving it the
      * original's owner, group and permissions.
+     *
      * @param string $filepath - the original file.
+     *
      * @param string $tmpFilepath - the temporary file with the new contents.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - anything other than NO only renames it if
      * the owner and group could be kept.
+     *
      * @return bool - true if it was renamed, or false if it wasn't, in which case both files are
      * left in place, so the contents can be copied back instead.
      */
@@ -3486,9 +3808,13 @@ final class Filesystem
     /**
      * Copy the contents of a temporary file into the original in place for replaceWithFile(), then
      * delete it (see replaceWithFile()).
+     *
      * @param string $filepath - the original file.
+     *
      * @param string $tmpFilepath - the temporary file with the new contents.
+     *
      * @return void
+     *
      * @throws FilesystemException - if the contents could not be copied across.
      */
     private static function replaceByCopying(string $filepath, string $tmpFilepath): void
@@ -3537,8 +3863,11 @@ final class Filesystem
 
     /**
      * Make a random name for a temporary file or directory, e.g. "corelibs-dir-1a2b3c4d5e6f7a8b".
+     *
      * @param string $prefix - what the name starts with.
+     *
      * @return string - the prefix, followed by 16 random hex characters.
+     *
      * @throws FilesystemException - if no random bytes could be got (which only happens if the system
      * has no source of randomness).
      */
@@ -3560,7 +3889,9 @@ final class Filesystem
     /**
      * Remove directories as a best effort, while cleaning up after something else has failed, so that a
      * failure to remove them doesn't replace the original error.
+     *
      * @param array<string> $directories - the directories to remove. Any that don't exist are skipped.
+     *
      * @return array<string> - the directories that couldn't be removed, which is empty if they all were.
      */
     private static function removeDirectoriesQuietly(array $directories): array
@@ -3615,9 +3946,12 @@ final class Filesystem
      * filename works. This gives two versions of the filename: a quoted, ASCII-only fallback for
      * very old clients, and the exact filename, percent-encoded as UTF-8, which all current
      * browsers use. E.g. attachment; filename="r_sum_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf
+     *
      * @param bool $asAttachment - true for "attachment" (download), false for "inline" (display in
      * the browser).
+     *
      * @param string $filename - the filename the browser should use.
+     *
      * @return string - the value for the Content-Disposition header.
      */
     private static function buildContentDisposition(bool $asAttachment, string $filename): string
@@ -3644,7 +3978,9 @@ final class Filesystem
      * Check whether a string is valid UTF-8, without needing the mbstring extension. This uses
      * PCRE, which is always part of PHP, and rejects the same things that mb_check_encoding() does,
      * such as overlong encodings, surrogates, and code points above U+10FFFF.
+     *
      * @param string $bytes - the bytes to check.
+     *
      * @return bool - true if the bytes are valid UTF-8 (an empty string is), false if not.
      */
     private static function isValidUtf8(string $bytes): bool
@@ -3660,7 +3996,9 @@ final class Filesystem
      * if the bytes end with only the first of the two bytes that make up "é", that byte is
      * returned. This only looks at the start of the last character, so it does not check whether
      * the bytes are valid UTF-8.
+     *
      * @param string $bytes - the bytes to check the end of.
+     *
      * @return string - the bytes of the unfinished character at the end (at most 3), or an empty
      * string if the bytes don't end part way through a character.
      */
@@ -3704,18 +4042,26 @@ final class Filesystem
      * directory's contents before the directory itself), going into subdirectories, and checking
      * that each thing can be deleted. See deleteDir() for how symlinks are handled. Stops once
      * there are 100 problems, as the plan won't be used then.
+     *
      * @param string $dir - the directory whose contents to plan the deletion of.
+     *
      * @param string $realDir - the real path of $dir (with symlinks resolved), used to spot
      * symlinks pointing "up".
+     *
      * @param bool $followSymlinks - whether to follow symlinks, deleting what they point to as well
      * as the links.
+     *
      * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs,
      * which this adds to.
+     *
      * @param array $problems - the list of FileDeletionProblem objects found so far, which this
      * adds to.
+     *
      * @param array $planned - real paths => true, for everything already in the plan, which this
      * adds to.
+     *
      * @return void
+     *
      * @throws FilesystemException - if a directory that could be listed can't be opened after all.
      */
     private static function planDirectoryContents(
@@ -3811,13 +4157,18 @@ final class Filesystem
 
     /**
      * Add one thing to a deletion plan, after checking it can be deleted from its directory.
+     *
      * @param FileDeletionOperationEnum $operation - UNLINK for a file or symlink, or RMDIR for a
      * directory (once it is empty).
+     *
      * @param string $path - the thing to delete.
+     *
      * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs,
      * which this adds to.
+     *
      * @param array $problems - the list of FileDeletionProblem objects found so far, which this
      * adds to.
+     *
      * @return void
      */
     private static function planDeletion(
@@ -3868,9 +4219,13 @@ final class Filesystem
 
     /**
      * Carry out a deletion plan made by planDirectoryContents() and planDeletion(), in order.
+     *
      * @param string $dir - the directory being deleted or emptied, for the message.
+     *
      * @param array $plan - a list of [FileDeletionOperationEnum, path] pairs.
+     *
      * @return void
+     *
      * @throws FilesystemException - if something still couldn't be deleted. Some of the plan will
      * already have been carried out if this happens.
      */
@@ -3916,23 +4271,54 @@ final class Filesystem
 
 
     /**
+     * Check whether a file can be opened for writing, without changing it (it is opened without being
+     * cut short, and closed straight away), for when is_writable() can't be trusted (see
+     * findDeletionProblem()).
+     *
+     * @param string $path - the file.
+     *
+     * @return bool - true if it could be opened for writing.
+     */
+    private static function canOpenForWriting(string $path): bool
+    {
+        # Suppress the warning, as failing just means it can't be written to.
+        $handle = @fopen($path, "r+");
+        $canOpen = ($handle !== false);
+
+        if ($handle !== false)
+        {
+            fclose($handle);
+        }
+
+        return $canOpen;
+    }
+
+
+    /**
      * Add a FileDeletionProblem to $problems if something can't be deleted from its directory.
      * Deleting something needs its directory to be writable and executable, and in a "sticky"
      * directory (e.g. /tmp), it also needs the current user to own it or the directory (or be
      * root).
+     *
      * @param string $parentDir - the directory that $path is in.
+     *
      * @param string $path - the thing that would be deleted.
+     *
      * @param array $problems - the list of FileDeletionProblem objects found so far, which this
      * adds to.
+     *
      * @return void
      */
     private static function findDeletionProblem(string $parentDir, string $path, array &$problems): void
     {
+        # is_writable() can be false on Windows for a file that can be written to (e.g. one in WSL, reached through
+        # \\wsl.localhost), so check by opening it for writing, which changes nothing, before calling it read-only.
         $isReadOnlyOnWindows = (
                PHP_OS_FAMILY === "Windows"
             && is_file($path)
             && !is_link($path)
             && !is_writable($path)
+            && !self::canOpenForWriting($path)
         );
 
         if (!self::canWriteToDirectory($parentDir) || !self::canEnterDirectory($parentDir))
@@ -3968,7 +4354,9 @@ final class Filesystem
     /**
      * Check whether a path is in one of the absolute forms of a Windows path (see isAbsolutePath()),
      * whatever system this is running on.
+     *
      * @param string $path - the path to check.
+     *
      * @return bool - true if it starts with a drive letter and a slash, or with "\".
      */
     private static function isWindowsAbsolutePath(string $path): bool
@@ -3984,7 +4372,9 @@ final class Filesystem
      * above its share. "." parts and repeated or trailing slashes are removed. A ".." goes up a
      * part, unless what it goes up from is a symlink: the system goes up from the link's target
      * instead, so that part is resolved first, to keep the path pointing at the same place.
+     *
      * @param string $path - the path, which must exist.
+     *
      * @return string - the absolute path.
      */
     private static function absolutePathKeepingSymlinks(string $path): string
@@ -4049,12 +4439,17 @@ final class Filesystem
 
     /**
      * Read the entries of a directory being listed by getDirectories() or getDirContents().
+     *
      * @param string $directory - the directory to read.
+     *
      * @param bool $isSubdirectory - false for the directory the listing was asked for, which must
      * always be read, and true for one gone into with $recursive.
+     *
      * @param bool $skipUnreadable - whether to give no entries for a subdirectory that can't be read,
      * rather than throwing.
+     *
      * @return array<string> - the names of the entries, without "." and "..".
+     *
      * @throws FilesystemException - if the directory can't be read (unless it is a subdirectory, and
      * $skipUnreadable is true).
      */
@@ -4123,8 +4518,11 @@ final class Filesystem
      * Get the apparent size of a path with the du command, for getDirSize() on Linux, which is the
      * fastest way there. If du isn't available, or doesn't support --bytes (e.g. the BusyBox
      * version on Alpine), this adds the sizes up in PHP instead, which gives the same result.
+     *
      * @param string $path - the file or directory.
+     *
      * @return int - the total size in bytes.
+     *
      * @throws FilesystemException - if adding the sizes up in PHP couldn't read a directory.
      */
     private static function getSizeWithDu(string $path): int
@@ -4151,8 +4549,11 @@ final class Filesystem
      * du --bytes: each file and symlink counts its own size (from lstat(), so symlinks aren't
      * followed), a file with several hard links is only counted once, and directories themselves
      * count as nothing (their own size depends on the filesystem, not what is in them).
+     *
      * @param string $path - the file or directory.
+     *
      * @return int - the total size in bytes.
+     *
      * @throws FilesystemException - if a directory in it couldn't be read.
      */
     private static function addUpSize(string $path): int
@@ -4192,7 +4593,9 @@ final class Filesystem
      * Remove a file or a symlink, including a symlink to a directory on Windows, which unlink()
      * alone can't remove there (see removeSymlink()). This returns whether it worked rather than
      * throwing, for code that reports failures itself.
+     *
      * @param string $path - the file or symlink to remove.
+     *
      * @return bool - true if it was removed.
      */
     private static function unlinkFileOrSymlink(string $path): bool

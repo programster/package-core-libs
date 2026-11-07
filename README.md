@@ -21,7 +21,7 @@ and "macOS tests" badges), but a few things work differently, or not at all, the
 | `Core::getNumProcRunning()` | As on Linux | Matches window titles, as that is what `Core::setCliTitle()` sets on Windows |
 | `Core::setClipboard()`, `getClipboard()` | Works, but untested | Works, but untested |
 | `CliLib::getPasswordFromUserInput()` | As on Linux | Typing is hidden using PowerShell. Untested on a real console |
-| `File` and `Directory` moves | As on Linux | With `PreserveOwnershipEnum::YES` (the default), a move to another drive is refused, as Windows can't keep a file's owner and ACLs when copying it. Pass `PREFERRED` or `NO` to allow it |
+| `File` and `Directory` moves | As on Linux | A move to another drive copies each file's owner and permissions (ACLs) to its copy, using PowerShell. Setting another user as the owner needs administrator rights, so with `PreserveOwnershipEnum::YES` (the default), a move that can't keep every owner is undone (the original is left as it was). Pass `PREFERRED` to keep what it can, or `NO` |
 | Anything that creates symlinks (`unzip()`, `Directory` moves, `File` moves of a symlink) | As on Linux | Needs admin rights or developer mode, as on any Windows program. PHP can't create a relative or broken symlink there, so `unzip()` creates absolute ones (or copies, with `$convertSymlinksOnWindows`), and refuses a zip with a broken one. PHP's `readlink()` there gives a link's resolved absolute path, so relative links can't be told apart: `Directory` and `File` moves create each symlink they move again with an absolute target. A broken one is left as it is when a `Directory` is moved on the same drive, and refused otherwise |
 | Permissions and ownership (e.g. `Filesystem::mkdir()`'s `$permissions`, `fileperms()`) | As on Linux | Windows has no Unix permissions or owners, so these are mostly ignored. Only the read-only setting has an effect |
 | `Filesystem::isTmpfs()` | Reads the `mount` command's output | Always false, as Windows has no tmpfs |
@@ -37,7 +37,7 @@ really the other system's files:
 | Where | What to expect |
 |---|---|
 | Windows drives seen from WSL (e.g. `/mnt/c`) | Unless the drive is mounted with the `metadata` option, Unix permissions and owners aren't stored there: `chmod()` and `chown()` have no lasting effect, and every file appears to belong to you. So checks that a copy kept its exact permissions (`$overrideUmask` on `File` and `Directory` moves) can fail there, and the moves that need them are refused. Moving files between there and WSL's own filesystem copies them, as they are different filesystems |
-| WSL's files seen from Windows (e.g. `\\wsl.localhost\Ubuntu\home\...`) | PHP on Windows treats these as a network share on another drive, so moves between them and `C:` copy rather than rename, and with `PreserveOwnershipEnum::YES`, are refused (see the table above). Symlinks made inside WSL may not show as symlinks from Windows |
+| WSL's files seen from Windows (e.g. `\\wsl.localhost\Ubuntu\home\...`) | PHP on Windows treats these as a network share on another drive, so moves between them and `C:` copy rather than rename, keeping owners and permissions where Windows can set them there (see the table above). Symlinks made inside WSL may not show as symlinks from Windows |
 
 For the most predictable results, run PHP on the same side as the files: in WSL for files in WSL's filesystem, and on
 Windows for files on Windows drives.

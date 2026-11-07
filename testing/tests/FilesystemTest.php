@@ -2126,9 +2126,15 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
     SmokeTest::assertSamePath($resolvedDirectories[0], "{$realBase}/real/sub", $message);
     symlink("{$base}/elsewhere", "{$base}/real/sub/to-elsewhere");
     $followed = Filesystem::getDirContents("{$base}/link", followSymlinks: true, resolveSymlinks: true);
-    sort($followed);
-    $expected = $tidy(["{$realBase}/elsewhere/beside-target.txt", "{$realBase}/real/sub/f.txt"]);
-    assert($followed === $expected, "getDirContents() resolving symlinks gave: " . implode(", ", $followed));
+    $message = "getDirContents() resolving symlinks gave: " . implode(", ", $followed);
+    $expected = ["beside-target.txt" => "{$realBase}/elsewhere/beside-target.txt", "f.txt" => "{$realBase}/real/sub/f.txt"];
+    assert(count($followed) === 2, $message);
+
+    # Compared resolved, one by one, as Windows can give a short folder name (e.g. RUNNER~1) in some of them.
+    foreach ($followed as $followedPath)
+    {
+        SmokeTest::assertSamePath($followedPath, $expected[basename($followedPath)], $message);
+    }
     $kept = Filesystem::getDirContents("{$base}/link", followSymlinks: true);
     sort($kept);
     assert($kept === $tidy(["{$base}/link/sub/f.txt", "{$base}/link/sub/to-elsewhere/beside-target.txt"]));

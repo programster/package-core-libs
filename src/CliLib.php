@@ -21,10 +21,13 @@ final class CliLib
      * Display a progress bar in the CLI. This will dynamically take up the full width of the
      * terminal and if you keep calling this function, it will appear animated as the progress bar
      * keeps writing over the top of itself.
+     *
      * @param float $percentage - the percentage completed. Values below 0 or above 100 are shown as
      * they are in the percentage text, but the bar itself stops at empty or full.
+     *
      * @param int $numDecimalPlaces - the number of decimal places to show for percentage output
      * string
+     *
      * @return void
      */
     public static function showProgressBar(float $percentage, int $numDecimalPlaces): void
@@ -68,9 +71,12 @@ final class CliLib
      * This prevents onlookers seeing the password length but does make it more difficult.
      *
      * @return string - the password that was typed in.
+     *
      * @throws UserCancelledException - if the user pressed Ctrl+C or Ctrl+D.
+     *
      * @throws CommandFailedException - if stty (or on Windows, PowerShell) failed. This is thrown
      * before anything is read, so the password can never be shown on screen by mistake.
+     *
      * @throws InputEndedException - if the input ended before the password was entered.
      */
     public static function getPasswordFromUserInput(bool $stars = true): string
@@ -103,6 +109,7 @@ final class CliLib
      * Get the width of the terminal, in characters, for showProgressBar(): from "tput cols", or on
      * Windows (which has no tput) from "mode con". If it can't be worked out (e.g. when the output
      * isn't a terminal), this gives the traditional width of 80, rather than failing to show a bar.
+     *
      * @return int - the width.
      */
     private static function getTerminalWidth(): int
@@ -149,8 +156,11 @@ final class CliLib
      * number of columns, e.g. "    Lines:          9001" and "    Columns:        120". The names
      * are translated into the system's language (e.g. "Spalten" in German), so this takes the
      * second number, rather than looking for the word "Columns".
+     *
      * @param string $output - what mode con printed.
+     *
      * @return int - the width.
+     *
      * @throws UnexpectedOutputException - if it doesn't list at least two numbers.
      */
     private static function parseModeConWidth(string $output): int
@@ -171,8 +181,11 @@ final class CliLib
      * as Windows has no stty. PowerShell reads each key without showing it, writes any stars to the
      * console (through stderr, as stdout returns the password), and treats Ctrl+C as a key, so it
      * can cancel cleanly, rather than killing the script.
+     *
      * @param bool $stars - whether to show a star for each character typed.
+     *
      * @return string - the password that was typed in.
+     *
      * @throws UserCancelledException - if the user pressed Ctrl+C or Ctrl+D.
      * @throws CommandFailedException - if PowerShell couldn't be run, or failed.
      */
@@ -213,7 +226,9 @@ final class CliLib
     /**
      * Build the PowerShell script readPasswordOnWindows() runs, encoded as PowerShell's
      * -EncodedCommand wants (base64 of UTF-16LE), so nothing in it needs quoting for the shell.
+     *
      * @param bool $stars - whether to show a star for each character typed.
+     *
      * @return string - the encoded script.
      */
     private static function buildWindowsPasswordScript(bool $stars): string
@@ -342,7 +357,9 @@ final class CliLib
     /**
      * Remove the last character from a string, treating multi-byte UTF-8 characters such as "é" as
      * one character.
+     *
      * @param string $input - the string to remove the last character from.
+     *
      * @return string - the string without its last character.
      */
     private static function removeLastCharacter(string $input): string
@@ -356,6 +373,7 @@ final class CliLib
     /**
      * Read and discard the rest of a terminal escape sequence, after its starting escape character
      * has been read. Keys such as the arrow keys send these, e.g. "\e[A" for the up arrow.
+     *
      * @return void
      */
     private static function skipEscapeSequence(): void

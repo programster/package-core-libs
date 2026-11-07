@@ -17,12 +17,19 @@ final class StringLib
      * Generates a random string that has at least one of each of the required types of characters
      * specified. E.g. if useSpecialChars is set to true (default) then the generated string will
      * have at least one special character.
+     *
      * @param int $numChars - how many characters long the string should be
+     *
      * @param bool $useSpecialChars - whether to use special characters. Defaults to true.
+     *
      * @param bool $useNumbers - whether to use numbers. Defaults to true.
+     *
      * @param bool $useUppercase - whether to use uppercase. Defaults to true.
+     *
      * @param bool $useLowercase - whether to contain lowercase letters. Defaults to true.
+     *
      * @return string - the generated random string.
+     *
      * @throws BadArgumentException - if $numChars is less than 1, all four types of character are
      * turned off, or $numChars is too short to fit one of each required type of character.
      */
@@ -199,7 +206,9 @@ final class StringLib
      * of writing the tag, in any case: <br>, <br/>, <br />, <BR>, and ones with attributes such as
      * <br class="x">. A line break straight after a tag (as PHP's nl2br() writes) is treated as
      * part of it, so "a<br />\nb" gives one newline rather than two.
+     *
      * @param string $input - the input string
+     *
      * @return string - the output string that has been converted.
      */
     public static function br2nl(string $input): string
@@ -217,7 +226,9 @@ final class StringLib
      * doesn't. Unlike PHP's nl2br(), this replaces the line endings with <br /> rather than
      * inserting <br /> before them. Windows (\r\n), Unix (\n) and old Mac (\r) line endings are all
      * replaced, whatever OS this is running on.
+     *
      * @param string $input - the input string to convert
+     *
      * @return string - the converted string
      */
     public static function nl2br(string $input): string
@@ -251,7 +262,9 @@ final class StringLib
     /**
      * Check whether the provided string is a regexp. Reference:
      * http://stackoverflow.com/questions/8825025/test-if-a-regular-expression-is-a-valid-one-in-php
+     *
      * @param string $regexp - the string to check, including its delimiters, e.g. "/^[a-z]+$/i".
+     *
      * @return bool - true if the string is a valid regular expression, false if not.
      */
     public static function isRegExp(string $regexp): bool
@@ -274,9 +287,13 @@ final class StringLib
      * closer to what the developer would expect if they hadn't read any documentation For
      * information about how strtr may be safer than str_replace, please read the comments in
      * http://php.net/manual/en/function.strtr.php
+     *
      * @param string $search - the string to search for within the subject that needs replacing
+     *
      * @param string $replace - the string to replace with
+     *
      * @param string $subject - the string to perform substitutions in.
+     *
      * @return string - the result of converting the subject string.
      */
     public static function replace(string $search, string $replace, string $subject): string
@@ -294,8 +311,11 @@ final class StringLib
      * multiple substitutions in a single pass so you don't need to worry about your replacement
      * pairs clashing with each other. This is faster and simpler to understand but if you need this
      * recursive behaviour, please use the in-built str_replace method instead.
+     *
      * @param array $pairs - array of search/replace pairs to perform
+     *
      * @param string $subject - the string to perform substitutions in.
+     *
      * @return string - the result of converting the subject string.
      */
     public static function replacePairs(array $pairs, string $subject): string
@@ -308,9 +328,13 @@ final class StringLib
      * Find out whether the $haystack string contains the $needle string. This will use strpos
      * rather than strstr because strpos is faster and less memory intensive.
      * https://stackoverflow.com/questions/5820586/which-method-is-preferred-strstr-or-strpos
+     *
      * @param string $haystack - the string to search in.
+     *
      * @param string $needle - the string to search for.
+     *
      * @param bool $caseSensitive - whether the search is case sensitive. Defaults to true.
+     *
      * @return bool - true if does contain, false if not
      */
     public static function contains(string $haystack, string $needle, bool $caseSensitive = true): bool
@@ -345,9 +369,12 @@ final class StringLib
      * Decode a string that was encoded with base64UrlEncode(). This is strict, and only accepts
      * exactly what base64UrlEncode() produces: the URL-safe alphabet (A-Z, a-z, 0-9, "-" and "_")
      * with no "=" padding, whitespace, or standard base64 "+" and "/" characters.
+     *
      * @param string $input - the input string to be decoded. This is marked as sensitive, so that
      * it doesn't appear in stack traces, as it is commonly a token.
+     *
      * @return string - the decoded string
+     *
      * @throws StringConversionFailedException - if the string is not one that base64UrlEncode()
      * could have produced. The string that failed can be retrieved from the exception with
      * getFailedString().

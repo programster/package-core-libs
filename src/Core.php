@@ -57,7 +57,9 @@ final class Core
     /**
      * Make PHP slightly more like Java and allow printing a line. If this is in a web app then it
      * will use <br /> as well.
+     *
      * @param string $message - the string to print out.
+     *
      * @return void - prints out immediately.
      */
     public static function println(string $message): void
@@ -76,12 +78,16 @@ final class Core
      * By default, only a path on this site is allowed (e.g. "/account?tab=2"), so a location taken
      * from the request (e.g. "?next=...") can't send the user to another site, which attackers use
      * to make phishing links look trustworthy (an "open redirect").
+     *
      * @param string $location - where to redirect to. Without $allowExternal, this must be a path
      * starting with a single "/".
+     *
      * @param bool $allowExternal - true to allow any location, including other sites. Only set
      * this if $location can't come from the user, or has been checked against a list of allowed
      * sites.
+     *
      * @return never - redirects the user and exits, so this never returns.
+     *
      * @throws BadArgumentException - without $allowExternal, if $location isn't a path on this site
      * (e.g. it is "https://other.site/", or starts with "//", which browsers treat as another site).
      */
@@ -109,11 +115,16 @@ final class Core
     /**
      * Sets the title of the process and will append the appropriate number of already existing
      * processes with the same title.
+     *
      * @param string $namingPrefix - the name to give the process.
+     *
      * @return void
+     *
      * @throws CliTitleNotSetException - if the title could not be set, such as when not running
      * from the CLI, where cli_set_process_title() doesn't exist.
+     *
      * @throws CommandFailedException - if we failed to get the list of processes.
+     *
      * @throws UnsupportedPlatformException - on a system where the processes can't be listed (see
      * getNumProcRunning()).
      */
@@ -150,8 +161,11 @@ final class Core
      * On Linux and macOS, this checks each process's full command line (which is what
      * cli_set_process_title() changes), using ps. On Windows, cli_set_process_title() sets the
      * console window's title instead, so this checks the window titles, using tasklist /V.
+     *
      * @param string $title - the start of the titles to count, e.g. "worker".
+     *
      * @return int - the number of processes running with that title.
+     *
      * @throws CommandFailedException - if we failed to get the list of processes.
      * @throws UnsupportedPlatformException - on a system other than Linux, macOS or Windows.
      */
@@ -188,9 +202,11 @@ final class Core
      *
      * @param array $args - array of all the argument names. Each must be a string or an int (the
      * types that array keys can be), so null is not allowed.
+     *
      * @param array $inputArray - array from which we are pulling the required args.
      *
      * @return array - the name/value pairs of the arguments.
+     *
      * @throws BadArgumentException - if any of the arguments could not be found, or one of the
      * names in $args is not a string or an int.
      */
@@ -225,9 +241,11 @@ final class Core
      *
      * @param array $args - array of all the argument names. Each must be a string or an int (the
      * types that array keys can be), so null is not allowed.
+     *
      * @param array $inputArray - array from which we are pulling the optional args.
      *
      * @return array - array of retrieved values
+     *
      * @throws BadArgumentException - if one of the names in $args is not a string or an int.
      */
     public static function fetchOptionalArgsFromArray(array $args, array $inputArray): array
@@ -257,16 +275,21 @@ final class Core
      * and query string come from the request.
      * WARNING: as the path and query string come from the client, they can contain characters such
      * as " and <, so escape the URL (e.g. with htmlspecialchars()) before putting it in HTML.
+     *
      * @param string $fqdn - the fully qualified domain name of the site, e.g. "blog.programster.org".
      * It can include a port if the site isn't on the standard one, e.g. "localhost:8080". Surrounding
      * whitespace and any trailing slashes are removed.
+     *
      * @param bool $forceHttps - true (the default) to always give an https:// URL. Many sites are
      * behind a proxy or load balancer that handles HTTPS, so the web server only sees plain HTTP,
      * and can't tell the URL should be HTTPS. Set false to use whatever the web server reports
      * instead (see Network::isHttps()).
+     *
      * @return string - the full URL of the current page.
+     *
      * @throws BadArgumentException - if $fqdn isn't a valid host name (with an optional port), e.g.
      * it includes a scheme such as "https://", or a path.
+     *
      * @throws NoWebRequestException - if there is no web request (e.g. this is running from the CLI),
      * so there is no current page.
      */
@@ -311,7 +334,9 @@ final class Core
      * meaningful.
      *
      * @param int|float|\DateTimeInterface $value - the variable to make sure is within range.
+     *
      * @param int|float|\DateTimeInterface $max   - the max allowed value.
+     *
      * @param int|float|\DateTimeInterface $min   - the minimum allowed value
      *
      * @return int|float|\DateTimeInterface - the clamped input. This is $value if it is within
@@ -341,7 +366,9 @@ final class Core
      * null, an empty string, the string "0", the integer 0, the float 0.0 and an empty array as
      * 'false' values, which give 'No'. Everything else gives 'Yes' (note that this includes the
      * string "false").
+     *
      * @param mixed $input - the input variable to decide whether to output yes/no on.
+     *
      * @return string - "Yes" or "No"
      */
     public static function generateYesNoString(mixed $input): string
@@ -354,7 +381,9 @@ final class Core
      * Generates a string 'True' or 'False' based on the value passed in. This will consider false,
      * null, an empty string, the string "0", the integer 0, the float 0.0 and an empty array as
      * 'false' values. Everything else is 'true' (note that this includes the string "false").
+     *
      * @param mixed $input - the input variable to decide whether to output true or false on.
+     *
      * @return string - "True" or "False"
      */
     public static function generateTrueFalseString(mixed $input): string
@@ -366,10 +395,14 @@ final class Core
     /**
      * Implement a version guard. This will throw an exception if we do not have the required
      * version of PHP that is specified.
+     *
      * @param string $reqVersion - required version of PHP, e.g. '8.5.0'
+     *
      * @param string $errMsg - optionally specify the message for the exception. If left empty, a
      * message stating the required and current versions is used.
+     *
      * @return void
+     *
      * @throws PhpVersionTooLowException - if we do not meet the required PHP version. The exception
      * holds both the required and current versions.
      */
@@ -393,7 +426,9 @@ final class Core
      * hyperthreads, e.g. a 4 core processor with hyperthreading gives 8. This uses the fastest way
      * on each system: nproc on Linux, sysctl on macOS and BSD, and the NUMBER_OF_PROCESSORS setting
      * on Windows.
+     *
      * @return int - the number of threads this machine can run at the same time.
+     *
      * @throws CommandFailedException - if the command failed.
      * @throws UnexpectedOutputException - if it didn't give a number.
      * @throws UnsupportedPlatformException - on a system other than Linux, macOS, BSD or Windows.
@@ -427,11 +462,15 @@ final class Core
      * open (e.g. xclip and wl-copy do this to keep serving the clipboard), this will wait until
      * that background process exits, which may be never. Redirect the command's stdout to /dev/null
      * to avoid this.
+     *
      * @param string $command - the command to run.
+     *
      * @param string|null $input - optionally provide content to send to the command's stdin. If
      * null (the default), the command inherits this script's stdin.
+     *
      * @return string - everything the command wrote to stdout, exactly as it was written (including
      * any trailing newline).
+     *
      * @throws CommandFailedException - if the command could not be run, or exited with a non-zero
      * exit code. The exception holds the exit code and anything the command wrote to stderr.
      */
@@ -516,16 +555,22 @@ final class Core
      * SWAP_USED and SWAP_FREE. On macOS, these come from sysctl and vm_stat, and AVAILABLE is
      * worked out as the free, inactive and speculative memory. On Windows, they come from
      * PowerShell, and FREE is the same as AVAILABLE, as Windows doesn't report them separately.
+     *
      * @param MemoryTypeEnum $type - optionally specify which measurement of memory you want, such
      * as how much is available, rather than the total amount of RAM in the system. Please refer to
      * the MemoryTypeEnum for what each one means.
+     *
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the amount of memory
      * in. Defaults to MiB.
+     *
      * @return float - the amount of memory in the specified unit. E.g. 1.5 for 1536 KiB in MiB.
+     *
      * @throws UnsupportedPlatformException - on a system other than Linux, macOS or Windows, on
      * Linux without /proc/meminfo, or for a measurement that is only available on Linux.
+     *
      * @throws FilesystemException - if /proc/meminfo could not be read.
      * @throws CommandFailedException - if a command it needs on macOS or Windows failed.
+     *
      * @throws UnexpectedOutputException - if the memory details don't contain what the requested
      * measurement needs. Not every field exists on every system.
      */
@@ -549,9 +594,12 @@ final class Core
      * Sign some data. If we get this data back again, we will know that it came from us untampered
      * (as long as the signature still matches). This is useful for things like tokens sent in
      * emails allowing them to perform actions without having to sign in
+     *
      * @param array $data - the data we wish to sign.
+     *
      * @param string $secret - the secret key to sign the data with. Keep this private, as anyone
      * who has it can create valid signatures.
+     *
      * @return string - the generated signature for the provided data.
      */
     public static function generateSignature(array $data, string $secret): string
@@ -564,11 +612,15 @@ final class Core
 
     /**
      * Check if the provided data has the correct signature.
+     *
      * @param array $data - the data we received that was signed. The signature MUST NOT be in this
      * array.
+     *
      * @param string $signature - the signature that came with the data. This is what we will check
      * is valid for the data received.
+     *
      * @param string $serverSecret - the server's secret that it uses for generating signatures.
+     *
      * @return bool - true if the signature is correct for the data, or false if not (in which case
      * a user probably tried to manipulate the data).
      */
@@ -585,7 +637,9 @@ final class Core
     /**
      * A wrapper around var_dump that will return the result as a string rather than dumping out
      * immediately.
+     *
      * @param mixed $variable - the variable you want to get the var_dump of
+     *
      * @return string - the result of the var_dump
      */
     public static function var_dump(mixed $variable): string
@@ -600,10 +654,14 @@ final class Core
      * Set the content of the user's clipboard (the one used by Ctrl+C / Ctrl+V). On Linux, this
      * supports both Wayland (using wl-copy from the wl-clipboard package) and X11 (using xclip). On
      * macOS this uses pbcopy, and on Windows this uses PowerShell.
+     *
      * @param string $content - the content you wish to set in the clipboard.
+     *
      * @return void
+     *
      * @throws CommandFailedException - if the clipboard could not be set, such as if the required
      * tool isn't installed.
+     *
      * @throws UnsupportedPlatformException - if running on an unsupported OS, or on Linux without a
      * graphical session.
      */
@@ -644,10 +702,13 @@ final class Core
      * Get the contents of the user's clipboard (the one used by Ctrl+C / Ctrl+V). On Linux, this
      * supports both Wayland (using wl-paste from the wl-clipboard package) and X11 (using xclip).
      * On macOS this uses pbpaste, and on Windows this uses PowerShell.
+     *
      * @return string - the content of the clipboard, exactly as it was copied. This will be an
      * empty string if the clipboard is empty, or holds something other than text (e.g. an image).
+     *
      * @throws CommandFailedException - if the clipboard could not be read, such as if the required
      * tool isn't installed.
+     *
      * @throws UnsupportedPlatformException - if running on an unsupported OS, or on Linux without a
      * graphical session.
      */
@@ -726,12 +787,16 @@ final class Core
      * warning as well as returning false (e.g. mkdir() or file_get_contents()), so that the reason
      * can go in an exception instead. This uses a temporary error handler, which is always removed
      * again afterwards. That works whether or not the application has its own error handler, unlike
+     *
      * @ and error_get_last(), as error_get_last() is empty when the application has one. The
      * application's own handler doesn't see the warning, just as with @.
+     *
      * @param callable $callback - the code to run, e.g. function () use ($path): bool { return
      * mkdir($path); }.
+     *
      * @param string|null $warning - set to the message of the last warning raised, or null if there
      * wasn't one. E.g. "mkdir(): Not a directory".
+     *
      * @return mixed - whatever $callback returns.
      */
     public static function runCapturingWarning(callable $callback, ?string &$warning = null): mixed
@@ -833,8 +898,11 @@ final class Core
      * Get an amount of memory on macOS, for getMemory(): the total from sysctl hw.memsize, how much
      * is free and available from vm_stat (available being the free, inactive and speculative pages,
      * which macOS can hand to applications), and the swap from sysctl vm.swapusage.
+     *
      * @param MemoryTypeEnum $type - which measurement of memory.
+     *
      * @return float - the amount, in bytes.
+     *
      * @throws UnsupportedPlatformException - if $type is only available on Linux.
      * @throws CommandFailedException - if sysctl or vm_stat failed.
      * @throws UnexpectedOutputException - if their output wasn't in the expected format.
@@ -872,8 +940,11 @@ final class Core
      * available memory from Win32_OperatingSystem (Windows' "free physical memory" is what it can
      * hand to applications, so it is used for both FREE and AVAILABLE), and the swap from the page
      * file's size and use.
+     *
      * @param MemoryTypeEnum $type - which measurement of memory.
+     *
      * @return float - the amount, in bytes.
+     *
      * @throws UnsupportedPlatformException - if $type is only available on Linux.
      * @throws CommandFailedException - if PowerShell failed.
      * @throws UnexpectedOutputException - if its output wasn't in the expected format.
@@ -904,8 +975,11 @@ final class Core
     /**
      * Check that a memory measurement can be got off Linux, for getMemory() on macOS and Windows,
      * which only report the main figures.
+     *
      * @param MemoryTypeEnum $type - which measurement of memory.
+     *
      * @return void
+     *
      * @throws UnsupportedPlatformException - if it is only available on Linux.
      */
     private static function checkMemoryTypeIsPortable(MemoryTypeEnum $type): void
@@ -934,9 +1008,12 @@ final class Core
      * Read the page size and page counts from the output of macOS's vm_stat, for getMacMemory().
      * It starts "Mach Virtual Memory Statistics: (page size of 16384 bytes)", then has lines such
      * as "Pages free:                               12345.".
+     *
      * @param string $output - what vm_stat printed.
+     *
      * @return array{size: int, free: int, inactive: int, speculative: int} - the page size in bytes,
      * and the numbers of free, inactive and speculative pages.
+     *
      * @throws UnexpectedOutputException - if any of those are missing.
      */
     private static function parseVmStat(string $output): array
@@ -967,8 +1044,11 @@ final class Core
     /**
      * Read the swap sizes from the output of macOS's sysctl vm.swapusage, for getMacMemory(), e.g.
      * "total = 2048.00M  used = 1024.50M  free = 1023.50M  (encrypted)".
+     *
      * @param string $output - what sysctl printed.
+     *
      * @return array{total: float, used: float, free: float} - the sizes, in bytes.
+     *
      * @throws UnexpectedOutputException - if any of them are missing.
      */
     private static function parseSwapUsage(string $output): array
@@ -992,9 +1072,12 @@ final class Core
 
     /**
      * Read the "name=value" lines that WINDOWS_MEMORY_COMMAND prints, for getWindowsMemory().
+     *
      * @param string $output - what the command printed.
+     *
      * @return array<string, float> - TotalVisibleMemorySize and FreePhysicalMemory (in KiB), and
      * PageFileSize and PageFileUsed (in MiB).
+     *
      * @throws UnexpectedOutputException - if any of them are missing.
      */
     private static function parseWindowsMemory(string $output): array
@@ -1040,8 +1123,11 @@ final class Core
      * Check that an argument name, for fetchReqArgsFromArray() and fetchOptionalArgsFromArray(), is
      * a string or an int, as those are the only types an array key can be. Anything else, such as
      * null, would be quietly converted to a different key (e.g. null becomes "").
+     *
      * @param mixed $arg - the argument name to check.
+     *
      * @return void
+     *
      * @throws BadArgumentException - if it isn't a string or an int.
      */
     private static function validateArgName(mixed $arg): void
@@ -1059,9 +1145,12 @@ final class Core
      * Work out whether to use the Wayland clipboard tools (wl-clipboard) or the X11 one (xclip) on
      * Linux. The native Wayland tools are preferred when running under Wayland, but if they aren't
      * installed and XWayland is available, we fall back to xclip.
+     *
      * @param string $waylandTool - the Wayland tool we want to use (e.g. "wl-copy" or "wl-paste"),
      * so we can check if it is installed.
+     *
      * @return bool - true to use the Wayland tools, false to use xclip.
+     *
      * @throws UnsupportedPlatformException - if there is no graphical session, and thus no
      * clipboard.
      */

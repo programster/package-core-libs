@@ -36,6 +36,7 @@ final readonly class MoveProgress
     /**
      * Get how much of the move is done, as a percentage: of the bytes, or if there are none (e.g.
      * only empty files or symlinks), of the files. A move of nothing at all counts as 100% done.
+     *
      * @return float - from 0 to 100.
      */
     public function getPercentMoved(): float
@@ -85,6 +86,7 @@ final readonly class MoveProgress
     /**
      * Get the progress once everything has been moved, for a move that does it all in one go (e.g.
      * a Directory renamed on the same filesystem).
+     *
      * @return MoveProgress - the new progress. This one is unchanged.
      */
     public function withEverythingMoved(): MoveProgress

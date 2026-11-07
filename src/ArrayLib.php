@@ -17,8 +17,11 @@ final class ArrayLib
      * Returns true or false based on whether the provided array is an associative array or not.
      * Note that this will return true if it is integer based but the index does not start at 0. An
      * empty array is neither, so an exception is thrown for one.
+     *
      * @param array $arr - the array to check
+     *
      * @return bool - true if the array is associative, false otherwise.
+     *
      * @throws EmptyArrayException - if the array has no elements.
      */
     public static function isAssoc(array $arr): bool
@@ -34,11 +37,15 @@ final class ArrayLib
 
     /**
      * Returns the first element of the array (useful for maps/hashtables or if you don't know)
+     *
      * @param array $inputArray - the array we want the first element of.
+     *
      * @param bool $removeElement - optionally override to true to remove the element from the
      * array. This uses array_shift(), so the remaining numeric keys are re-indexed to start from 0
      * (e.g. [5 => 'a', 9 => 'b'] becomes [0 => 'b']), whilst string keys are left as they are.
+     *
      * @return mixed - the first element of the array.
+     *
      * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getFirstElement(array &$inputArray, bool $removeElement=false): mixed
@@ -98,11 +105,15 @@ final class ArrayLib
 
     /**
      * Returns the last key in the provided array
+     *
      * @param array $inputArray - the array we want the last key of
+     *
      * @param bool $removeElement - override to true if you want to also remove the last element
      * (and its key) from the array.
+     *
      * @return int|string - the last key in the array. This is deliberately a union type, as PHP
      * array keys can only be integers or strings.
+     *
      * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getLastKey(array &$inputArray, bool $removeElement=false): int|string
@@ -125,10 +136,14 @@ final class ArrayLib
 
     /**
      * Fetch a random element from the provided array.
+     *
      * @param array $inputArray - the array to get a random element from.
+     *
      * @param bool $removeElement - optionally set to true to have the element removed from the
      * array as well.
+     *
      * @return mixed - a random element from the array.
+     *
      * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getRandomElement(array &$inputArray, bool $removeElement = false): mixed
@@ -152,11 +167,15 @@ final class ArrayLib
 
     /**
      * Get a random key from the provided array.
+     *
      * @param array $inputArray - the array to get a random key from.
+     *
      * @param bool $removeElement - optionally specify true to have the key (and element) removed
      * from the array.
+     *
      * @return int|string - a random key in the array. This is deliberately a union type, as PHP
      * array keys can only be integers or strings.
+     *
      * @throws EmptyArrayException - if the array has no elements.
      */
     public static function getRandomKey(array &$inputArray, bool $removeElement = false): int|string
@@ -220,8 +239,11 @@ final class ArrayLib
     /**
      * Wrap all of the elements in an array with the string (before and after) e.g. wrapElements on
      * array(foo,bar), "`" would create array(`foo`,`bar`)
+     *
      * @param array $inputArray - array we are going to create our wrapped array from
+     *
      * @param string $wrapString - string of characters we wish to wrap with.
+     *
      * @return array
      */
     public static function wrapElements(array $inputArray, string $wrapString): array
@@ -238,8 +260,11 @@ final class ArrayLib
     /**
      * Faster version of array_diff that relies on not needing to keep indexes of the missing values
      * Compares values, but returns the indexes
+     *
      * @param array $array1 - array to compare
+     *
      * @param array $array2 - array to compare
+     *
      * @return array - values in array1 but not array2
      */
     public static function fastDiff(array $array1, array $array2): array
@@ -263,8 +288,11 @@ final class ArrayLib
      * Returns all the values that are in array1 and array2. Relies on the values being integers or
      * strings Will only return a value once, even if it appears multiple times in the array. Does
      * not maintain indexes.
+     *
      * @param array $array1 - array of integers or strings to compare
+     *
      * @param array $array2 - array of integers or strings to compare
+     *
      * @return array - values that are in both arrays
      */
     public static function fastIntersect(array $array1, array $array2): array
@@ -288,9 +316,13 @@ final class ArrayLib
      * Fetches an array of values for the specified indexes from the provided array. All the
      * specified indexes must be within the haystack. This does NOT keep index association (e.g.
      * returns a list of values)
+     *
      * @param array $haystack - the array we are pulling values from
+     *
      * @param array $indexes - array list of keys we want the values of.
+     *
      * @return array - the values, in the order of $indexes.
+     *
      * @throws BadArgumentException - if one of the indexes does not exist in $haystack.
      */
     public static function getValues(array $haystack, array $indexes): array
@@ -321,8 +353,11 @@ final class ArrayLib
      * long as going through both arrays once, rather than comparing every set in $arr1 with every
      * set in $arr2. If any set contains something that can't be serialized (such as a closure), it
      * falls back to comparing every pair, which gives the same result, just more slowly.
+     *
      * @param array $arr1 - array to compare
+     *
      * @param array $arr2 - array to compare
+     *
      * @return array - array of sets that are in array1 but not array2
      */
     public static function setDiff(array $arr1, array $arr2): array
@@ -372,8 +407,11 @@ final class ArrayLib
     /**
      * Same as array_diff except that this returns the indexes of the values that are in array1 but
      * not array2. WARNING - this is NOT comparing the indexes themselves.
+     *
      * @param array $array1
+     *
      * @param array $array2
+     *
      * @return array - array of indexes in array1 where the values are not in array2
      */
     public static function indexDiff(array $array1, array $array2): array
@@ -396,7 +434,9 @@ final class ArrayLib
     /**
      * Remove empty elements from the provided array. If the input array is not associative, then it
      * will be re-indexed. 0,1,2,3 etc
+     *
      * @param array $inputArray - the array to perform actions upon.
+     *
      * @return array - the array without its empty elements.
      */
     public static function stripEmptyElements(array $inputArray): array
@@ -416,8 +456,11 @@ final class ArrayLib
     /**
      * Merge two associative arrays. The indexes will be in the order of the first array, then the
      * second
+     *
      * @param array $array1 - an associative array to merge
+     *
      * @param array $array2 - an associative array to merge.
+     *
      * @param \Closure $clashHandler - callback function to return the value we should keep, should
      * we encounter the same index in the two arrays. This will take as params: [index], [array1
      * value], [array2 value]
@@ -462,10 +505,13 @@ final class ArrayLib
      *
      * @param array $keys - list of keys to set for the rows. The length should be exactly the same
      * as the length of every row in the rows array.
+     *
      * @param array $rows - list of arrays that will have array_combine performed on. Every row in
      * this list should have the same length as keys. If any of the rows have indexes, these will be
      * lost.
+     *
      * @return array - the generated array list of rows.
+     *
      * @throws BadArgumentException - if any of the rows doesn't have the same number of values as
      * there are keys.
      */
@@ -494,8 +540,11 @@ final class ArrayLib
      * Divide an array into $numberOfArrays arrays, filled as equally as possible. Exactly
      * $numberOfArrays arrays are always returned, and their sizes are never more than one element
      * apart. If there are fewer elements than arrays, then some of the arrays will be empty.
+     *
      * @param array $inputArray - the array to split into multiple arrays
+     *
      * @param int $numberOfArrays - the number of arrays to break up into and return
+     *
      * @param bool $useBucketFill - default true to fill the arrays in order, so the first elements
      * go in the first array, the next elements in the next array, and so on. The larger arrays (if
      * they can't all be the same size) come first. If set to false, then elements will be spread
@@ -506,7 +555,9 @@ final class ArrayLib
      * E.g. true  - [1,2] / 3       -> [ [1], [2], [] ]
      *
      * @param bool $preserveKeys - if true key/value association is maintained in the split arrays
+     *
      * @return array - an array of the resulting arrays.
+     *
      * @throws EmptyArrayException - if $inputArray has no elements.
      * @throws BadArgumentException - if $numberOfArrays is less than 1.
      */
@@ -581,7 +632,9 @@ final class ArrayLib
      * You can think of this as overriding the default if it is set in the $_REQUEST superglobal.
      *
      * @param array $inputArray - the array to look for the key in, e.g. $_REQUEST.
+     *
      * @param string $key - the name of the variable if it would appear within the $_REQUEST
+     *
      * @param mixed $defaultValue - the value to set if the var is not set within $_REQUEST
      *
      * @return mixed - the resulting value. (default value if not set)
@@ -603,9 +656,12 @@ final class ArrayLib
     /**
      * Get a key for a set, for setDiff(), that is the same for any two sets that are === to each
      * other.
+     *
      * @param mixed $set - the set to get the key of. This is normally an array, but can be any
      * serializable value.
+     *
      * @return string - the key.
+     *
      * @throws \Exception - if the set contains something that can't be serialized, such as a
      * closure.
      */

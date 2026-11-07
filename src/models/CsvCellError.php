@@ -26,10 +26,14 @@ final readonly class CsvCellError
 
     /**
      * Create the location of a value with a problem.
+     *
      * @param string $filepath - the path of the CSV file the value is in.
+     *
      * @param int $rowNumber - the row the value is on, starting from 1, and counting any header
      * row.
+     *
      * @param int $columnNumber - the column the value is in, starting from 1.
+     *
      * @param string $value - the value itself, as read from the file.
      */
     public function __construct(string $filepath, int $rowNumber, int $columnNumber, string $value)

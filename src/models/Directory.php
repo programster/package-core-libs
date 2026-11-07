@@ -35,11 +35,14 @@ class Directory
 
     /**
      * Create an object for an existing directory.
+     *
      * @param string $path - the path to the directory. This is kept as given (e.g. relative, but
      * without a trailing slash) until the directory is renamed or moved, after which it is the
      * directory's absolute path.
+     *
      * @throws BadArgumentException - if $path is a symlink to a directory, rather than a directory.
      * Moving that would move the link, not the directory, so use File for the link instead.
+     *
      * @throws DirectoryDoesNotExistException - if there is no directory at $path.
      */
     public function __construct(string $path)
@@ -67,13 +70,19 @@ class Directory
      * is ever replaced. As it stays in the same parent directory (so on the same filesystem), it is
      * renamed in one step, and nothing is copied. Symlinks inside that pointed at it by its old path
      * are updated, as in move().
+     *
      * @param string $newName - the new name, e.g. "archive". It must be just a name, not a path.
+     *
      * @return void
+     *
      * @throws BadArgumentException - if $newName isn't just a name (e.g. it has a "/" in it).
      * @throws FileAlreadyExistsException - if something already exists with the new name.
+     *
      * @throws DirectoryNotMovableException - if anything would stop the rename or the symlink
      * updates. getProblems() lists them. Nothing is renamed if this happens.
+     *
      * @throws FilesystemException - if the rename failed, or a symlink couldn't be updated.
+     *
      * @throws DirectoryDoesNotExistException - if a directory inside disappears while it is being
      * checked.
      */
@@ -117,9 +126,9 @@ class Directory
      *  - with $preserveOwnership set to YES (the default), every file, directory and symlink keeps
      *    its owner and group. A copy is owned by whoever makes it, and only root can give a file to
      *    another user, so when not running as root, everything must already belong to the current
-     *    user, and to a group they are in. On Windows, a copy on another drive always belongs to
-     *    whoever makes it, with the ACLs of the directory it is copied into, and PHP can't read or
-     *    copy the original's, so with YES, a move to another drive is always refused there.
+     *    user, and to a group they are in. On Windows, the copies are given their originals' owners
+     *    and permissions (ACLs) with PowerShell once they are in place, and with YES, the move is
+     *    undone if any can't be (setting another user as the owner needs administrator rights).
      *  - there are no hard links (files with more than one name), which would become separate
      *    copies, and no special files (e.g. pipes or sockets), which can't be copied.
      *  - every directory can be written to, so that the original can be deleted after copying.
@@ -131,14 +140,18 @@ class Directory
      * attributes and ACLs can't be copied by PHP, so are lost. With $preserveOwnership set to YES,
      * this needs PHP's posix extension, to check who owns what. Symlinks outside this directory
      * that point into it can't be found, so they will break.
+     *
      * @param string $directory - the path to the directory to move this one into.
+     *
      * @param bool $createIfNotExists - whether to create $directory (and any parent directories) if
      * it doesn't exist. Defaults to false, in which case it must already exist.
+     *
      * @param bool $overrideUmask - when moving to a different filesystem, where everything has to
      * be copied: whether to give the copies exactly the original permissions, rather than reducing
      * them by the umask (and stopping the move if that can't be done). On the same filesystem,
      * nothing is copied, so permissions are always kept exactly and this has no effect. Defaults to
      * false.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem, where
      * everything has to be copied: how hard to try to keep everything's owner and group (only root
      * can give a copy to another user). YES (the default) checks first that they can all be kept,
@@ -146,8 +159,10 @@ class Directory
      * belong to whoever is running this. NO doesn't try, so everything copied belongs to whoever is
      * running this. On the same filesystem, nothing is copied, so ownership is always kept (apart
      * from the recreated symlinks described in move()) and this has no effect.
+     *
      * @param MoveListenerInterface|null $listener - optionally, something to tell how the move is
      * going, which can also cancel it (see MoveListenerInterface). Defaults to null.
+     *
      * @param bool $resumable - for a move to a different filesystem: whether to keep what was copied
      * if the copy fails, is cancelled, or PHP stops part way (e.g. at a timeout), so that making the
      * same move again carries on from there. Files already copied are only copied again if they
@@ -155,21 +170,29 @@ class Directory
      * from the start, and anything since removed from the original is removed from the copy. A
      * copy that is never resumed stays, under a hidden name beside the destination or in the
      * system's temporary directory, until deleted. Defaults to false, which removes a partial copy.
+     *
      * @param string|null $newName - optionally, a new name to give it in $directory, e.g. for when
      * something there already has its current name. It must be just a name, not a path. Defaults
      * to null, which keeps its current name.
+     *
      * @return void
+     *
      * @throws MoveCancelledException - if $listener cancelled the move. Anything copied so far is
      * removed, and the original is left as it was.
+     *
      * @throws BadArgumentException - if $newName isn't just a name, or $directory is empty, isn't a
      * directory (e.g. is a file), or is this directory or inside it.
+     *
      * @throws DirectoryDoesNotExistException - if $directory doesn't exist, and $createIfNotExists
      * is false.
+     *
      * @throws FileAlreadyExistsException - if $directory already has something with this
      * directory's name in it.
+     *
      * @throws DirectoryNotMovableException - if the checks find anything that would stop the move,
      * the copy, or the symlink updates. getProblems() lists them, as does the message (stopping at
      * 100). Nothing is moved if this happens. This extends BadFilePermissionsException.
+     *
      * @throws FilesystemException - if the move or copy failed, a symlink couldn't be updated, or
      * (after a copy) the original couldn't be deleted, despite the checks.
      */
@@ -232,7 +255,9 @@ class Directory
     /**
      * Turn a path given to rename() or move() into an absolute one. A relative path is made
      * relative to this directory's parent.
+     *
      * @param string $path - the absolute or relative path.
+     *
      * @return string - the absolute path.
      */
     private function resolvePath(string $path): string
@@ -246,19 +271,27 @@ class Directory
     /**
      * Check everything, then move the directory to $targetPath, and update the symlinks inside it.
      * On a different filesystem, this copies everything and then deletes the original instead.
+     *
      * @param string $targetPath - the absolute path the directory will have.
+     *
      * @param string|null $directoryToCreate - a directory to create first (for move()'s
      * $createIfNotExists), once everything has been checked, or null.
+     *
      * @param array $moveSettings - see copyThenDelete(). Only "listener" and "resumable" matter
      * on the same filesystem.
+     *
      * @return void
+     *
      * @throws MoveCancelledException - if $listener cancelled the move.
      * @throws BadArgumentException - if $targetPath is inside this directory.
      * @throws FileAlreadyExistsException - if something already exists at $targetPath.
+     *
      * @throws DirectoryNotMovableException - if anything would stop the move, copy or symlink
      * updates.
+     *
      * @throws FilesystemException - if the move or copy failed, a symlink couldn't be updated, or
      * the original couldn't be deleted after a copy.
+     *
      * @throws DirectoryDoesNotExistException - if a directory inside disappears while the move is
      * being checked or done.
      */
@@ -348,15 +381,22 @@ class Directory
 
     /**
      * Check that the directory can be moved to $newPath, apart from the symlinks inside it.
+     *
      * @param string $currentPath - the directory's real path.
+     *
      * @param string $newPath - the absolute path it will have.
+     *
      * @param bool $resumable - whether an empty directory an earlier resumable attempt left at
      * $newPath is allowed (see move()).
+     *
      * @return void
+     *
      * @throws BadArgumentException - if $newPath is inside the directory.
      * @throws FileAlreadyExistsException - if something already exists at $newPath.
+     *
      * @return bool - true if $newPath is on a different filesystem, so the directory has to be
      * copied there, rather than moved in one step.
+     *
      * @throws DirectoryNotMovableException - if the directory can't be removed from its parent, or
      * added to its new one.
      */
@@ -424,14 +464,22 @@ class Directory
     /**
      * Walk the directory (without following symlinks), working out the new target of every symlink
      * in it that needs changing, and checking that each can be changed.
+     *
      * @param string $directory - the real path of the directory to walk.
+     *
      * @param string $oldRoot - the real path of the directory being moved.
+     *
      * @param string $newRoot - the absolute path it will have.
+     *
      * @param array $symlinkUpdates - [symlink path, new target] pairs, which this adds to.
+     *
      * @param array $problems - descriptions of anything that would stop it, which this adds to.
+     *
      * @param array{files: int, bytes: int} $totals - how many files (and symlinks) there are, and
      * their size, for a MoveProgress, which this adds to.
+     *
      * @return void
+     *
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
      * @throws FilesystemException - if a directory that could be listed can't be opened after all.
      * @throws BadArgumentException - only if given relative paths, which the callers never do.
@@ -515,17 +563,25 @@ class Directory
      * Work out what a symlink's target should be once the directory has moved, so that it points at
      * the same thing: anything inside the directory moves with it, and anything outside stays where
      * it is. Relative targets stay relative, and absolute ones stay absolute.
+     *
      * @param string $linkDirectory - the real path of the directory the symlink is in now.
+     *
      * @param string $linkTarget - the symlink's current target.
+     *
      * @param string $oldRoot - the real path of the directory being moved.
+     *
      * @param string $newRoot - the absolute path it will have.
+     *
      * @param bool $mustBeAbsolute - true on Windows, where PHP can't create a relative symlink, so a
      * relative one that has to be created gets an absolute target instead.
+     *
      * @param bool $isRecreated - true if the symlink is being created again anyway (when copying to
      * another filesystem), so with $mustBeAbsolute, even a relative one that would still work gets an
      * absolute target.
+     *
      * @return string - the target it should have, which is $linkTarget if it doesn't need to
      * change.
+     *
      * @throws BadArgumentException - only if given a relative path for a directory, which the
      * callers never do.
      */
@@ -574,10 +630,15 @@ class Directory
 
     /**
      * After the directory has moved, give each symlink that needs it its new target.
+     *
      * @param string $oldRoot - the directory's real path before the move.
+     *
      * @param string $newRoot - its path after the move.
+     *
      * @param array $symlinkUpdates - [symlink path before the move, new target] pairs.
+     *
      * @return void
+     *
      * @throws FilesystemException - listing any symlinks that couldn't be updated. The directory
      * has already been moved if this happens.
      */
@@ -621,14 +682,21 @@ class Directory
     /**
      * Check everything that would stop the directory being copied to another filesystem exactly as
      * it is (see move()), adding a description of each problem to $problems.
+     *
      * @param string $oldRoot - the directory's real path.
+     *
      * @param string $newPath - the absolute path the copy will have.
+     *
      * @param bool $overrideUmask - whether permissions will be copied exactly, rather than reduced
      * by the umask.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - with YES, owners and groups are checked too.
+     *
      * @param array $problems - descriptions of the problems found, which this adds to.
+     *
      * @return MoveProgress - how many files (and symlinks) there are to copy, and their size, with
      * nothing moved yet. These may be short if there were problems.
+     *
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
      * @throws FilesystemException - if a directory that could be listed can't be opened after all.
      */
@@ -640,20 +708,12 @@ class Directory
         array &$problems
     ): MoveProgress
     {
-        $checkOwnership = $preserveOwnership === PreserveOwnershipEnum::YES;
+        # Unix owners and groups are checked here. On Windows, owners and permissions are copied after the copy is in
+        # place (see copyWindowsSecurity()), which with YES undoes the move if any can't be kept.
+        $checkOwnership = $preserveOwnership === PreserveOwnershipEnum::YES && PHP_OS_FAMILY !== "Windows";
         $totals = ['files' => 0, 'bytes' => 0];
 
-        if ($checkOwnership && PHP_OS_FAMILY === "Windows")
-        {
-            $problems[] = new DirectoryMoveProblem(
-                $oldRoot,
-                DirectoryMoveProblemEnum::OWNERSHIP_NOT_KEEPABLE_ON_WINDOWS,
-                "Windows can't keep a file's owner and ACLs when copying it to another drive (PHP can't read or " .
-                "copy them), so moving {$oldRoot} there would change their owner. Pass " .
-                "PreserveOwnershipEnum::PREFERRED or NO to allow that."
-            );
-        }
-        elseif ($checkOwnership && !function_exists('posix_geteuid'))
+        if ($checkOwnership && !function_exists('posix_geteuid'))
         {
             $problems[] = new DirectoryMoveProblem(
                 $oldRoot,
@@ -693,13 +753,20 @@ class Directory
     /**
      * Check one thing (and, for a directory, everything in it) can be copied exactly: see
      * planCopy().
+     *
      * @param string $path - the real path of the thing to check. Symlinks in it aren't followed.
+     *
      * @param bool $overrideUmask - whether permissions will be copied exactly.
+     *
      * @param bool $checkOwnership - whether to check every owner and group can be kept.
+     *
      * @param array $problems - descriptions of the problems found, which this adds to.
+     *
      * @param array{files: int, bytes: int} $totals - how many files (and symlinks) were found, and
      * the total size of the files, which this adds to.
+     *
      * @return void
+     *
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
      * @throws FilesystemException - if a directory that could be listed can't be opened after all.
      */
@@ -819,17 +886,24 @@ class Directory
      * original deleted. If the copy fails or is cancelled part way through, the partial copy is
      * removed and the original is left as it was. If PHP stops part way (e.g. at a timeout), a
      * shutdown function removes the partial copy, as far as it can.
+     *
      * @param string $oldRoot - the directory's real path.
+     *
      * @param string $newRoot - the absolute path the copy will have.
+     *
      * @param array $moveSettings - "overrideUmask" (bool): whether to copy permissions exactly,
      * rather than reducing them by the umask. "preserveOwnership" (PreserveOwnershipEnum): how hard
      * to try to keep owners and groups. "listener" (?MoveListenerInterface): what to tell how the
      * copy is going. "resumable" (bool): whether to keep a partial copy, and carry on from one an
      * earlier attempt kept (see move()).
+     *
      * @param MoveProgress $progress - the totals, with nothing moved yet.
+     *
      * @return MoveProgress - the progress once everything has been copied.
+     *
      * @throws MoveCancelledException - if the listener cancelled the move (the original is
      * untouched).
+     *
      * @throws FilesystemException - if the copy failed (the original is untouched), or the original
      * couldn't be deleted afterwards (in which case both now exist).
      */
@@ -948,6 +1022,10 @@ class Directory
                 }
 
                 self::createCopiedSymlinks($placedSymlinks, $moveSettings, $current);
+
+                # Copied once it is all in place, so an owner that can't be changed afterwards can't stop the rename.
+                $securityPairs = self::windowsSecurityPairs($oldRoot, $newRoot);
+                self::copyWindowsSecurity($securityPairs, $moveSettings['preserveOwnership']);
             }
 
             self::finishDirectory($newRoot, $topStats, $moveSettings);
@@ -1011,24 +1089,36 @@ class Directory
      * given their original owner, group, permissions and modification time as they are copied.
      * Directories are created private (0700), and added to $directoriesToFinish, to be given theirs
      * at the end.
+     *
      * @param string $source - the real path of the directory to copy.
+     *
      * @param string $destination - where to copy it to.
+     *
      * @param string $oldRoot - the real path of the directory being moved.
+     *
      * @param string $newRoot - the path it is being moved to.
+     *
      * @param array $copySettings - see copyThenDelete()'s $moveSettings. With "resumable", what an
      * earlier attempt copied to $destination is reused where it is finished and still matches the
      * original, and anything else there is replaced or removed.
+     *
      * @param array $directoriesToFinish - [path, lstat() of the original] pairs, which this adds
      * to.
+     *
      * @param array $symlinksToCreate - [path, target, lstat() of the original, original path] for
      * each symlink, which this adds to, rather than creating them, as on Windows a symlink's target
      * has to exist before it can be created (see createCopiedSymlinks()).
+     *
      * @param MoveProgress $progress - how far the move has got, which this moves on for each file it
      * copies, telling the listener.
+     *
      * @return void
+     *
      * @throws MoveCancelledException - if the listener cancelled the move.
+     *
      * @throws DirectoryNotDeletableException - when resuming, if something an earlier attempt copied
      * that is in the way can't be removed.
+     *
      * @throws FilesystemException - if anything couldn't be copied.
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being copied.
      * @throws BadArgumentException - only if given relative paths, which the callers never do.
@@ -1158,9 +1248,13 @@ class Directory
      * paths, so that a later attempt to make the same move finds it. One an earlier attempt left in
      * either place a copy can go (see chooseCopyDirectory()) is reused, as long as it is still on
      * the new filesystem, and otherwise it goes where chooseCopyDirectory() says.
+     *
      * @param string $oldRoot - the directory's real path.
+     *
      * @param string $newRoot - the absolute path the copy will have.
+     *
      * @return string - the path for the copy.
+     *
      * @throws BadArgumentException - only if given relative paths, which the callers never do.
      */
     private static function findResumableCopyPath(string $oldRoot, string $newRoot): string
@@ -1190,8 +1284,11 @@ class Directory
      * Check whether $newRoot is the empty directory an earlier resumable attempt made to hold the
      * name, rather than one someone else made, by comparing its device and inode numbers with
      * those that attempt recorded in its state file.
+     *
      * @param string $newRoot - the path the copy will have.
+     *
      * @param string $stateFile - the state file of the resumable copy.
+     *
      * @return bool - true if it is that empty directory.
      */
     private static function isResumablePlaceholder(string $newRoot, string $stateFile): bool
@@ -1212,9 +1309,13 @@ class Directory
     /**
      * Record which empty directory holds a resumable copy's new name (by its device and inode
      * numbers), so a later attempt can tell it is the one it made (see isResumablePlaceholder()).
+     *
      * @param string $newRoot - the empty directory holding the name.
+     *
      * @param string $stateFile - where to record it.
+     *
      * @return void
+     *
      * @throws FilesystemException - if it couldn't be recorded (the empty directory is removed again).
      */
     private static function writeResumableState(string $newRoot, string $stateFile): void
@@ -1234,8 +1335,11 @@ class Directory
     /**
      * Remove whatever is at a path in a resumable copy, so something else can be copied there.
      * Nothing there is fine.
+     *
      * @param string $path - the path in the copy.
+     *
      * @return void
+     *
      * @throws FilesystemException - if it couldn't be removed.
      * @throws BadArgumentException - never, as a symlink is removed as a link.
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being removed.
@@ -1256,14 +1360,50 @@ class Directory
 
 
     /**
+     * List each thing in a directory being moved on Windows with where its copy is, for
+     * copyWindowsSecurity(): the directory itself, and everything in it apart from symlinks (whose
+     * security rarely matters, and which can't be read without following them).
+     *
+     * @param string $oldRoot - the directory's real path.
+     *
+     * @param string $newRoot - where its copy is.
+     *
+     * @return array<array{0: string, 1: string}> - each original and its copy.
+     *
+     * @throws FilesystemException - if a directory in it can't be opened.
+     * @throws DirectoryDoesNotExistException - if a directory disappears while it is being listed.
+     */
+    private static function windowsSecurityPairs(string $oldRoot, string $newRoot): array
+    {
+        $pairs = [[$oldRoot, $newRoot]];
+
+        foreach (Filesystem::getDirContents($oldRoot, true, true, false) as $path)
+        {
+            if (!is_link($path))
+            {
+                $pairs[] = [$path, $newRoot . substr($path, strlen($oldRoot))];
+            }
+        }
+
+        return $pairs;
+    }
+
+
+    /**
      * Give a copied directory its original's owner, group, permissions and modification time, for
      * copyThenDelete(), once everything in it has been copied.
+     *
      * @param string $path - the copied directory.
+     *
      * @param array $stats - lstat() of the original.
+     *
      * @param array $moveSettings - see copyThenDelete().
+     *
      * @return void
+     *
      * @throws BadFilePermissionsException - with PreserveOwnershipEnum::YES, if its owner or group
      * couldn't be kept.
+     *
      * @throws FilesystemException - if its permissions or modification time couldn't be set.
      */
     private static function finishDirectory(string $path, array $stats, array $moveSettings): void
@@ -1280,9 +1420,13 @@ class Directory
      * copyThenDelete(). Elsewhere, rename() replaces an empty directory in one step (and fails if
      * anything was put in it). Windows can't rename over a directory, so the empty one is removed
      * first there.
+     *
      * @param string $copyRoot - the finished copy, under its hidden name.
+     *
      * @param string $newRoot - where it goes.
+     *
      * @return void
+     *
      * @throws FilesystemException - if it couldn't be renamed, e.g. because something was put in the
      * directory holding the name.
      */
@@ -1304,7 +1448,9 @@ class Directory
     /**
      * Remove a partial copy, for copyThenDelete(), and stop remembering it for the shutdown
      * function (see MoveCopyingTrait).
+     *
      * @param string $path - the partial copy.
+     *
      * @return void
      */
     private static function removePartialCopy(string $path): void
@@ -1328,8 +1474,11 @@ class Directory
     /**
      * Count the files (and symlinks) in a directory and their size, for a MoveProgress, for a move
      * that doesn't otherwise walk through it.
+     *
      * @param string $directory - the directory.
+     *
      * @return MoveProgress - the totals, with nothing moved yet.
+     *
      * @throws FilesystemException - if a directory in it can't be opened.
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being counted.
      */
@@ -1368,13 +1517,19 @@ class Directory
      * On Windows, a symlink can only be created once its target exists, so one pointing at another
      * symlink waits until that one exists. Elsewhere, any symlink can be created, so they are all
      * created in one go.
+     *
      * @param array<array{0: string, 1: string, 2: array, 3: string}> $symlinks - each symlink's path,
      * target, lstat() of the original, and the original's path.
+     *
      * @param array $moveSettings - see copyThenDelete().
+     *
      * @param MoveProgress $progress - how far the move has got, which this moves on for each symlink,
      * telling the listener.
+     *
      * @return void
+     *
      * @throws MoveCancelledException - if the listener cancelled the move.
+     *
      * @throws FilesystemException - if one couldn't be created, or (on Windows) its target never
      * appears.
      */
@@ -1443,14 +1598,20 @@ class Directory
     /**
      * Give a copy its original's owner and group. Only root can set the owner, and anyone else can
      * only set a group they are in, so this tries, then checks.
+     *
      * @param string $path - the copy.
+     *
      * @param array $stats - lstat() of the original.
+     *
      * @param bool $isSymlink - whether $path is a symlink, so the link itself is changed, rather
      * than what it points to.
+     *
      * @param PreserveOwnershipEnum $preserveOwnership - with NO, nothing is done. With PREFERRED, a
      * failure is ignored, leaving the copy owned by whoever is running this. With YES, a failure
      * throws (the checks should have made sure it can't happen).
+     *
      * @return void
+     *
      * @throws FilesystemException - with YES, if the owner or group couldn't be set.
      */
     private static function restoreOwnership(
@@ -1500,10 +1661,15 @@ class Directory
 
     /**
      * Give a copy its original's permissions (reduced by the umask, unless $overrideUmask).
+     *
      * @param string $path - the copy.
+     *
      * @param array $stats - lstat() of the original.
+     *
      * @param bool $overrideUmask - whether to copy the permissions exactly.
+     *
      * @return void
+     *
      * @throws FilesystemException - if the permissions couldn't be set, or (with $overrideUmask)
      * the copy didn't end up with exactly the original's permissions.
      */
@@ -1539,9 +1705,12 @@ class Directory
 
     /**
      * Work out the permissions a copy should have.
+     *
      * @param array $stats - lstat() of the original.
+     *
      * @param bool $overrideUmask - whether to copy them exactly, rather than reducing them by the
      * umask.
+     *
      * @return int - the permissions, e.g. 0755.
      */
     private static function permissionsFor(array $stats, bool $overrideUmask): int

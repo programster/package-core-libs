@@ -34,12 +34,16 @@ enum DataSizeUnitEnum : string
      * Format a number of bytes as a human readable string, automatically picking the most suitable
      * unit, e.g. 1992294 becomes "1.9 MiB". The largest unit that gives a value of at least 1 is
      * used.
+     *
      * @param float $numBytes - the number of bytes to format, e.g. from Filesystem::getFileSize().
      * Negative values (e.g. a difference in sizes) are supported.
+     *
      * @param int $decimalPlaces - optionally specify the number of decimal places to show. Plain
      * bytes are always shown without decimal places, e.g. "512 B".
+     *
      * @param bool $useBinaryUnits - optionally set to false to use decimal (base 10) units such as
      * MB, rather than binary (base 2) units such as MiB.
+     *
      * @return string - the formatted size, e.g. "1.9 MiB".
      */
     public static function formatBytes(float $numBytes, int $decimalPlaces = 1, bool $useBinaryUnits = true): string

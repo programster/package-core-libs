@@ -16,9 +16,12 @@ class CommandFailedException extends CoreLibsException
 
     /**
      * Create the exception.
+     *
      * @param string $command - the command that failed.
+     *
      * @param int $exitCode - the exit code the command returned, or -1 if it could not be run at
      * all.
+     *
      * @param string $errorOutput - anything the command wrote to stderr.
      */
     public function __construct(string $command, int $exitCode, string $errorOutput)

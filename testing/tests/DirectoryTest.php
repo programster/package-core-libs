@@ -468,8 +468,9 @@ $smoke->run("Directory move keeping a link to a link", function () use ($dir) {
 }, needsSymlinks: true);
 
 $smoke->run("moves to another drive on Windows keeping ownership", function () use ($dir) {
-    # On Windows, a copy on another drive can't keep its owner and ACLs, so YES (the default) refuses such a move, and
-    # PREFERRED allows it. GitHub's Windows runners have a D: drive, separate from the temporary directory's.
+    # On Windows, a copy on another drive is given its original's owner and permissions with PowerShell. Setting the
+    # owner to SYSTEM needs the restore privilege (administrators have it, as on GitHub's runners), so this checks that
+    # it is switched on. GitHub's Windows runners have a D: drive, separate from the temporary directory's.
     $otherDrive = "D:/corelibs-ownership-" . getmypid();
 
     $canTest = (
@@ -491,40 +492,50 @@ $smoke->run("moves to another drive on Windows keeping ownership", function () u
         file_put_contents("{$base}/file.txt", "file");
         file_put_contents("{$base}/folder/inside.txt", "inside");
 
+        # Reads a path's owner and its own (not inherited) permissions, with PowerShell, given the path as an argument.
+        $script = "{$base}/read-security.ps1";
+
+        file_put_contents(
+            $script,
+            "param([string]\$path)\n" .
+            "\$acl = Get-Acl -LiteralPath \$path\n" .
+            "'OWNER ' + \$acl.Owner\n" .
+            "\$acl.Access | Where-Object { -not \$_.IsInherited } | ForEach-Object { 'RULE ' + \$_.IdentityReference }\n"
+        );
+
+        $readSecurity = function (string $path) use ($script): string {
+            $command = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " . escapeshellarg($script) .
+                " " . escapeshellarg(str_replace("/", "\\", $path));
+
+            exec($command, $output);
+            return implode("\n", $output);
+        };
+
+        # Give the originals an owner only an administrator can set, and an extra permission of their own.
+        foreach (["{$base}/file.txt", "{$base}/folder", "{$base}/folder/inside.txt"] as $original)
+        {
+            $windowsPath = escapeshellarg(str_replace("/", "\\", $original));
+            exec("icacls {$windowsPath} /grant *S-1-5-32-545:(R) /Q", $ignored, $grantExit);
+            exec("icacls {$windowsPath} /setowner *S-1-5-18 /Q", $ignored, $ownerExit);
+            assert($grantExit === 0 && $ownerExit === 0, "couldn't set up {$original}'s security");
+        }
+
+        $expectedFile = $readSecurity("{$base}/file.txt");
+        $expectedInside = $readSecurity("{$base}/folder/inside.txt");
+        assert(str_contains($expectedFile, "OWNER NT AUTHORITY\\SYSTEM"), "set up as: {$expectedFile}");
+
         try
         {
-            $file = new File("{$base}/file.txt");
-
-            $moveToOtherDrive = function () use ($file, $otherDrive): void {
-                $file->move($otherDrive);
-            };
-
-            SmokeTest::expectException(
-                BadFilePermissionsException::class,
-                $moveToOtherDrive,
-                "Windows can't keep a file's owner and ACLs"
-            );
-
-            $folder = new Directory("{$base}/folder");
-
-            try
-            {
-                $folder->move($otherDrive);
-                assert(false, "moving the folder to another drive with YES should have been refused");
-            }
-            catch (DirectoryNotMovableException $e)
-            {
-                $reason = $e->getProblems()[0]->getReason();
-                assert($reason === DirectoryMoveProblemEnum::OWNERSHIP_NOT_KEEPABLE_ON_WINDOWS);
-            }
-
-            assert(is_file("{$base}/file.txt") && is_dir("{$base}/folder"));
-
-            # With PREFERRED, both are moved, as copies that belong to the current user.
-            $file->move($otherDrive, preserveOwnership: PreserveOwnershipEnum::PREFERRED);
-            $folder->move($otherDrive, preserveOwnership: PreserveOwnershipEnum::PREFERRED);
+            # With YES (the default), both keep their owner and their own permissions.
+            (new File("{$base}/file.txt"))->move($otherDrive);
+            (new Directory("{$base}/folder"))->move($otherDrive);
             assert(file_get_contents("{$otherDrive}/file.txt") === "file" && !file_exists("{$base}/file.txt"));
             assert(file_get_contents("{$otherDrive}/folder/inside.txt") === "inside" && !file_exists("{$base}/folder"));
+            $copiedFile = $readSecurity("{$otherDrive}/file.txt");
+            $copiedInside = $readSecurity("{$otherDrive}/folder/inside.txt");
+            assert($copiedFile === $expectedFile, "the file's copy has: {$copiedFile}, not: {$expectedFile}");
+            assert($copiedInside === $expectedInside, "the folder's copy has: {$copiedInside}, not: {$expectedInside}");
+            assert(str_contains($readSecurity("{$otherDrive}/folder"), "OWNER NT AUTHORITY\\SYSTEM"));
         }
         finally
         {

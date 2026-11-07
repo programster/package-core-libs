@@ -19,10 +19,14 @@ class DirectoryNotDeletableException extends BadFilePermissionsException
 
     /**
      * Create the exception.
+     *
      * @param string $message - the message for the exception.
+     *
      * @param array $problems - a list of FileDeletionProblem objects, one for each thing that can't
      * be deleted.
+     *
      * @param int $code - optionally specify the exception code.
+     *
      * @param \Throwable|null $previous - optionally specify the previous exception, if this was
      * caused by another.
      */

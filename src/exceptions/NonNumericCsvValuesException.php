@@ -18,10 +18,14 @@ class NonNumericCsvValuesException extends InvalidCsvException
 
     /**
      * Create the exception.
+     *
      * @param string $message - the message for the exception.
+     *
      * @param array $errors - a list of CsvCellError objects, one for each value that isn't a
      * number.
+     *
      * @param int $code - optionally specify the exception code.
+     *
      * @param \Throwable|null $previous - optionally specify the previous exception, if this was
      * caused by another.
      */
