@@ -25,7 +25,6 @@ use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\MissingExtensionException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
-use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Models\Directory;
 use Programster\CoreLibs\Models\File;
@@ -623,30 +622,34 @@ final class Filesystem
 
     /**
      * Fetch the total size of a directory or file, including all its subdirectories. This is the
-     * "apparent size" (the total of the file sizes), rather than the space taken up on disk, which
-     * is rounded up to the filesystem's block size. This only works on Linux, not Windows. src:
-     * http://stackoverflow.com/questions/478121/php-get-directory-size
-     * @param string $dirPath - the path to the directory we wish to get the size of
+     * "apparent size" (the total of the sizes of the files in it, as du --bytes gives), rather than
+     * the space taken up on disk, which is rounded up to the filesystem's block size. Symlinks
+     * aren't followed (each counts as its own small size), a file with several hard links is only
+     * counted once, and directories themselves count as nothing.
+     * On Linux, this uses the du command, which is the fastest way. Elsewhere (e.g. macOS, whose du
+     * can't give exact sizes, or Windows, which has no du), or if du isn't available (e.g. the
+     * BusyBox version on Alpine), it adds the sizes up in PHP, which gives the same result.
+     * @param string $dirPath - the path to the directory (or file) we wish to get the size of.
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the size in. Defaults
      * to bytes.
      * @return float - the size of the directory and all its contents, in the specified unit. E.g.
      * 1.5 for 1536 bytes in KiB.
-     * @throws CommandFailedException - if the du command failed, such as if there is nothing at
-     * $dirPath.
-     * @throws UnexpectedOutputException - if the output of du was not in the expected format.
+     * @throws FileDoesNotExistException - if there is nothing at $dirPath.
+     * @throws FilesystemException - if a directory in it couldn't be read.
      */
     public static function getDirSize(string $dirPath, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
     {
-        # Output looks like: "4096\t/path/to/dir"
-        $output = Core::runCommand('/usr/bin/du --bytes --summarize ' . escapeshellarg($dirPath));
-        $size = explode("\t", $output)[0];
-
-        if (!ctype_digit($size))
+        if (!file_exists($dirPath) && !is_link($dirPath))
         {
-            throw new UnexpectedOutputException("getDirSize: unexpected output from du: {$output}");
+            throw new FileDoesNotExistException("getDirSize: there is nothing at {$dirPath}.");
         }
 
-        return $unit->convertFromBytes((int) $size);
+        $bytes = match (PHP_OS_FAMILY) {
+            "Linux" => self::getSizeWithDu($dirPath),
+            default => self::addUpSize($dirPath),
+        };
+
+        return $unit->convertFromBytes($bytes);
     }
 
 
@@ -3298,6 +3301,75 @@ final class Filesystem
 
         closedir($handle);
         return $entries;
+    }
+
+
+    /**
+     * Get the apparent size of a path with the du command, for getDirSize() on Linux, which is the
+     * fastest way there. If du isn't available, or doesn't support --bytes (e.g. the BusyBox
+     * version on Alpine), this adds the sizes up in PHP instead, which gives the same result.
+     * @param string $path - the file or directory.
+     * @return int - the total size in bytes.
+     * @throws FilesystemException - if adding the sizes up in PHP couldn't read a directory.
+     */
+    private static function getSizeWithDu(string $path): int
+    {
+        try
+        {
+            # Output looks like: "4096\t/path/to/dir"
+            $output = Core::runCommand("du --bytes --summarize " . escapeshellarg($path) . " 2>/dev/null");
+            $size = explode("\t", $output)[0];
+            $bytes = ctype_digit($size) ? (int)$size : self::addUpSize($path);
+        }
+        catch (CommandFailedException $e)
+        {
+            # e.g. there is no du command.
+            $bytes = self::addUpSize($path);
+        }
+
+        return $bytes;
+    }
+
+
+    /**
+     * Add up the apparent size of a path and everything in it, for getDirSize(), in the same way as
+     * du --bytes: each file and symlink counts its own size (from lstat(), so symlinks aren't
+     * followed), a file with several hard links is only counted once, and directories themselves
+     * count as nothing (their own size depends on the filesystem, not what is in them).
+     * @param string $path - the file or directory.
+     * @return int - the total size in bytes.
+     * @throws FilesystemException - if a directory in it couldn't be read.
+     */
+    private static function addUpSize(string $path): int
+    {
+        $total = 0;
+        $counted = [];
+        $toVisit = [$path];
+
+        while (count($toVisit) > 0)
+        {
+            $current = array_pop($toVisit);
+            $details = lstat($current);
+            $key = "{$details['dev']}:{$details['ino']}";
+            $isDirectory = is_dir($current) && !is_link($current);
+
+            # Windows gives every file an inode of 0, so only use it to spot hard links where it is real.
+            if (!$isDirectory && ($details['ino'] === 0 || !isset($counted[$key])))
+            {
+                $counted[$key] = true;
+                $total += $details['size'];
+            }
+
+            if ($isDirectory)
+            {
+                foreach (self::readDirectoryEntries($current) as $entry)
+                {
+                    $toVisit[] = "{$current}/{$entry}";
+                }
+            }
+        }
+
+        return $total;
     }
 
 

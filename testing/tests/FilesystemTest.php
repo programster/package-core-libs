@@ -4,6 +4,7 @@
  * Smoke tests for Filesystem. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
+use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
@@ -1481,5 +1482,28 @@ $smoke->run("path helpers", function () use ($dir) {
 
     # canEnterDirectory() and canListDirectory() are true for a normal directory.
     assert(Filesystem::canEnterDirectory($real) && Filesystem::canListDirectory($real));
+});
+
+$smoke->run("getDirSize", function () use ($dir) {
+    $base = "{$dir}/dir-size";
+    mkdir("{$base}/sub", 0777, true);
+    file_put_contents("{$base}/a.txt", str_repeat("a", 1000));
+    file_put_contents("{$base}/sub/b.txt", str_repeat("b", 300));
+    link("{$base}/a.txt", "{$base}/sub/a-hard-link.txt");
+
+    if (SmokeTest::canCreateSymlinks("getDirSize() with a symlink"))
+    {
+        symlink("{$base}/a.txt", "{$base}/sub/a-symlink.txt");
+    }
+
+    # Adding up the sizes in PHP (used where du isn't available) gives the same as du does on Linux.
+    $addUpSize = new ReflectionMethod(Filesystem::class, "addUpSize");
+    $phpSize = $addUpSize->invoke(null, $base);
+    assert(Filesystem::getDirSize($base) === (float)$phpSize, "du and PHP disagree on {$base}'s size");
+
+    # A file on its own is just its size, and a missing path is an error.
+    assert(Filesystem::getDirSize("{$base}/sub/b.txt") === 300.0);
+    assert(Filesystem::getDirSize("{$base}/a.txt", DataSizeUnitEnum::KIB) === 1000 / 1024);
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::getDirSize("{$base}/missing"));
 });
 

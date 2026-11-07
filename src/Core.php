@@ -130,24 +130,33 @@ final class Core
 
 
     /**
-     * Fetches the number of processes running with the given search name (have it in their name)
-     * @param string $title - the string to search for a process by (e.g. its name/title)
+     * Count the processes running with a title (e.g. set with setCliTitle()) that starts with the
+     * given text, followed by one or more digits, e.g. "worker" matches "worker1" and "worker23".
+     * On Linux and macOS, this checks each process's full command line (which is what
+     * cli_set_process_title() changes), using ps. On Windows, cli_set_process_title() sets the
+     * console window's title instead, so this checks the window titles, using tasklist /V.
+     * @param string $title - the start of the titles to count, e.g. "worker".
      * @return int - the number of processes running with that title.
      * @throws CommandFailedException - if we failed to get the list of processes.
+     * @throws UnsupportedPlatformException - on a system other than Linux, macOS or Windows.
      */
     public static function getNumProcRunning(string $title): int
     {
-        # Get each process's full command line (which is what cli_set_process_title() changes). We deliberately don't
-        # use a pipeline here, as a pipeline's exit code is only that of its last command, which would hide ps failing.
-        $processes = explode("\n", self::runCommand("ps -eo args="));
+        # We deliberately don't use a pipeline here, as a pipeline's exit code is only that of its last command, which
+        # would hide the command failing.
+        $titles = match (PHP_OS_FAMILY) {
+            "Linux", "Darwin", "BSD" => explode("\n", self::runCommand("ps -eo args=")),
+            "Windows" => self::getWindowTitles(),
+            default => throw new UnsupportedPlatformException("getNumProcRunning: unsupported OS " . PHP_OS_FAMILY),
+        };
+
+        # Starts with our title and has one or more numbers afterwards.
+        $regExp = "/^" . preg_quote($title, "/") . "[0-9]+/";
         $numRunning = 0;
 
-        # starts with our title and has one or more numbers afterwards.
-        $regExp = "/^" . preg_quote($title, "/") . "[0-9]+/";
-
-        foreach ($processes as $processName)
+        foreach ($titles as $processTitle)
         {
-            if (preg_match($regExp, trim($processName)))
+            if (preg_match($regExp, trim($processTitle)))
             {
                 $numRunning++;
             }
@@ -771,6 +780,27 @@ final class Core
         }
 
         return $result;
+    }
+
+
+    /**
+     * Get the window title of every process on Windows, for getNumProcRunning(), from tasklist /V.
+     * @return array<string> - the window titles ("N/A" for a process without a window).
+     * @throws CommandFailedException - if tasklist failed.
+     */
+    private static function getWindowTitles(): array
+    {
+        # Each line is a CSV row, whose last column is the window title.
+        $lines = explode("\n", trim(self::runCommand("tasklist /V /FO CSV /NH")));
+        $titles = [];
+
+        foreach ($lines as $line)
+        {
+            $columns = str_getcsv(trim($line), ",", '"', "");
+            $titles[] = (string)end($columns);
+        }
+
+        return $titles;
     }
 
 
