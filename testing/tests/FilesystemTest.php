@@ -1391,14 +1391,15 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
 
     # One in the system's temporary directory (ALWAYS) is renamed from there too when it is on the same filesystem (as
     # the test directory is here), unless SELinux is enabled.
-    $inodeBefore = fileinode("{$base}/target.txt");
-    $tmp = Filesystem::createReplacementFile("{$base}/target.txt", UseSystemTempDirEnum::ALWAYS);
+    file_put_contents("{$base}/from-system-temp.txt", "old");
+    $inodeBefore = fileinode("{$base}/from-system-temp.txt");
+    $tmp = Filesystem::createReplacementFile("{$base}/from-system-temp.txt", UseSystemTempDirEnum::ALWAYS);
     file_put_contents($tmp, "renamed");
-    Filesystem::replaceWithFile("{$base}/target.txt", $tmp);
+    Filesystem::replaceWithFile("{$base}/from-system-temp.txt", $tmp);
     clearstatcache();
-    $wasRenamed = fileinode("{$base}/target.txt") !== $inodeBefore;
+    $wasRenamed = fileinode("{$base}/from-system-temp.txt") !== $inodeBefore;
     assert($wasRenamed === !file_exists("/sys/fs/selinux/enforce"));
-    assert(file_get_contents("{$base}/target.txt") === "renamed" && !file_exists($tmp));
+    assert(file_get_contents("{$base}/from-system-temp.txt") === "renamed" && !file_exists($tmp));
 
     # With each PreserveOwnershipEnum, a file that already belongs to whoever is running this is renamed.
     foreach (PreserveOwnershipEnum::cases() as $preserveOwnership)
@@ -1596,4 +1597,43 @@ $smoke->run("unzip symlinks on Windows", function () use ($dir) {
     assert(str_contains($problems, "project/real/up pointing to a folder above it"));
     assert(count($result['problems']) === 2 && file_exists("{$base}/tmp/project/dir-link"));
 }, needsSymlinks: true, anySymlinks: false);
+
+$smoke->run("replaceFileContents", function () use ($dir) {
+    $base = "{$dir}/replace-contents";
+    mkdir($base);
+    file_put_contents("{$base}/a.txt", "old contents that are longer\n");
+    chmod("{$base}/a.txt", 0640);
+
+    # A string replaces the contents, keeping the file's permissions.
+    Filesystem::replaceFileContents("{$base}/a.txt", "new\n");
+    assert(file_get_contents("{$base}/a.txt") === "new\n");
+    SmokeTest::assertPermissions("{$base}/a.txt", 0640);
+
+    # An array is joined as it is, like file_put_contents(), so lines from file() keep their line endings.
+    Filesystem::replaceFileContents("{$base}/a.txt", ["one\n", "two\n"]);
+    assert(file_get_contents("{$base}/a.txt") === "one\ntwo\n");
+    Filesystem::replaceFileContents("{$base}/a.txt", file("{$base}/a.txt"));
+    assert(file_get_contents("{$base}/a.txt") === "one\ntwo\n");
+
+    # Empty contents empty the file.
+    Filesystem::replaceFileContents("{$base}/a.txt", "");
+    assert(file_get_contents("{$base}/a.txt") === "");
+
+    # Unlike file_put_contents(), a missing file isn't created, and an array must only hold strings.
+    SmokeTest::expectException(
+        FileDoesNotExistException::class,
+        fn() => Filesystem::replaceFileContents("{$base}/mistyped.txt", "x")
+    );
+
+    assert(!file_exists("{$base}/mistyped.txt"));
+
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => Filesystem::replaceFileContents("{$base}/a.txt", ["one\n", 2]),
+        "must be a string"
+    );
+
+    # Nothing is left behind, next to the file or in the system's temporary directory.
+    assert(array_values(array_diff(scandir($base), [".", ".."])) === ["a.txt"]);
+});
 

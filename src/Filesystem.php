@@ -2016,6 +2016,65 @@ final class Filesystem
 
 
     /**
+     * Replace the contents of an existing file, as a safer file_put_contents(). The new contents are
+     * written to a temporary file first, and only replace the original once they are all written, so
+     * a failure part way through (e.g. the disk filling up) leaves the original as it was. The file
+     * keeps its owner and permissions, and where it can be renamed into place (see replaceWithFile()),
+     * the change is atomic, so nothing reading the file ever sees half of the new contents.
+     * Unlike file_put_contents(), this doesn't create a file that doesn't exist, so a mistyped path
+     * is an error rather than a new file.
+     * @param string $filepath - the path to the file to replace the contents of.
+     * @param string|array<string> $contents - the new contents, as a string, or (like
+     * file_put_contents()) an array of strings, which are joined together as they are, with nothing
+     * added between them. So each line in an array needs its own line ending, as the lines from
+     * file() have.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents first (see
+     * UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place that will work, which
+     * can be a hidden, private file next to it for a moment. Pass ALWAYS to keep it in the system's
+     * temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group (see replaceWithFile()). Defaults to PREFERRED.
+     * @return void
+     * @throws BadArgumentException - if $contents is an array with something other than a string in
+     * it.
+     * @throws FileDoesNotExistException - if there is no file at $filepath.
+     * @throws BadFilePermissionsException - if the file can't be both read and written.
+     * @throws FilesystemException - if the new contents could not be written. See replaceWithFile()
+     * for what happens if this fails part way through copying them into the original.
+     */
+    public static function replaceFileContents(
+        string $filepath,
+        string|array $contents,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
+    {
+        $isString = function (mixed $line): bool {
+            return is_string($line);
+        };
+
+        if (is_array($contents) && count(array_filter($contents, $isString)) !== count($contents))
+        {
+            throw new BadArgumentException("replaceFileContents: every item in \$contents must be a string.");
+        }
+
+        $joinedContents = is_array($contents) ? implode("", $contents) : $contents;
+        self::checkCanChangeFile($filepath);
+        $tmpFilepath = self::createReplacementFile($filepath, $useSystemTempDir, $preserveOwnership);
+
+        # Nothing has been copied into the original yet, so if this fails it is untouched, and the temporary file can
+        # go.
+        if (@file_put_contents($tmpFilepath, $joinedContents) !== strlen($joinedContents))
+        {
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to write the new contents of {$filepath} to a temporary file.");
+        }
+
+        self::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
+    }
+
+
+    /**
      * Tidy a path from the path alone (without checking the filesystem): remove "." parts, apply
      * ".." parts, and remove repeated or trailing slashes, e.g. "/a/./b/../c/" gives "/a/c". An
      * absolute path stays absolute, and a ".." at its root is dropped (as "/.." is "/"). A relative
@@ -3520,43 +3579,6 @@ final class Filesystem
 
 
     /**
-     * Replace the contents of a file. The new contents are written to a temporary file first (see
-     * $useSystemTempDir), and then replace the original with replaceWithFile(), keeping its owner
-     * and permissions.
-     * @param string $filepath - the path to the file to replace the contents of.
-     * @param string $contents - the new contents for the file.
-     * @param UseSystemTempDirEnum $useSystemTempDir - where to write them first.
-     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
-     * group.
-     * @return void
-     * @throws FileDoesNotExistException - if there is no file at $filepath.
-     * @throws BadFilePermissionsException - if the file can't be both read and written.
-     * @throws FilesystemException - if the new contents could not be written. See replaceWithFile()
-     * for what happens if this fails part way through copying them into the original.
-     */
-    private static function replaceFileContents(
-        string $filepath,
-        string $contents,
-        UseSystemTempDirEnum $useSystemTempDir,
-        PreserveOwnershipEnum $preserveOwnership
-    ): void
-    {
-        self::checkCanChangeFile($filepath);
-        $tmpFilepath = self::createReplacementFile($filepath, $useSystemTempDir, $preserveOwnership);
-
-        # Nothing has been copied into the original yet, so if this fails it is untouched, and the temporary file can
-        # go.
-        if (@file_put_contents($tmpFilepath, $contents) !== strlen($contents))
-        {
-            @unlink($tmpFilepath);
-            throw new FilesystemException("Failed to write the new contents of {$filepath} to a temporary file.");
-        }
-
-        self::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
-    }
-
-
-    /**
      * Check whether a path is in one of the absolute forms of a Windows path (see isAbsolutePath()),
      * whatever system this is running on.
      * @param string $path - the path to check.
@@ -3648,7 +3670,7 @@ final class Filesystem
             $key = "{$details['dev']}:{$details['ino']}";
             $isDirectory = is_dir($current) && !is_link($current);
 
-            # Windows gives every file an inode of 0, so only use it to spot hard links where it is real.
+            # A filesystem that gives every file an inode of 0 can't have hard links spotted, so count each one there.
             if (!$isDirectory && ($details['ino'] === 0 || !isset($counted[$key])))
             {
                 $counted[$key] = true;
