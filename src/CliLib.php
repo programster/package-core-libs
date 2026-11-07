@@ -12,6 +12,10 @@ use Programster\CoreLibs\Exceptions\InputEndedException;
 
 final class CliLib
 {
+    # The exit code PowerShell uses when the user cancels typing a password on Windows (see readPasswordOnWindows()).
+    private const int WINDOWS_PASSWORD_CANCELLED = 2;
+
+
     /**
      * Display a progress bar in the CLI. This will dynamically take up the full width of the
      * terminal and if you keep calling this function, it will appear animated as the progress bar
@@ -68,7 +72,8 @@ final class CliLib
 
     /**
      * Script function (not for websites) Fetches the password from the shell without it being
-     * displayed whilst being typed. Only works on *nix systems, as it requires stty.
+     * displayed whilst being typed. On Linux and macOS this uses stty, and on Windows (which has no
+     * stty) it uses PowerShell, which reads each key without showing it.
      * Backspace/Delete remove the last character typed. Ctrl+C or Ctrl+D cancel, which throws an
      * exception. The terminal's settings are always restored afterwards, even if the user cancels.
      * If the input is not a terminal (e.g. the password is piped in), then there is nothing to
@@ -79,14 +84,17 @@ final class CliLib
      *
      * @return string - the password that was typed in.
      * @throws UserCancelledException - if the user pressed Ctrl+C or Ctrl+D.
-     * @throws CommandFailedException - if stty failed, such as on Windows where it doesn't exist.
-     * This is thrown before anything is read, so the password can never be shown on screen by
-     * mistake.
+     * @throws CommandFailedException - if stty (or on Windows, PowerShell) failed. This is thrown
+     * before anything is read, so the password can never be shown on screen by mistake.
      * @throws InputEndedException - if the input ended before the password was entered.
      */
     public static function getPasswordFromUserInput(bool $stars = true): string
     {
-        if (stream_isatty(STDIN))
+        if (stream_isatty(STDIN) && PHP_OS_FAMILY === "Windows")
+        {
+            $password = self::readPasswordOnWindows($stars);
+        }
+        elseif (stream_isatty(STDIN))
         {
             $password = self::readPasswordFromTerminal($stars);
         }
@@ -103,6 +111,91 @@ final class CliLib
         }
 
         return $password;
+    }
+
+
+    /**
+     * Read a password typed on a Windows console, for getPasswordFromUserInput(), with PowerShell,
+     * as Windows has no stty. PowerShell reads each key without showing it, writes any stars to the
+     * console (through stderr, as stdout returns the password), and treats Ctrl+C as a key, so it
+     * can cancel cleanly, rather than killing the script.
+     * @param bool $stars - whether to show a star for each character typed.
+     * @return string - the password that was typed in.
+     * @throws UserCancelledException - if the user pressed Ctrl+C or Ctrl+D.
+     * @throws CommandFailedException - if PowerShell couldn't be run, or failed.
+     */
+    private static function readPasswordOnWindows(bool $stars): string
+    {
+        # The console is shared, so PowerShell reads from it directly, and writes stars to it through stderr.
+        $descriptors = [0 => STDIN, 1 => ['pipe', 'w'], 2 => STDERR];
+        $command = ["powershell", "-NoProfile", "-EncodedCommand", self::buildWindowsPasswordScript($stars)];
+        $process = @proc_open($command, $descriptors, $pipes);
+
+        if ($process === false)
+        {
+            throw new CommandFailedException("Failed to start PowerShell to read the password.");
+        }
+
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        $exitCode = proc_close($process);
+        fwrite(STDOUT, PHP_EOL);
+
+        if ($exitCode === self::WINDOWS_PASSWORD_CANCELLED)
+        {
+            throw new UserCancelledException("The user cancelled entering their password.");
+        }
+
+        # The password comes back as base64, so that no character can be mangled on the way.
+        $password = ($exitCode === 0) ? base64_decode(trim((string)$output), true) : false;
+
+        if ($password === false)
+        {
+            throw new CommandFailedException("PowerShell failed to read the password (exit code {$exitCode}).");
+        }
+
+        return $password;
+    }
+
+
+    /**
+     * Build the PowerShell script readPasswordOnWindows() runs, encoded as PowerShell's
+     * -EncodedCommand wants (base64 of UTF-16LE), so nothing in it needs quoting for the shell.
+     * @param bool $stars - whether to show a star for each character typed.
+     * @return string - the encoded script.
+     */
+    private static function buildWindowsPasswordScript(bool $stars): string
+    {
+        $showStars = $stars ? '$true' : '$false';
+        $cancelled = self::WINDOWS_PASSWORD_CANCELLED;
+
+        # Enter finishes, Ctrl+C or Ctrl+D cancels, Backspace removes the last character, and other control keys
+        # (e.g. tab, or arrows, which have no character) are ignored, as on Linux.
+        $script = <<<POWERSHELL
+            [Console]::TreatControlCAsInput = \$true
+            \$showStars = {$showStars}
+            \$password = New-Object System.Text.StringBuilder
+            while (\$true) {
+                \$key = [Console]::ReadKey(\$true)
+                \$isControl = (\$key.Modifiers -band [ConsoleModifiers]::Control) -ne 0
+                if (\$key.Key -eq 'Enter') { break }
+                if (\$isControl -and (\$key.Key -eq 'C' -or \$key.Key -eq 'D')) { exit {$cancelled} }
+                if (\$key.Key -eq 'Backspace') {
+                    if (\$password.Length -gt 0) {
+                        [void]\$password.Remove(\$password.Length - 1, 1)
+                        if (\$showStars) { [Console]::Error.Write("`b `b") }
+                    }
+                    continue
+                }
+                if ([int]\$key.KeyChar -lt 32) { continue }
+                [void]\$password.Append(\$key.KeyChar)
+                if (\$showStars) { [Console]::Error.Write('*') }
+            }
+            [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(\$password.ToString())))
+            POWERSHELL;
+
+        # The script is plain ASCII, so UTF-16LE is each byte followed by a zero byte. (This avoids needing mbstring.)
+        return base64_encode(preg_replace('/(.)/s', "\$1\0", $script));
     }
 
 

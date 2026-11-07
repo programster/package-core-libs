@@ -22,3 +22,19 @@ $smoke->run("showProgressBar", function () {
     assert(str_contains($output, "(150%) [===") && !str_contains($output, "(150%) [ "));
     assert(str_contains($output, "(-10%) [ ") && !str_contains($output, "(-10%) [="));
 });
+
+$smoke->run("reading a password on Windows", function () {
+    # Reading a typed password on Windows needs a real console, so it can't be run here, but the PowerShell script it
+    # runs can be checked: it decodes back into the script, and shows stars only when asked to.
+    $build = new ReflectionMethod(CliLib::class, "buildWindowsPasswordScript");
+
+    foreach ([true, false] as $stars)
+    {
+        $encoded = $build->invoke(null, $stars);
+        $script = mb_convert_encoding(base64_decode($encoded, true), "UTF-8", "UTF-16LE");
+        assert(str_contains($script, '$showStars = ' . ($stars ? '$true' : '$false')));
+        assert(str_contains($script, "[Console]::ReadKey(\$true)") && str_contains($script, "exit 2"));
+        assert(str_contains($script, "[Console]::Out.Write([Convert]::ToBase64String("));
+    }
+});
+
