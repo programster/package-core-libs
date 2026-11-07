@@ -136,9 +136,10 @@ final class SmokeTest
 
     /**
      * Give a file to another user and group (OTHER_USER_ID), so that a test can check the library
-     * doesn't change a file's owner. Only root can do this, which the Docker test runs always are.
-     * Otherwise, this records the check as skipped, so that main.php can report it, rather than it
-     * passing without checking anything.
+     * doesn't change a file's owner. Only root can do this, which the Docker test runs always are,
+     * and Windows can't at all, as it has no Unix owners. Otherwise, this records the check as
+     * skipped, with the reason, so that main.php can report it, rather than it passing without
+     * checking anything.
      * @param string $filepath - the file to give to the other user.
      * @param string $checkName - what the ownership check is for, to show if it is skipped.
      * @return bool - true if the file now belongs to the other user and group, so the check can be
@@ -152,8 +153,14 @@ final class SmokeTest
 
         if (!$given)
         {
-            self::$s_skipped[] = "{$checkName} keeps the file's owner (needs root, so is covered by the root run in " .
-                "run-all-php-versions.sh)";
+            # Windows has no Unix owners, so these checks can't run there at all. Elsewhere, they need root.
+            $reason = match (PHP_OS_FAMILY) {
+                "Windows" => "Windows doesn't have Unix owners and groups",
+                "Linux" => "needs root, so is covered by the root run in run-all-php-versions.sh",
+                default => "needs root, which the root run in run-all-php-versions.sh has, though only on Linux",
+            };
+
+            self::$s_skipped[] = "{$checkName} keeps the file's owner ({$reason})";
         }
 
         return $given;
