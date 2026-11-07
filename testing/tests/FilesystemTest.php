@@ -435,41 +435,50 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
         chmod("{$base}/sub/locked", 0555);
         chmod("{$base}/sub/unreadable", 0000);
         # getProblems() says what can't be deleted, which directory causes it, and why. The message is kept short.
-        $realBase = Filesystem::resolvePath($base);
-        $expectedProblems = [
-            ["{$realBase}/sub/locked/inner.txt", "{$realBase}/sub/locked", FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE],
-            ["{$realBase}/sub/unreadable", "{$realBase}/sub/unreadable", FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE],
+        $notWritable = FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE;
+        $notListable = FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE;
+
+        # Both report the paths as given, not resolved, so the caller recognises them, even through a symlink to it.
+        $describeProblem = function (FileDeletionProblem $problem): array {
+            return [$problem->path, $problem->directory, $problem->reason];
+        };
+
+        symlink($base, "{$dir}/delete-locked-link");
+
+        $calls = [
+            ["deleteDir", $base, $base],
+            ["emptyDir", $base, $base],
+            ["emptyDir", "{$base}/", $base],
+            ["emptyDir", "{$dir}/delete-locked-link", "{$dir}/delete-locked-link"],
         ];
 
-        foreach (["deleteDir", "emptyDir"] as $method)
+        foreach ($calls as [$method, $path, $reportedBase])
         {
-            $problems = null;
+            $problems = [];
 
             try
             {
-                Filesystem::$method($base);
+                Filesystem::$method($path);
             }
             catch (DirectoryNotDeletableException $e)
             {
-                # Compare the paths resolved, as emptyDir() gives real paths (e.g. macOS's /private/var/... for
-                # /var/...), and deleteDir() the paths as given.
-                $problems = array_map(
-                    fn(FileDeletionProblem $problem) => [
-                        Filesystem::resolvePath($problem->path),
-                        Filesystem::resolvePath($problem->directory),
-                        $problem->reason,
-                    ],
-                    $e->getProblems()
-                );
+                $problems = array_map($describeProblem, $e->getProblems());
                 # Which problem is given as the example depends on the order the directory lists them in.
                 assert(str_contains($e->getMessage(), "as 2 thing(s) in it can't be deleted (e.g. "));
                 assert(str_contains($e->getMessage(), "Call getProblems() on this exception for the full list."));
             }
 
-            # scandir() order isn't guaranteed, so compare them sorted.
+            $expectedProblems = [
+                ["{$reportedBase}/sub/locked/inner.txt", "{$reportedBase}/sub/locked", $notWritable],
+                ["{$reportedBase}/sub/unreadable", "{$reportedBase}/sub/unreadable", $notListable],
+            ];
+
+            # The order the directory lists things in isn't guaranteed, so compare them sorted.
             sort($problems);
-            assert($problems === $expectedProblems, "{$method}() reported the wrong problems");
+            assert($problems === $expectedProblems, "{$method}({$path}) reported the wrong problems");
         }
+
+        unlink("{$dir}/delete-locked-link");
 
         # It still extends BadFilePermissionsException, so existing catch blocks still work.
         SmokeTest::expectException(BadFilePermissionsException::class, fn() => Filesystem::deleteDir($base));

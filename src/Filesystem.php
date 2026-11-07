@@ -438,15 +438,16 @@ final class Filesystem
      * @throws DirectoryDoesNotExistException - if a directory does not exist at the path specified.
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted,
      * including $dir itself (e.g. because its parent directory can't be written to). Its
-     * getProblems() says what, and why. Nothing is deleted if this happens. This extends
-     * BadFilePermissionsException.
+     * getProblems() says what, and why, with paths starting with $dir as it was given (not
+     * resolved), apart from what it found by following symlinks. Nothing is deleted if this
+     * happens. This extends BadFilePermissionsException.
      * @throws FilesystemException - if deleting something still failed part way through, despite
      * the checks (see emptyDir()).
      */
     public static function deleteDir(string $dir, bool $followSymlinks = false): void
     {
         # Remove any trailing slash first, as is_link() is false for "link/" (it checks what it points to).
-        $dirPath = rtrim($dir, '/');
+        $dirPath = self::removeTrailingSlashes($dir);
         $isSymlink = is_link($dirPath);
 
         # Without this, deleting through a symlink would empty the real folder it points to, and then fail to remove
@@ -516,8 +517,9 @@ final class Filesystem
      * @return void
      * @throws DirectoryDoesNotExistException - if a directory does not exist at the path specified.
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted.
-     * Its getProblems() says what, and why (stopping at 100). Nothing is deleted if this happens.
-     * This extends BadFilePermissionsException.
+     * Its getProblems() says what, and why (stopping at 100), with paths starting with $dir as it
+     * was given (not resolved), as in deleteDir(). Nothing is deleted if this happens. This extends
+     * BadFilePermissionsException.
      * @throws FilesystemException - if deleting something still failed part way through, despite
      * the checks.
      */
@@ -529,11 +531,14 @@ final class Filesystem
             throw new DirectoryDoesNotExistException("There is no directory at {$dir}.");
         }
 
+        # Plan with the path as given (rather than the real one), so the problems are reported in the form the caller
+        # will recognise, as in deleteDir(). The real path is only used to spot symlinks pointing "up".
+        $dirPath = self::removeTrailingSlashes($dir);
         $realDir = realpath($dir);
         $plan = [];
         $problems = [];
         $planned = [$realDir => true];
-        self::planDirectoryContents($realDir, $realDir, $followSymlinks, $plan, $problems, $planned);
+        self::planDirectoryContents($dirPath, $realDir, $followSymlinks, $plan, $problems, $planned);
         self::throwIfDeletionProblems($dir, $problems);
         self::runDeletionPlan($dir, $plan);
     }
@@ -3426,6 +3431,19 @@ final class Filesystem
         }
 
         return $unfinished;
+    }
+
+
+    /**
+     * Remove any slashes from the end of a path, for deleteDir() and emptyDir(), keeping "/" itself.
+     * @param string $path - the path.
+     * @return string - the path without trailing slashes.
+     */
+    private static function removeTrailingSlashes(string $path): string
+    {
+        $trimmed = rtrim($path, '/');
+
+        return ($trimmed === '') ? '/' : $trimmed;
     }
 
 
