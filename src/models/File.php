@@ -49,8 +49,8 @@ class File
      * directory, so that a plain name works the same way. The directory it is moved to must already
      * exist. To move the file without renaming it, use move(). If this file is a symlink, the link
      * itself is renamed, not the file it points to. A symlink with a relative target that is moved
-     * into a different directory is recreated with its target adjusted, which can change its owner
-     * (see move()).
+     * into a different directory is recreated with its target adjusted, which can change its owner,
+     * and on Windows makes its target absolute (see move()).
      * @param string $newPath - the new name or path for the file. It must not end with a "/".
      * @param bool $overwriteExistingFile - whether to replace a file (or symlink) that already
      * exists at $newPath. Defaults to false. A directory is never replaced.
@@ -111,8 +111,10 @@ class File
      * a relative target is recreated in the new directory instead, with its target worked out again
      * from there (e.g. "data.txt" becomes "../data.txt" when moved into a subdirectory), and the
      * old link is removed. It stays relative, and points at the same place as before (even if that
-     * no longer exists). The recreated symlink is owned by whoever runs this, and their group,
-     * rather than the original's owner and group. A symlink's owner rarely matters, as its
+     * no longer exists). On Windows, where PHP can't create a relative symlink, it is recreated with
+     * an absolute target to the same place instead, and a broken one is refused, as Windows can't
+     * create a symlink to something that doesn't exist. The recreated symlink is owned by whoever
+     * runs this, and their group, rather than the original's owner and group. A symlink's owner rarely matters, as its
      * permissions are ignored, but it does in a sticky directory (e.g. /tmp), where only its owner
      * (or the directory's) can delete or rename it, and in a sticky, world-writable directory with
      * Linux's protected_symlinks setting (on by default), where it is only followed by its owner
@@ -294,7 +296,8 @@ class File
 
     /**
      * Move a symlink with a relative target into a different directory, by creating a new symlink
-     * there whose relative target points at the same place, and then removing the old one.
+     * there whose relative target points at the same place, and then removing the old one. On
+     * Windows, the new symlink's target is absolute instead, as PHP can't create a relative one there.
      * @param string $currentPath - the symlink, with its directory's real path.
      * @param string $newPath - where the new symlink goes, with its directory's real path.
      * @param string $linkTarget - the old symlink's relative target, e.g. "../shared/data.txt".
@@ -303,8 +306,9 @@ class File
      * @return void
      * @throws FileAlreadyExistsException - if something was created at $newPath by another process
      * after it was checked, without $replaceExisting.
-     * @throws FilesystemException - if the new symlink could not be created, or the old one could
-     * not be removed (in which case the new one is removed again, so nothing has changed).
+     * @throws FilesystemException - if the new symlink could not be created, the old one could not
+     * be removed (in which case the new one is removed again, so nothing has changed), or on
+     * Windows, the symlink is broken, so can't be created again (nothing is changed then).
      * @throws BadArgumentException - only if given relative paths, which the callers never do.
      */
     private static function moveRelativeSymlink(
@@ -315,7 +319,23 @@ class File
     ): void
     {
         $absoluteTarget = Filesystem::resolveLinkTarget(dirname($currentPath), $linkTarget);
-        $newLinkTarget = Filesystem::relativePathBetween(dirname($newPath), $absoluteTarget);
+        $onWindows = PHP_OS_FAMILY === "Windows";
+
+        # Windows can't create a symlink to something that doesn't exist, so refuse before anything is changed.
+        if ($onWindows && !file_exists($absoluteTarget))
+        {
+            throw new FilesystemException(
+                "Can't move {$currentPath} to {$newPath}, as it is a broken symlink with a relative target, which " .
+                "has to be created again to point at the same place, and Windows can't create a symlink to " .
+                "something that doesn't exist."
+            );
+        }
+
+        # Windows can't create a relative symlink either, so point it at the same place absolutely, written with "\\",
+        # which Windows needs.
+        $newLinkTarget = $onWindows
+            ? str_replace("/", "\\", $absoluteTarget)
+            : Filesystem::relativePathBetween(dirname($newPath), $absoluteTarget);
 
         # Suppress the warnings, as we throw exceptions instead.
         if ($replaceExisting && !@unlink($newPath))
