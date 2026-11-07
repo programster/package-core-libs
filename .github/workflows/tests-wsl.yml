@@ -1,0 +1,135 @@
+# Runs the tests in WSL (the Windows Subsystem for Linux), and checks that PHP on Windows can work with WSL's files.
+# Inside WSL, PHP is on Linux, so this runs the same script as the Docker tests (as root and as a normal user), in
+# WSL's own filesystem. Then PHP on Windows runs the UNC path test against a folder in WSL, reached through
+# \\wsl.localhost, as Windows programs do. Like the Windows and macOS tests, this is a separate workflow with its own
+# badge, so it doesn't turn the "Linux tests" badge red.
+name: WSL tests
+
+on:
+    push:
+        branches:
+            - master
+            - main
+            # TEMPORARY: also run on the overhaul branch, to find and fix what fails in WSL. Remove this line once that
+            # is done, so it only runs on the main branch, like tests.yml.
+            - overhaul
+        tags:
+            - "*"
+    pull_request:
+        branches:
+            - master
+            - main
+    # Adds a "Run workflow" button on the Actions tab (only once this file is on the default branch).
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    tests:
+        name: Tests in WSL, and from Windows into WSL
+        runs-on: windows-latest
+        timeout-minutes: 40
+
+        steps:
+            - name: Check out the code
+              uses: actions/checkout@v5
+
+            # Ubuntu 24.04's own PHP is 8.3, the oldest supported version, with the same extensions as the Docker
+            # images. Commands run in WSL as root.
+            - name: Install WSL, with PHP
+              uses: Vampire/setup-wsl@v6
+              with:
+                  distribution: Ubuntu-24.04
+                  additional-packages:
+                      php8.3-cli
+                      php8.3-mbstring
+                      php8.3-zip
+                      php8.3-curl
+                      php8.3-xml
+                      composer
+                      unzip
+
+            # Copy the code into WSL's own filesystem (the checkout is on a Windows drive, at /mnt/...), so the tests
+            # run where WSL's files really are. run-in-container.sh expects it at /src, and copies it to /app itself.
+            # It also makes the folder PHP on Windows uses in the next step, which root owns, so make it open to all.
+            - name: Run the tests in WSL
+              shell: wsl-bash {0}
+              run: |
+                  rm -rf /src
+                  cp -r . /src
+                  cd /src
+                  composer install --no-interaction --no-progress --prefer-dist
+                  mkdir -p /var/tmp/corelibs-unc
+                  chmod 777 /var/tmp/corelibs-unc
+
+                  # Catch the exit code, so the annotations below are still written if the tests fail. The shell stops
+                  # at any failing command, so each grep that may find nothing has "|| true".
+                  status=0
+                  sh /src/testing/php-versions/run-in-container.sh > /src/test-output.txt 2>&1 || status=$?
+                  cat /src/test-output.txt
+
+                  # Annotations can be read without logging in to GitHub, unlike the logs: the results of both runs
+                  # (as root, and as a normal user), what was skipped, and the failures (at most 9, grouped).
+                  summaries=$({ grep -E "passed, [0-9]+ failed" /src/test-output.txt || true; } | awk '{printf "%s%%0A", $0}')
+                  echo "::notice title=WSL results::${summaries:-no summary line}"
+                  skipped=$({ grep -E "^  SKIPPED " /src/test-output.txt || true; } | sort -u | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+                  echo "::notice title=WSL skipped::${skipped:-nothing was skipped}"
+                  grep -E "^  FAIL |^FAILED" /src/test-output.txt > /src/failures.txt || true
+                  total=$(wc -l < /src/failures.txt)
+
+                  if [ "$total" -gt 0 ]; then
+                      per=$(( (total + 8) / 9 ))
+                      split -l "$per" /src/failures.txt /src/failure-group-
+
+                      for group in /src/failure-group-*; do
+                          message=$(sed 's/%/%25/g' "$group" | awk '{printf "%s%%0A", $0}')
+                          echo "::error title=WSL failures::${message}"
+                      done
+                  elif [ "$status" -ne 0 ]; then
+                      message=$(tail -n 30 /src/test-output.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+                      echo "::error title=WSL failed without a summary::${message}"
+                  fi
+
+                  exit $status
+
+            # Now from the Windows side: PHP on Windows, reaching the folder in WSL by its UNC path.
+            - name: Install PHP on Windows
+              if: always()
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: "8.3"
+                  extensions: fileinfo, mbstring, sodium, sockets, zip, curl, openssl
+                  ini-values: zend.assertions=1, assert.exception=1
+                  coverage: none
+
+            - name: Install Composer dependencies on Windows
+              if: always()
+              run: composer install --no-interaction --no-progress --prefer-dist
+
+            # Only the UNC path test, which uses CORELIBS_TEST_UNC_DIR. It counts as passed even if it skips itself,
+            # so a skip (e.g. the share couldn't be reached) is treated as a failure here.
+            - name: Run the UNC path test from Windows into WSL
+              if: always()
+              shell: bash
+              env:
+                  CORELIBS_TEST_ONLY: UNC paths
+                  CORELIBS_TEST_UNC_DIR: \\wsl.localhost\Ubuntu-24.04\var\tmp\corelibs-unc
+              run: |
+                  status=0
+                  php testing/main.php > unc-output.txt 2>&1 || status=$?
+                  cat unc-output.txt
+
+                  if grep -q "SKIPPED UNC paths" unc-output.txt; then
+                      status=1
+                  fi
+
+                  message=$(sed 's/%/%25/g' unc-output.txt | awk '{printf "%s%%0A", $0}')
+
+                  if [ "$status" -eq 0 ]; then
+                      echo "::notice title=Windows into WSL results::${message}"
+                  else
+                      echo "::error title=Windows into WSL failed::${message}"
+                  fi
+
+                  exit $status

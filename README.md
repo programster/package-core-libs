@@ -4,6 +4,7 @@ Core Libs
 [![Linux tests](https://github.com/programster/package-core-libs/actions/workflows/tests.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests.yml)
 [![Windows tests](https://github.com/programster/package-core-libs/actions/workflows/tests-windows.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-windows.yml)
 [![macOS tests](https://github.com/programster/package-core-libs/actions/workflows/tests-macos.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-macos.yml)
+[![WSL tests](https://github.com/programster/package-core-libs/actions/workflows/tests-wsl.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-wsl.yml)
 
 This is a PHP package providing a set of static libraries that act to "extend" the standard library. 
 These are built primarily with a focus on rapid development and ease of understanding over 
@@ -28,8 +29,10 @@ and "macOS tests" badges), but a few things work differently, or not at all, the
 Each method's docblock gives the details.
 
 #### WSL
-Inside WSL, PHP is running on Linux, so this library behaves as it does on Linux (though the tests aren't run in WSL
-automatically). Two places behave differently, because they are really the other system's files:
+Inside WSL, PHP is running on Linux, so this library behaves as it does on Linux. The "WSL tests" badge shows the
+tests run in WSL's own filesystem, and PHP on Windows working with WSL's files through `\\wsl.localhost`. GitHub's
+Windows runners only have WSL 1, though, so WSL 2 isn't tested. Two places behave differently, because they are
+really the other system's files:
 
 | Where | What to expect |
 |---|---|

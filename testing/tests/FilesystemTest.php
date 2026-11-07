@@ -2241,21 +2241,27 @@ $smoke->run("deleteDir() failing part way through", function () use ($dir) {
 });
 
 $smoke->run("UNC paths, as used for WSL's files from Windows", function () use ($dir) {
-    # From Windows, WSL's files are reached with UNC paths (e.g. \\wsl.localhost\Ubuntu\home). The admin share
-    # (\\localhost\C$\...) is a UNC path to the same files as C:\..., so use that to check them here.
+    # From Windows, WSL's files are reached with UNC paths (e.g. \\wsl.localhost\Ubuntu\home). The WSL CI job sets
+    # CORELIBS_TEST_UNC_DIR to a folder there. Otherwise, the admin share (\\localhost\C$\...) is a UNC path to the
+    # same files as C:\..., so that is used.
+    $fromEnvironment = getenv("CORELIBS_TEST_UNC_DIR");
     $base = Filesystem::normalisePath(realpath($dir)) . "/unc-paths";
-    $unc = (preg_match('#^([A-Za-z]):/(.*)$#', $base, $match) === 1) ? "//localhost/{$match[1]}$/{$match[2]}" : "";
+    $adminShare = (preg_match('#^([A-Za-z]):/(.*)$#', $base, $match) === 1) ? "//localhost/{$match[1]}$/{$match[2]}" : "";
+
+    $unc = ($fromEnvironment !== false && $fromEnvironment !== "")
+        ? Filesystem::normalisePath($fromEnvironment) . "/unc-paths-" . getmypid()
+        : $adminShare;
 
     if (PHP_OS_FAMILY !== "Windows" || $unc === "" || !is_dir(dirname($unc)))
     {
-        SmokeTest::skip("UNC paths, as used for WSL's files from Windows", "needs Windows, and its admin share");
+        SmokeTest::skip("UNC paths, as used for WSL's files from Windows", "needs Windows, and a UNC share");
     }
     else
     {
-        mkdir("{$base}/real/sub", 0777, true);
-        touch("{$base}/real/sub/f.txt");
-        mkdir("{$base}/to-empty");
-        touch("{$base}/to-empty/x.txt");
+        mkdir("{$unc}/real/sub", 0777, true);
+        touch("{$unc}/real/sub/f.txt");
+        mkdir("{$unc}/to-empty");
+        touch("{$unc}/to-empty/x.txt");
 
         # The paths given back stay on the share, rather than being turned into a path on the current drive.
         $files = Filesystem::getDirContents("{$unc}/real");
@@ -2266,9 +2272,9 @@ $smoke->run("UNC paths, as used for WSL's files from Windows", function () use (
 
         # And deleting through one works on the share's files.
         Filesystem::emptyDir("{$unc}/to-empty");
-        assert(!file_exists("{$base}/to-empty/x.txt") && is_dir("{$base}/to-empty"));
-        Filesystem::deleteDir("{$unc}/to-empty");
-        assert(!file_exists("{$base}/to-empty"));
+        assert(!file_exists("{$unc}/to-empty/x.txt") && is_dir("{$unc}/to-empty"));
+        Filesystem::deleteDir($unc);
+        assert(!file_exists($unc));
     }
 });
 

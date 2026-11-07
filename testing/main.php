@@ -49,6 +49,14 @@ catch (\Throwable $e)
         get_class($e) . ": " . $e->getMessage();
 }
 
+# With CORELIBS_TEST_ONLY, a name that matches nothing would otherwise pass without checking anything.
+$only = getenv("CORELIBS_TEST_ONLY");
+
+if ($only !== false && $only !== "" && $smoke->getNumPassed() === 0 && count($failures) === 0)
+{
+    $failures[] = "CORELIBS_TEST_ONLY: no test's name contains \"{$only}\", so nothing was run.";
+}
+
 printf("PHP %s: %d passed, %d failed\n", PHP_VERSION, $smoke->getNumPassed(), count($failures));
 
 foreach ($failures as $failure)

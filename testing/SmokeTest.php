@@ -55,7 +55,10 @@ final class SmokeTest
     {
         $numWarningsBefore = count($this->m_warnings);
         $error = "";
-        $shouldRun = !$needsSymlinks || self::canCreateSymlinks($label, $anySymlinks);
+        # CORELIBS_TEST_ONLY runs only the tests whose name contains it (e.g. for a CI job that only needs one).
+        $only = getenv("CORELIBS_TEST_ONLY");
+        $isSelected = ($only === false || $only === "" || str_contains($label, $only));
+        $shouldRun = $isSelected && (!$needsSymlinks || self::canCreateSymlinks($label, $anySymlinks));
 
         try
         {
@@ -73,7 +76,7 @@ final class SmokeTest
 
         if (!$shouldRun)
         {
-            # Recorded as skipped by canCreateSymlinks(), so neither passed nor failed.
+            # Not selected, or recorded as skipped by canCreateSymlinks(), so neither passed nor failed.
         }
         elseif ($error === "" && count($newWarnings) === 0)
         {
