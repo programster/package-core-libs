@@ -642,34 +642,36 @@ final class Filesystem
         }
 
         $realDir = realpath($dir);
-        $plan = [];
-        $problems = [];
 
-        # Everything that will be deleted, by real path, so nothing is planned twice, and loops are impossible.
-        $planned = [$realDir => true];
-
-        if ($isSymlink)
+        if ($isSymlink && self::isWithinDirectory(realpath(dirname($dirPath)), $realDir))
         {
-            if (self::isWithinDirectory(realpath(dirname($dirPath)), $realDir))
+            throw new BadArgumentException(
+                "Cannot delete {$dir}, as it is a symlink to {$realDir}, which contains the link itself, so " .
+                "following it would delete the link's own parent directory."
+            );
+        }
+
+        # Walked twice (see walkForDeletion()): once to check everything, and then to delete it.
+        $walk = function (array $pass, array &$problems, array &$planned) use (
+            $isSymlink,
+            $realDir,
+            $dirPath,
+            $followSymlinks
+        ): void {
+            if ($isSymlink)
             {
-                throw new BadArgumentException(
-                    "Cannot delete {$dir}, as it is a symlink to {$realDir}, which contains the link itself, so " .
-                    "following it would delete the link's own parent directory."
-                );
+                self::walkForDeletion($realDir, $realDir, true, $pass, $problems, $planned);
+                self::handleForDeletion(FileDeletionOperationEnum::RMDIR, $realDir, $pass, $problems);
+                self::handleForDeletion(FileDeletionOperationEnum::UNLINK, $dirPath, $pass, $problems);
             }
+            else
+            {
+                self::walkForDeletion($dirPath, $realDir, $followSymlinks, $pass, $problems, $planned);
+                self::handleForDeletion(FileDeletionOperationEnum::RMDIR, $dirPath, $pass, $problems);
+            }
+        };
 
-            self::planDirectoryContents($realDir, $realDir, true, $plan, $problems, $planned);
-            self::planDeletion(FileDeletionOperationEnum::RMDIR, $realDir, $plan, $problems);
-            self::planDeletion(FileDeletionOperationEnum::UNLINK, $dirPath, $plan, $problems);
-        }
-        else
-        {
-            self::planDirectoryContents($dirPath, $realDir, $followSymlinks, $plan, $problems, $planned);
-            self::planDeletion(FileDeletionOperationEnum::RMDIR, $dirPath, $plan, $problems);
-        }
-
-        self::throwIfDeletionProblems($dir, $problems);
-        self::runDeletionPlan($dir, $plan);
+        self::checkThenDelete($dir, $realDir, $walk);
     }
 
 
@@ -686,7 +688,9 @@ final class Filesystem
      * causes of failure can't be seen beforehand, though, such as an immutable file, a read-only
      * filesystem, or another process changing the directory while it is being deleted. If one of
      * those happens, this throws a FilesystemException part way through, and some of the contents
-     * will already have been deleted.
+     * will already have been deleted. Checking and then deleting walk through the directory twice, rather than
+     * keeping a list of everything, so the memory used depends on the largest single directory in
+     * it (whose names are read before they are deleted), not on how many things there are in all.
      *
      * @param string $dir - the path to the directory one wishes to empty, or a symlink to it.
      *
@@ -699,8 +703,8 @@ final class Filesystem
      *
      * @throws DirectoryNotDeletableException - if the checks find anything that can't be deleted.
      * Its getProblems() says what, and why (stopping at 100), with paths starting with $dir made
-     * absolute, but keeping any symlinks in it, as in deleteDir(). Nothing is deleted if this happens. This extends
-     * BadFilePermissionsException.
+     * absolute, but keeping any symlinks in it, as in deleteDir(). Nothing is deleted if this
+     * happens. This extends BadFilePermissionsException.
      *
      * @throws FilesystemException - if deleting something still failed part way through, despite
      * the checks.
@@ -718,12 +722,16 @@ final class Filesystem
         # pointing "up".
         $dirPath = self::absolutePathKeepingSymlinks($dir);
         $realDir = realpath($dir);
-        $plan = [];
-        $problems = [];
-        $planned = [$realDir => true];
-        self::planDirectoryContents($dirPath, $realDir, $followSymlinks, $plan, $problems, $planned);
-        self::throwIfDeletionProblems($dir, $problems);
-        self::runDeletionPlan($dir, $plan);
+
+        $walk = function (array $pass, array &$problems, array &$planned) use (
+            $dirPath,
+            $realDir,
+            $followSymlinks
+        ): void {
+            self::walkForDeletion($dirPath, $realDir, $followSymlinks, $pass, $problems, $planned);
+        };
+
+        self::checkThenDelete($dir, $realDir, $walk);
     }
 
 
@@ -4042,12 +4050,13 @@ final class Filesystem
 
 
     /**
-     * Add everything in a directory to a deletion plan, in an order that can be deleted (each
-     * directory's contents before the directory itself), going into subdirectories, and checking
-     * that each thing can be deleted. See deleteDir() for how symlinks are handled. Stops once
-     * there are 100 problems, as the plan won't be used then.
+     * Walk through everything in a directory, in an order that can be deleted (each directory's
+     * contents before the directory itself), going into subdirectories, and passing each thing to
+     * handleForDeletion(). See deleteDir() for how symlinks are handled. This is run twice (see
+     * checkThenDelete()): once to check that everything can be deleted, and then to delete it, so
+     * that no list of everything has to be kept in between. Stops once there are 100 problems.
      *
-     * @param string $dir - the directory whose contents to plan the deletion of.
+     * @param string $dir - the directory whose contents to walk through.
      *
      * @param string $realDir - the real path of $dir (with symlinks resolved), used to spot
      * symlinks pointing "up".
@@ -4055,24 +4064,25 @@ final class Filesystem
      * @param bool $followSymlinks - whether to follow symlinks, deleting what they point to as well
      * as the links.
      *
-     * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs,
-     * which this adds to.
+     * @param array{isDeleting: bool, dir: string} $pass - which pass this is (see
+     * handleForDeletion()).
      *
      * @param array $problems - the list of FileDeletionProblem objects found so far, which this
      * adds to.
      *
-     * @param array $planned - real paths => true, for everything already in the plan, which this
-     * adds to.
+     * @param array $planned - with $followSymlinks, real paths => true, for everything already
+     * handled, which this adds to, so nothing is handled twice.
      *
      * @return void
      *
-     * @throws FilesystemException - if a directory that could be listed can't be opened after all.
+     * @throws FilesystemException - if a directory that could be listed can't be opened after all,
+     * or (when deleting) something couldn't be deleted.
      */
-    private static function planDirectoryContents(
+    private static function walkForDeletion(
         string $dir,
         string $realDir,
         bool $followSymlinks,
-        array &$plan,
+        array $pass,
         array &$problems,
         array &$planned
     ): void
@@ -4114,42 +4124,47 @@ final class Filesystem
 
                             if (is_dir($target))
                             {
-                                self::planDirectoryContents($target, $target, true, $plan, $problems, $planned);
-                                self::planDeletion(FileDeletionOperationEnum::RMDIR, $target, $plan, $problems);
+                                self::walkForDeletion($target, $target, true, $pass, $problems, $planned);
+                                self::handleForDeletion(FileDeletionOperationEnum::RMDIR, $target, $pass, $problems);
                             }
                             else
                             {
-                                self::planDeletion(FileDeletionOperationEnum::UNLINK, $target, $plan, $problems);
+                                self::handleForDeletion(FileDeletionOperationEnum::UNLINK, $target, $pass, $problems);
                             }
                         }
 
-                        self::planDeletion(FileDeletionOperationEnum::UNLINK, $path, $plan, $problems);
+                        self::handleForDeletion(FileDeletionOperationEnum::UNLINK, $path, $pass, $problems);
                     }
                     else
                     {
-                        # When following links, a symlink may already have led to this, in which case it's planned.
+                        # When following links, a symlink may already have led to this, in which case it was handled
+                        # then. Without following them, nothing can be reached twice, so nothing is remembered, which
+                        # keeps the memory used the same however many things there are.
                         $realPath = $followSymlinks ? realpath($path) : "{$realDir}/{$entries[$i]}";
 
-                        if (!isset($planned[$realPath]))
+                        if (!$followSymlinks || !isset($planned[$realPath]))
                         {
-                            $planned[$realPath] = true;
+                            if ($followSymlinks)
+                            {
+                                $planned[$realPath] = true;
+                            }
 
                             if (is_dir($path))
                             {
-                                self::planDirectoryContents(
+                                self::walkForDeletion(
                                     $path,
                                     $realPath,
                                     $followSymlinks,
-                                    $plan,
+                                    $pass,
                                     $problems,
                                     $planned
                                 );
 
-                                self::planDeletion(FileDeletionOperationEnum::RMDIR, $path, $plan, $problems);
+                                self::handleForDeletion(FileDeletionOperationEnum::RMDIR, $path, $pass, $problems);
                             }
                             else
                             {
-                                self::planDeletion(FileDeletionOperationEnum::UNLINK, $path, $plan, $problems);
+                                self::handleForDeletion(FileDeletionOperationEnum::UNLINK, $path, $pass, $problems);
                             }
                         }
                     }
@@ -4160,36 +4175,54 @@ final class Filesystem
 
 
     /**
-     * Add one thing to a deletion plan, after checking it can be deleted from its directory.
+     * Handle one thing found by walkForDeletion(): when checking, check it can be deleted from its
+     * directory, and when deleting, delete it.
      *
      * @param FileDeletionOperationEnum $operation - UNLINK for a file or symlink, or RMDIR for a
      * directory (once it is empty).
      *
      * @param string $path - the thing to delete.
      *
-     * @param array $plan - the plan so far, as a list of [FileDeletionOperationEnum, path] pairs,
+     * @param array{isDeleting: bool, dir: string} $pass - whether this is the pass that deletes, and
+     * the directory being deleted or emptied, for the message.
+     *
+     * @param array $problems - when checking, the list of FileDeletionProblem objects found so far,
      * which this adds to.
      *
-     * @param array $problems - the list of FileDeletionProblem objects found so far, which this
-     * adds to.
-     *
      * @return void
+     *
+     * @throws FilesystemException - when deleting, if it couldn't be deleted, despite the checks.
      */
-    private static function planDeletion(
+    private static function handleForDeletion(
         FileDeletionOperationEnum $operation,
         string $path,
-        array &$plan,
+        array $pass,
         array &$problems
     ): void
     {
-        # Stop adding problems once the list is full, as a directory's own check comes after its contents', so could
-        # otherwise take the list over the limit.
-        if (count($problems) < self::MAX_DELETION_PROBLEMS)
+        if ($pass['isDeleting'])
         {
+            # Suppress the warnings, as we throw an exception instead. match() throws an UnhandledMatchError for a case
+            # it doesn't handle, rather than guessing.
+            $deleted = match ($operation) {
+                FileDeletionOperationEnum::UNLINK => self::unlinkFileOrSymlink($path),
+                FileDeletionOperationEnum::RMDIR => @rmdir($path),
+            };
+
+            if (!$deleted)
+            {
+                throw new FilesystemException(
+                    "Failed to delete {$path}, despite checking it could be (e.g. it is immutable, or on a read-only " .
+                    "filesystem), so some of {$pass['dir']} may already have been deleted."
+                );
+            }
+        }
+        elseif (count($problems) < self::MAX_DELETION_PROBLEMS)
+        {
+            # Stop adding problems once the list is full, as a directory's own check comes after its contents', so
+            # could otherwise take the list over the limit.
             self::findDeletionProblem(dirname($path), $path, $problems);
         }
-
-        $plan[] = [$operation, $path];
     }
 
 
@@ -4222,36 +4255,37 @@ final class Filesystem
 
 
     /**
-     * Carry out a deletion plan made by planDirectoryContents() and planDeletion(), in order.
+     * Check that everything can be deleted, and only then delete it, for deleteDir() and emptyDir(),
+     * by walking through it twice: once only checking, and then deleting as it goes. Nothing is kept
+     * between the two, so the memory used doesn't grow with how many things there are (apart from,
+     * with $followSymlinks, the real paths of what was handled). Things can still change between the
+     * two walks, as they could between checking and deleting anyway.
      *
-     * @param string $dir - the directory being deleted or emptied, for the message.
+     * @param string $dir - the directory being deleted or emptied, as given, for the messages.
      *
-     * @param array $plan - a list of [FileDeletionOperationEnum, path] pairs.
+     * @param string $realDir - its real path.
+     *
+     * @param \Closure $walk - walks through everything to delete, given the pass, the problems found
+     * so far, and the real paths handled so far (see walkForDeletion()).
      *
      * @return void
      *
-     * @throws FilesystemException - if something still couldn't be deleted. Some of the plan will
-     * already have been carried out if this happens.
+     * @throws DirectoryNotDeletableException - if anything can't be deleted. Nothing is deleted.
+     *
+     * @throws FilesystemException - if deleting something still failed part way through, despite
+     * the checks.
      */
-    private static function runDeletionPlan(string $dir, array $plan): void
+    private static function checkThenDelete(string $dir, string $realDir, \Closure $walk): void
     {
-        foreach ($plan as [$operation, $path])
-        {
-            # Suppress the warnings, as we throw an exception instead.
-            # match() throws an UnhandledMatchError for a case it doesn't handle, rather than guessing.
-            $deleted = match ($operation) {
-                FileDeletionOperationEnum::UNLINK => self::unlinkFileOrSymlink($path),
-                FileDeletionOperationEnum::RMDIR => @rmdir($path),
-            };
+        $problems = [];
+        $planned = [$realDir => true];
+        $walk(['isDeleting' => false, 'dir' => $dir], $problems, $planned);
+        self::throwIfDeletionProblems($dir, $problems);
 
-            if (!$deleted)
-            {
-                throw new FilesystemException(
-                    "Failed to delete {$path}, despite checking it could be (e.g. it is immutable, or on a read-only " .
-                    "filesystem), so some of {$dir} may already have been deleted."
-                );
-            }
-        }
+        # The second walk starts afresh, as the first one's record of what was handled would skip everything.
+        $unused = [];
+        $handled = [$realDir => true];
+        $walk(['isDeleting' => true, 'dir' => $dir], $unused, $handled);
     }
 
 

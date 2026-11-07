@@ -2251,26 +2251,49 @@ $smoke->run("deleteDir() / emptyDir() in a sticky folder", function () {
 });
 
 $smoke->run("deleteDir() failing part way through", function () use ($dir) {
-    # Some failures can't be seen beforehand (e.g. an immutable file), and containers can't usually make one, so give
-    # the step that deletes a plan with something in it that has gone, as if another process deleted it.
-    $runPlan = new ReflectionMethod(Filesystem::class, "runDeletionPlan");
+    # Some failures can't be seen beforehand (e.g. an immutable file), and containers can't usually make one, so have
+    # the deleting pass meet something that has gone since the checks, as if another process deleted it.
+    $handle = new ReflectionMethod(Filesystem::class, "handleForDeletion");
     $base = "{$dir}/delete-part-way";
     mkdir($base);
     touch("{$base}/first.txt");
+    $pass = ['isDeleting' => true, 'dir' => $base];
+    $unused = [];
 
-    $plan = [
-        [FileDeletionOperationEnum::UNLINK, "{$base}/first.txt"],
-        [FileDeletionOperationEnum::UNLINK, "{$base}/gone.txt"],
-        [FileDeletionOperationEnum::RMDIR, $base],
-    ];
-
-    $runBrokenPlan = function () use ($runPlan, $base, $plan): void {
-        $runPlan->invoke(null, $base, $plan);
+    $deletePartWay = function () use ($handle, $base, $pass, &$unused): void {
+        $handle->invokeArgs(null, [FileDeletionOperationEnum::UNLINK, "{$base}/first.txt", $pass, &$unused]);
+        $handle->invokeArgs(null, [FileDeletionOperationEnum::UNLINK, "{$base}/gone.txt", $pass, &$unused]);
+        $handle->invokeArgs(null, [FileDeletionOperationEnum::RMDIR, $base, $pass, &$unused]);
     };
 
     # It stops at the failure, and says some may already have been deleted.
-    SmokeTest::expectException(FilesystemException::class, $runBrokenPlan, "some of {$base} may already have been deleted");
+    SmokeTest::expectException(FilesystemException::class, $deletePartWay, "some of {$base} may already have been deleted");
     assert(!file_exists("{$base}/first.txt") && is_dir($base));
+});
+
+$smoke->run("deleteDir() memory staying the same however many files", function () use ($dir) {
+    # Everything is checked in one walk, and deleted in another, with no list of it all kept in between, so the memory
+    # used depends on the largest single folder (whose names are read before deleting them), not on the whole tree.
+    $measure = function (string $folder, int $subfolders): int {
+        for ($i = 0; $i < $subfolders; $i++)
+        {
+            mkdir("{$folder}/sub-{$i}", 0777, true);
+
+            for ($j = 0; $j < 50; $j++)
+            {
+                touch("{$folder}/sub-{$i}/file-{$j}.txt");
+            }
+        }
+
+        $before = memory_get_usage();
+        memory_reset_peak_usage();
+        Filesystem::deleteDir($folder);
+        return memory_get_peak_usage() - $before;
+    };
+
+    $small = $measure("{$dir}/memory-small", 10);
+    $large = $measure("{$dir}/memory-large", 200);
+    assert($large < $small + 64 * 1024, "deleting 10,000 files used {$large} bytes, but 500 used {$small}");
 });
 
 $smoke->run("UNC paths, as used for WSL's files from Windows", function () use ($dir) {
