@@ -7,6 +7,8 @@
 namespace Programster\CoreLibs;
 
 
+use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
+use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Models\CsvCellError;
 use Programster\CoreLibs\Models\CsvFile;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
@@ -41,6 +43,12 @@ final class CsvLib
      * @param string $delimiter - optionally specify a delimiter other than the default comma.
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace an existing JSON file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep an existing file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $csvFilepath.
      * @throws InvalidCsvException - if the CSV file isn't valid (see the CsvFile constructor), e.g.
@@ -58,6 +66,8 @@ final class CsvLib
         string $delimiter = ",",
         string $enclosure = '"',
         string $escape = "",
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
     {
         # Check the file first, so a blank line in the middle (which makes it invalid) is an error, rather than skipped.
@@ -119,7 +129,7 @@ final class CsvLib
 
         # Write to a temporary file first, so that a failure part way through (e.g. a value that can't be encoded)
         # leaves an existing file as it was.
-        self::writeOutputFile($jsonFilepath, $writeJson);
+        self::writeOutputFile($jsonFilepath, $writeJson, $useSystemTempDir, $preserveOwnership);
     }
 
 
@@ -348,6 +358,12 @@ final class CsvLib
      * @param bool $addByteOrderMark - whether to add the byte order mark to the csv, so that Excel
      * handles UTF-8 characters.
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace an existing file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep an existing file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void - all data written to the passed in filepath.
      * @throws EmptyArrayException - if there are no rows, or the first row has no columns.
      * @throws BadArgumentException - if the rows are not associative arrays, or don't all have the
@@ -364,6 +380,8 @@ final class CsvLib
         string $enclosure = '"',
         bool $addByteOrderMark = true,
         string $escape="",
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
     {
         # Check the data before doing anything else.
@@ -433,7 +451,7 @@ final class CsvLib
         };
 
         # Write to a temporary file first, so that a bad row part way through leaves an existing file as it was.
-        self::writeOutputFile($filepath, $writeCsvRows);
+        self::writeOutputFile($filepath, $writeCsvRows, $useSystemTempDir, $preserveOwnership);
     }
 
 
@@ -453,6 +471,12 @@ final class CsvLib
      * @param string $escape - the escape sequence to use when passing to fputcsv.
      * @param bool $removeTrailingBlankLines - whether to also remove the blank lines at the end of
      * the file, using removeTrailingBlankLines(). Defaults to true.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
@@ -467,6 +491,8 @@ final class CsvLib
         string $enclosure = '"',
         string $escape = "",
         bool $removeTrailingBlankLines = true,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
     {
         Filesystem::checkCanChangeFile($filepath);
@@ -489,7 +515,7 @@ final class CsvLib
         # leaves the original untouched.
         try
         {
-            $tmpFilepath = Filesystem::createReplacementFile($filepath);
+            $tmpFilepath = Filesystem::createReplacementFile($filepath, $useSystemTempDir, $preserveOwnership);
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -533,7 +559,7 @@ final class CsvLib
 
         fclose($fileHandle);
         fclose($tmpFile);
-        Filesystem::replaceWithFile($filepath, $tmpFilepath);
+        Filesystem::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
 
         if ($removeTrailingBlankLines)
         {
@@ -646,6 +672,12 @@ final class CsvLib
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally set the escape sequence to use when passing to fputcsv.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      * @throws InvalidCsvException - if the file isn't valid (see the CsvFile constructor), e.g. it
      * has a blank line in the middle (blank lines at the very end are allowed, and are kept), or it
@@ -660,7 +692,9 @@ final class CsvLib
         array $columnIndexes,
         string $delimiter=",",
         string $enclosure='"',
-        string $escape=""
+        string $escape="",
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
     {
         Filesystem::checkCanChangeFile($filepath);
@@ -695,7 +729,7 @@ final class CsvLib
         # through leaves the original untouched.
         try
         {
-            $tmpFilepath = Filesystem::createReplacementFile($filepath);
+            $tmpFilepath = Filesystem::createReplacementFile($filepath, $useSystemTempDir, $preserveOwnership);
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -749,7 +783,7 @@ final class CsvLib
 
         fclose($fileHandle);
         fclose($tmpFile);
-        Filesystem::replaceWithFile($filepath, $tmpFilepath);
+        Filesystem::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
     }
 
 
@@ -769,6 +803,12 @@ final class CsvLib
      * @param string $delimiter - optionally specify the delimiter if it isn't a comma
      * @param string $enclosure - optionally specify the enclosure if it isn't double quote
      * @param string $escape - optionally specify the escape character to use when parsing the CSV.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      * @throws BadArgumentException - if any of $rowNumbers isn't an int, or isn't the number of a
      * row in the file.
@@ -785,6 +825,8 @@ final class CsvLib
         string $delimiter = ",",
         string $enclosure = '"',
         string $escape = "",
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
     {
         Filesystem::checkCanChangeFile($filepath);
@@ -829,7 +871,7 @@ final class CsvLib
 
         try
         {
-            $tmpFilepath = Filesystem::createReplacementFile($filepath);
+            $tmpFilepath = Filesystem::createReplacementFile($filepath, $useSystemTempDir, $preserveOwnership);
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -875,7 +917,7 @@ final class CsvLib
 
         fclose($fileHandle);
         fclose($tmpFile);
-        Filesystem::replaceWithFile($filepath, $tmpFilepath);
+        Filesystem::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
     }
 
 
@@ -1287,6 +1329,12 @@ final class CsvLib
      * can't be written to.
      * @throws FilesystemException - if one of the files can't be read, or the merged file can't be
      * written.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace an existing merged file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep an existing file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      */
     public static function mergeFiles(
@@ -1296,6 +1344,8 @@ final class CsvLib
         string $delimiter = ",",
         string $enclosure = '"',
         string $escape = "",
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
     {
         # Check every file first, so a blank line in the middle of one (which makes it invalid), or files that don't
@@ -1375,7 +1425,7 @@ final class CsvLib
 
         # Write to a temporary file first, so that a file that can't be read part way through leaves an existing
         # merged file as it was. This also means $mergedFilepath can be one of the files being merged.
-        self::writeOutputFile($mergedFilepath, $writeMergedFile);
+        self::writeOutputFile($mergedFilepath, $writeMergedFile, $useSystemTempDir, $preserveOwnership);
     }
 
 
@@ -1429,12 +1479,20 @@ final class CsvLib
      * @param string $outputFilepath - the file to write.
      * @param callable $writer - writes the contents, given the temporary file's handle, e.g.
      * function ($handle): void { ... }.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write it first.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep an existing file's
+     * owner and group.
      * @return void
      * @throws BadFilePermissionsException - if $outputFilepath (or, for a new file, its directory)
      * can't be written to. This is checked before $writer is run.
      * @throws FilesystemException - if the contents could not be written.
      */
-    private static function writeOutputFile(string $outputFilepath, callable $writer): void
+    private static function writeOutputFile(
+        string $outputFilepath,
+        callable $writer,
+        UseSystemTempDirEnum $useSystemTempDir,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
     {
         # Check the output can be written before doing any work.
         if (file_exists($outputFilepath))
@@ -1448,7 +1506,7 @@ final class CsvLib
             );
         }
 
-        $tmpFilepath = Filesystem::createReplacementFile($outputFilepath);
+        $tmpFilepath = Filesystem::createReplacementFile($outputFilepath, $useSystemTempDir, $preserveOwnership);
         $tmpHandle = @fopen($tmpFilepath, "w");
 
         if ($tmpHandle === false)
@@ -1484,7 +1542,7 @@ final class CsvLib
             throw new FilesystemException("Failed to create {$outputFilepath}.");
         }
 
-        Filesystem::replaceWithFile($outputFilepath, $tmpFilepath);
+        Filesystem::replaceWithFile($outputFilepath, $tmpFilepath, $preserveOwnership);
     }
 
 

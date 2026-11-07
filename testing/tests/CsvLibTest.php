@@ -4,6 +4,7 @@
  * Smoke tests for CsvLib. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
+use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
 use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
@@ -12,6 +13,7 @@ use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\InvalidCsvException;
 use Programster\CoreLibs\Exceptions\NoCsvHeaderException;
 use Programster\CoreLibs\Exceptions\NonNumericCsvValuesException;
+use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Models\CsvCellError;
 use Programster\CoreLibs\Models\CsvFile;
 use Programster\CoreLibs\Testing\SmokeTest;
@@ -844,5 +846,63 @@ $smoke->run("mergeFiles checking the files match", function () use ($dir) {
     # Without headers, only the number of columns has to match, and an empty file has nothing to merge.
     CsvLib::mergeFiles(["{$base}/a.csv", "{$base}/empty.csv", "{$base}/other-header.csv"], "{$base}/out.csv", false);
     assert(file_get_contents("{$base}/out.csv") === "h1,h2\n1,2\nh1,other\n3,4\n");
+});
+
+$smoke->run("file-rewriting methods passing on where to write first", function () {
+    # In /dev/shm (a separate filesystem from the system's temporary directory in the test containers), AUTO puts the
+    # new contents next to the original and renames them over it, so the file gets a new inode, while the default
+    # (ALWAYS) copies them back, so it keeps its inode.
+    if (!is_dir("/dev/shm") || stat("/dev/shm")['dev'] === stat(sys_get_temp_dir())['dev'])
+    {
+        SmokeTest::skip(
+            "file-rewriting methods passing on where to write first",
+            "needs /dev/shm on another filesystem"
+        );
+    }
+    else
+    {
+        $base = "/dev/shm/corelibs-rewrite-" . getmypid();
+        mkdir($base);
+
+        try
+        {
+            $rewrites = [
+                "trim" => function (string $path, UseSystemTempDirEnum $where): void {
+                    CsvLib::trim($path, useSystemTempDir: $where);
+                },
+                "removeRows" => function (string $path, UseSystemTempDirEnum $where): void {
+                    CsvLib::removeRows($path, [1], useSystemTempDir: $where);
+                },
+                "removeColumns" => function (string $path, UseSystemTempDirEnum $where): void {
+                    CsvLib::removeColumns($path, [2], useSystemTempDir: $where);
+                },
+                "fileFilter" => function (string $path, UseSystemTempDirEnum $where): void {
+                    Filesystem::fileFilter($path, fn(string $line) => true, useSystemTempDir: $where);
+                },
+                "CsvFile::removeHeader" => function (string $path, UseSystemTempDirEnum $where): void {
+                    (new CsvFile($path, true))->removeHeader($where);
+                },
+            ];
+
+            foreach ($rewrites as $name => $rewrite)
+            {
+                foreach ([UseSystemTempDirEnum::AUTO, UseSystemTempDirEnum::ALWAYS] as $where)
+                {
+                    $path = "{$base}/file.csv";
+                    file_put_contents($path, "h1,h2\n a ,b\nc,d\n");
+                    $inodeBefore = fileinode($path);
+                    $rewrite($path, $where);
+                    clearstatcache();
+                    $wasRenamed = fileinode($path) !== $inodeBefore;
+                    assert($wasRenamed === ($where === UseSystemTempDirEnum::AUTO), "{$name} with {$where->name}");
+                    assert(glob("{$base}/.corelibs-tmp-*") === [], "{$name} left a temporary file behind");
+                }
+            }
+        }
+        finally
+        {
+            Filesystem::deleteDir($base);
+        }
+    }
 });
 

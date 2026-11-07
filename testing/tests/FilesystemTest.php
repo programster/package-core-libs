@@ -156,8 +156,8 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
 });
 
 $smoke->run("replacing file contents in place", function () use ($dir) {
-    # createReplacementFile() makes an empty, private file in the system's temporary directory.
-    $tmpFilepath = Filesystem::createReplacementFile("{$dir}/replace.txt");
+    # createReplacementFile() with ALWAYS makes an empty, private file in the system's temporary directory.
+    $tmpFilepath = Filesystem::createReplacementFile("{$dir}/replace.txt", UseSystemTempDirEnum::ALWAYS);
     clearstatcache();
     assert(dirname($tmpFilepath) === sys_get_temp_dir() && str_starts_with(basename($tmpFilepath), "corelibs-tmp-"));
     assert(filesize($tmpFilepath) === 0 && (fileperms($tmpFilepath) & 0777) === 0600);
@@ -1210,9 +1210,10 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
             assert(dirname($auto) === $otherFilesystem && str_starts_with(basename($auto), ".corelibs-tmp-"));
             unlink($auto);
 
-            # And the default (the system's temporary directory) is copied back there, so the original keeps its inode.
+            # And one in the system's temporary directory (ALWAYS) is copied back there, so the original keeps its
+            # inode.
             $inodeBefore = fileinode("{$otherFilesystem}/auto.txt");
-            $tmp = Filesystem::createReplacementFile("{$otherFilesystem}/auto.txt");
+            $tmp = Filesystem::createReplacementFile("{$otherFilesystem}/auto.txt", UseSystemTempDirEnum::ALWAYS);
             file_put_contents($tmp, "copied");
             Filesystem::replaceWithFile("{$otherFilesystem}/auto.txt", $tmp);
             clearstatcache();
@@ -1318,10 +1319,10 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     Filesystem::replaceWithFile("{$base}/link.txt", $tmp);
     assert(is_link("{$base}/link.txt") && file_get_contents("{$base}/target.txt") === "via link");
 
-    # The default (the system's temporary directory) is renamed from there too when it is on the same filesystem (as
+    # One in the system's temporary directory (ALWAYS) is renamed from there too when it is on the same filesystem (as
     # the test directory is here), unless SELinux is enabled.
     $inodeBefore = fileinode("{$base}/target.txt");
-    $tmp = Filesystem::createReplacementFile("{$base}/target.txt");
+    $tmp = Filesystem::createReplacementFile("{$base}/target.txt", UseSystemTempDirEnum::ALWAYS);
     file_put_contents($tmp, "renamed");
     Filesystem::replaceWithFile("{$base}/target.txt", $tmp);
     clearstatcache();

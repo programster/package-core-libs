@@ -12,6 +12,8 @@
 namespace Programster\CoreLibs\Models;
 
 
+use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
+use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
@@ -113,6 +115,12 @@ final class CsvFile extends File
      * values are used as the JSON keys.
      * @param string $jsonFilepath - the path to write the JSON to. An existing file is overwritten.
      * @param bool $compressed - if true, the JSON has no line endings or padding.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace an existing JSON file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep an existing JSON file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      * @throws NoCsvHeaderException - if this file doesn't have a header row.
      * @throws BadFilePermissionsException - if the JSON file (or, for a new file, its directory)
@@ -121,7 +129,12 @@ final class CsvFile extends File
      * be written.
      * @throws \JsonException
      */
-    public function toJson(string $jsonFilepath, bool $compressed): void
+    public function toJson(
+        string $jsonFilepath,
+        bool $compressed,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
     {
         # CsvLib::convertCsvToJson() always uses the first row as the keys, so would treat it as a header anyway.
         if (!$this->m_hasHeader)
@@ -137,7 +150,9 @@ final class CsvFile extends File
             $compressed,
             $this->m_delimiter,
             $this->m_enclosure,
-            $this->m_escape
+            $this->m_escape,
+            $useSystemTempDir,
+            $preserveOwnership
         );
     }
 
@@ -254,6 +269,12 @@ final class CsvFile extends File
      * Remove the header row from this CSV file. Afterwards, hasHeader() is false, and there is one
      * fewer row. The file isn't checked again, as removing the first row can't make a valid file
      * invalid.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      * @throws NoCsvHeaderException - if this file doesn't have a header row.
      * @throws InvalidCsvException - if the file is no longer valid, e.g. because it was changed by
@@ -265,14 +286,27 @@ final class CsvFile extends File
      * @throws BadFilePermissionsException - if the file can't be both read and written.
      * @throws FilesystemException - if the file could not be read, or could not be replaced.
      */
-    public function removeHeader(): void
+    public function removeHeader(
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
     {
         if (!$this->m_hasHeader)
         {
             throw new NoCsvHeaderException("removeHeader: {$this->m_filepath} has no header row to remove.");
         }
 
-        CsvLib::removeRows($this->m_filepath, [0], true, $this->m_delimiter, $this->m_enclosure, $this->m_escape);
+        CsvLib::removeRows(
+            $this->m_filepath,
+            [0],
+            true,
+            $this->m_delimiter,
+            $this->m_enclosure,
+            $this->m_escape,
+            $useSystemTempDir,
+            $preserveOwnership
+        );
+
         $this->m_hasHeader = false;
         $this->m_rowCount--;
 

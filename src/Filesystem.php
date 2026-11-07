@@ -1036,6 +1036,12 @@ final class Filesystem
      * filtered content into. If this is not specified (or is the same file as $inputFile), then the
      * existing file will be modified in-place. If the output file doesn't exist, it is created,
      * with the default permissions for a new file.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the output file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the output file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $inputFile.
      * @throws BadFilePermissionsException - if $inputFile can't be read, or the file to write can't
@@ -1046,6 +1052,8 @@ final class Filesystem
         string   $inputFile,
         callable $filterCallback,
         ?string  $outputFilepath = null,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
     {
         // If the output file already exists, it may be the input file under a different path (e.g. relative path or
@@ -1092,7 +1100,7 @@ final class Filesystem
 
         try
         {
-            $tmpFilepath = self::createReplacementFile($targetFile);
+            $tmpFilepath = self::createReplacementFile($targetFile, $useSystemTempDir, $preserveOwnership);
             $tmpHandle = fopen($tmpFilepath, "w");
 
             if ($tmpHandle === false)
@@ -1137,7 +1145,7 @@ final class Filesystem
             throw new FilesystemException("Failed to create {$targetFile}.");
         }
 
-        self::replaceWithFile($targetFile, $tmpFilepath);
+        self::replaceWithFile($targetFile, $tmpFilepath, $preserveOwnership);
     }
 
 
@@ -1697,6 +1705,12 @@ final class Filesystem
      * default, common for Western European text), "Windows-1251" (Cyrillic), "ISO-8859-2" (Central
      * European), "ISO-8859-15" (Western European with the euro sign) or "SJIS" (Japanese). Note
      * that mbstring does NOT support "Windows-1250".
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
+     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
+     * keep it in the system's temporary directory, e.g. for a directory served to the public.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
      * @return void
      * @throws BadArgumentException - if $sourceEncoding is not an encoding that mbstring supports.
      * @throws BadFilePermissionsException - if the file exists but can't be read, or needs
@@ -1707,7 +1721,12 @@ final class Filesystem
      * @throws FilesystemException - if the file is not valid in the encoding it is being converted
      * from, or anything else goes wrong that is not covered by the other specific exceptions.
      */
-    public static function convertFileToUtf8(string $inputFilepath, string $sourceEncoding = 'Windows-1252'): void
+    public static function convertFileToUtf8(
+        string $inputFilepath,
+        string $sourceEncoding = 'Windows-1252',
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
     {
         if (extension_loaded('mbstring') === FALSE)
         {
@@ -1777,7 +1796,7 @@ final class Filesystem
             }
 
             $converted = mb_convert_encoding($content, 'UTF-8', $encoding);
-            self::replaceFileContents($inputFilepath, $converted);
+            self::replaceFileContents($inputFilepath, $converted, $useSystemTempDir, $preserveOwnership);
         }
     }
 
@@ -1810,13 +1829,15 @@ final class Filesystem
      * original with replaceWithFile(). This is useful for rewriting a file a piece at a time (e.g.
      * row by row), without changing the original until the new contents are complete. tempnam()
      * creates it with 0600 permissions, so other users can't read the data while it is there.
-     * By default it is in the system's temporary directory, never next to the original, in case that
-     * directory is served to the public (e.g. by a web server). $useSystemTempDir can put it next to
-     * the original instead, as a hidden file (e.g. ".corelibs-tmp-AbC123"). replaceWithFile() renames
-     * it over the original rather than copying it back where that is safe, which needs it to be on
-     * the same filesystem (see replaceWithFile()).
+     * It goes either in the system's temporary directory, or next to the original as a hidden file
+     * (e.g. ".corelibs-tmp-AbC123"), as $useSystemTempDir says. replaceWithFile() renames it over the
+     * original rather than copying it back where that is safe, which needs it to be on the same
+     * filesystem (see replaceWithFile()).
      * @param string $filepath - the path of the file it will replace (which needn't exist yet).
      * @param UseSystemTempDirEnum $useSystemTempDir - where to put it (see UseSystemTempDirEnum).
+     * Defaults to AUTO, which picks the fastest place that will work, which can be next to the
+     * original. Pass ALWAYS to keep it in the system's temporary directory, e.g. if the original's
+     * directory is served to the public (e.g. by a web server).
      * @param PreserveOwnershipEnum $preserveOwnership - only used by AUTO: what will be passed to
      * replaceWithFile(), which decides whether it could rename the file over the original.
      * @return string - the path of the temporary file.
@@ -1825,7 +1846,7 @@ final class Filesystem
      */
     public static function createReplacementFile(
         string $filepath,
-        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::ALWAYS,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
         PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): string
     {
@@ -2970,16 +2991,24 @@ final class Filesystem
      * directory) needs to be writable.
      * @param string $filepath - the path to the file to replace the contents of.
      * @param string $contents - the new contents for the file.
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write them first.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group.
      * @return void
      * @throws FileDoesNotExistException - if there is no file at $filepath.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
      * @throws FilesystemException - if the new contents could not be written. See replaceWithFile()
      * for what happens if this fails part way through copying them into the original.
      */
-    private static function replaceFileContents(string $filepath, string $contents): void
+    private static function replaceFileContents(
+        string $filepath,
+        string $contents,
+        UseSystemTempDirEnum $useSystemTempDir,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
     {
         self::checkCanChangeFile($filepath);
-        $tmpFilepath = self::createReplacementFile($filepath);
+        $tmpFilepath = self::createReplacementFile($filepath, $useSystemTempDir, $preserveOwnership);
 
         # Nothing has been copied into the original yet, so if this fails it is untouched, and the temporary file can
         # go.
@@ -2989,6 +3018,6 @@ final class Filesystem
             throw new FilesystemException("Failed to write the new contents of {$filepath} to a temporary file.");
         }
 
-        self::replaceWithFile($filepath, $tmpFilepath);
+        self::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
     }
 }
