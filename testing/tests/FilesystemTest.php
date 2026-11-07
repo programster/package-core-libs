@@ -1435,6 +1435,20 @@ $smoke->run("path helpers", function () use ($dir) {
     # Without resolving, only the paths as written are compared.
     assert(!Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/data", false));
 
+    # removeSymlink() removes a link (to a directory or a file) but not what it points to, and refuses anything else.
+    symlink("{$real}/sub", "{$real}/dir-link");
+    Filesystem::removeSymlink("{$real}/dir-link/");
+    assert(!is_link("{$real}/dir-link") && is_dir("{$real}/sub"));
+    file_put_contents("{$real}/real.txt", "x");
+
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        fn() => Filesystem::removeSymlink("{$real}/real.txt"),
+        "isn't a symlink"
+    );
+
+    assert(is_file("{$real}/real.txt"));
+
     # canEnterDirectory() and canListDirectory() are true for a normal directory.
     assert(Filesystem::canEnterDirectory($real) && Filesystem::canListDirectory($real));
 });

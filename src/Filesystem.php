@@ -810,7 +810,7 @@ final class Filesystem
             if (is_link($sourceLink))
             {
                 # Only remove the symlink itself, and keep the folder it points to. (deleteDir() refuses symlinks.)
-                if (!unlink($sourceLink))
+                if (!self::unlinkFileOrSymlink($sourceLink))
                 {
                     throw new FilesystemException("Zipped {$sourceFolder}, but failed to remove the symlink.");
                 }
@@ -1221,6 +1221,33 @@ final class Filesystem
         }
 
         return $type === "tmpfs";
+    }
+
+
+    /**
+     * Remove a symlink itself, leaving what it points to alone. On Windows, a symlink to a directory
+     * has to be removed with rmdir() rather than unlink(), so this does whichever is needed, which
+     * unlink() on its own doesn't.
+     * @param string $path - the symlink to remove. A trailing slash is ignored, as "link/" would
+     * otherwise mean what it points to.
+     * @return void
+     * @throws BadArgumentException - if $path isn't a symlink, so that a real file or directory is
+     * never removed by mistake.
+     * @throws FilesystemException - if the symlink couldn't be removed.
+     */
+    public static function removeSymlink(string $path): void
+    {
+        $linkPath = rtrim($path, "/\\");
+
+        if (!is_link($linkPath))
+        {
+            throw new BadArgumentException("removeSymlink: {$path} isn't a symlink, so it isn't removed.");
+        }
+
+        if (!self::unlinkFileOrSymlink($linkPath))
+        {
+            throw new FilesystemException("Failed to remove the symlink {$path}.");
+        }
     }
 
 
@@ -1935,14 +1962,33 @@ final class Filesystem
      * ".." parts, and remove repeated or trailing slashes, e.g. "/a/./b/../c/" gives "/a/c". An
      * absolute path stays absolute, and a ".." at its root is dropped (as "/.." is "/"). A relative
      * path stays relative, keeping any ".." parts that go above where it starts, e.g. "a/../../b"
-     * gives "../b", and one that comes to nothing gives ".". Only "/" is treated as a separator.
+     * gives "../b", and one that comes to nothing gives ".". On Windows, "\" is a separator too,
+     * and is turned into "/" (which Windows also accepts), so that paths from realpath() and ones
+     * built with "/" come out the same, e.g. "C:\a\..\b" gives "C:/b". Elsewhere, only "/" is.
      * As the filesystem isn't checked, ".." after a symlink goes up from the link's own location,
-     * which isn't where the system would go (see resolveLinkTarget()).
+     * which isn't where the system would go (see resolvePath()).
      * @param string $path - the path to tidy.
      * @return string - the tidied path.
      */
     public static function normalisePath(string $path): string
     {
+        $isWindows = PHP_OS_FAMILY === "Windows";
+        $path = $isWindows ? str_replace("\\", "/", $path) : $path;
+
+        # Keep a Windows drive (e.g. "C:"), or the extra "/" of a UNC path ("//server/share"), in front of the rest.
+        $prefix = "";
+
+        if ($isWindows && preg_match('#^[A-Za-z]:/#', $path) === 1)
+        {
+            $prefix = substr($path, 0, 2);
+            $path = substr($path, 2);
+        }
+        elseif ($isWindows && str_starts_with($path, "//"))
+        {
+            $prefix = "/";
+            $path = substr($path, 1);
+        }
+
         $isAbsolute = str_starts_with($path, "/");
         $parts = [];
 
@@ -1965,7 +2011,8 @@ final class Filesystem
         }
 
         $joined = implode("/", $parts);
-        return $isAbsolute ? "/{$joined}" : (($joined === "") ? "." : $joined);
+        $tidied = $isAbsolute ? "/{$joined}" : (($joined === "") ? "." : $joined);
+        return $prefix . $tidied;
     }
 
 
@@ -3093,7 +3140,7 @@ final class Filesystem
             # match() throws an UnhandledMatchError for a case it doesn't handle, rather than guessing.
             $deleted = match ($operation)
             {
-                FileDeletionOperationEnum::UNLINK => @unlink($path),
+                FileDeletionOperationEnum::UNLINK => self::unlinkFileOrSymlink($path),
                 FileDeletionOperationEnum::RMDIR => @rmdir($path),
             };
 
@@ -3241,5 +3288,20 @@ final class Filesystem
 
         closedir($handle);
         return $entries;
+    }
+
+
+    /**
+     * Remove a file or a symlink, including a symlink to a directory on Windows, which unlink()
+     * alone can't remove there (see removeSymlink()). This returns whether it worked rather than
+     * throwing, for code that reports failures itself.
+     * @param string $path - the file or symlink to remove.
+     * @return bool - true if it was removed.
+     */
+    private static function unlinkFileOrSymlink(string $path): bool
+    {
+        # Suppress the warnings, as the caller reports the failure. On Windows, a symlink to a directory can only be
+        # removed with rmdir(), which never removes a real directory here, as $path is a symlink.
+        return @unlink($path) || (PHP_OS_FAMILY === "Windows" && is_link($path) && @rmdir($path));
     }
 }

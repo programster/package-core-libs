@@ -488,6 +488,7 @@ final class Core
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the amount of memory
      * in. Defaults to MiB.
      * @return float - the amount of memory in the specified unit. E.g. 1.5 for 1536 KiB in MiB.
+     * @throws UnsupportedPlatformException - if there is no /proc/meminfo, as this isn't Linux.
      * @throws FilesystemException - if /proc/meminfo could not be read.
      * @throws UnexpectedOutputException - if /proc/meminfo does not contain a field needed for the
      * requested measurement. Not every field exists on every system.
@@ -497,6 +498,11 @@ final class Core
         DataSizeUnitEnum $unit = DataSizeUnitEnum::MIB,
     ): float
     {
+        if (!file_exists("/proc/meminfo"))
+        {
+            throw new UnsupportedPlatformException("getMemory: this needs /proc/meminfo, so only works on Linux.");
+        }
+
         $meminfoContents = file_get_contents("/proc/meminfo");
 
         if ($meminfoContents === false)

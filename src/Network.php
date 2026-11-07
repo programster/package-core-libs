@@ -13,6 +13,7 @@ use Programster\CoreLibs\Exceptions\MissingExtensionException;
 use Programster\CoreLibs\Exceptions\NetworkInterfaceDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\NetworkException;
+use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 final class Network
@@ -135,6 +136,7 @@ final class Network
      * addresses.
      * @throws NetworkInterfaceDoesNotExistException - if there is no network interface with that
      * name.
+     * @throws UnsupportedPlatformException - if there is no /sys/class/net, as this isn't Linux.
      * @throws FilesystemException - if the list of network interfaces could not be read from
      * /sys/class/net.
      * @throws CommandFailedException - if the ip command failed.
@@ -144,6 +146,11 @@ final class Network
         # Check against the kernel's own list of interfaces, rather than relying on the ip command's error message.
         # Comparing against the list (rather than checking if /sys/class/net/{$interface} exists) also means names
         # like ".." can't match.
+        if (!is_dir("/sys/class/net"))
+        {
+            throw new UnsupportedPlatformException("getIps: this needs /sys/class/net, so only works on Linux.");
+        }
+
         try
         {
             $interfaces = Filesystem::getDirContents("/sys/class/net", false, false, false);

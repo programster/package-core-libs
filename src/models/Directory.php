@@ -10,6 +10,7 @@
 namespace Programster\CoreLibs\Models;
 
 
+use Programster\CoreLibs\Exceptions\CoreLibsException;
 use Programster\CoreLibs\Exceptions\DirectoryNotMovableException;
 use Programster\CoreLibs\Enums\DirectoryMoveProblemEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
@@ -494,8 +495,20 @@ class Directory
         {
             $linkPath = $newRoot . substr($oldLinkPath, strlen($oldRoot));
 
-            # Suppress the warnings, as we report the failures together instead.
-            if (!@unlink($linkPath) || !@symlink($newTarget, $linkPath))
+            # Suppress the warning, as we report the failures together instead.
+            $replaced = false;
+
+            try
+            {
+                Filesystem::removeSymlink($linkPath);
+                $replaced = @symlink($newTarget, $linkPath);
+            }
+            catch (CoreLibsException $e)
+            {
+                # Reported with the others below.
+            }
+
+            if (!$replaced)
             {
                 $failed[] = "{$linkPath} (should point to {$newTarget})";
             }
