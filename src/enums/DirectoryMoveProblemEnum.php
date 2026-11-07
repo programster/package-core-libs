@@ -48,6 +48,10 @@ enum DirectoryMoveProblemEnum : string
     # and PHP can't read or copy the original's, so ownership can't be kept. Only with PreserveOwnershipEnum::YES.
     case OWNERSHIP_NOT_KEEPABLE_ON_WINDOWS = 'ownership_not_keepable_on_windows';
 
+    # On Windows, a symlink that has to be created again (to update its target, or when copying to another drive) is
+    # broken, and Windows can't create a symlink to something that doesn't exist.
+    case SYMLINK_NOT_CREATABLE_ON_WINDOWS = 'symlink_not_creatable_on_windows';
+
     # The other filesystem doesn't have enough free space for the copy.
     case NOT_ENOUGH_SPACE = 'not_enough_space';
 }

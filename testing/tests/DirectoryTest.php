@@ -507,3 +507,73 @@ $smoke->run("moves to another drive on Windows keeping ownership", function () u
     }
 });
 
+$smoke->run("Directory moves recreating symlinks on Windows", function () {
+    # Windows can't create a relative symlink, so a Directory move there recreates one as absolute. That only runs
+    # on Windows, so check the rule directly. The paths don't need to exist.
+    $newTarget = new ReflectionMethod(Directory::class, "newSymlinkTarget");
+    $old = "/srv/old";
+    $new = "/srv/archive/old";
+
+    # A relative link that still works after the move is left alone (it isn't recreated, so can stay relative).
+    assert($newTarget->invoke(null, "{$old}/sub", "../file.txt", $old, $new, true) === "../file.txt");
+
+    # One that needs a new target gets an absolute one on Windows, and a relative one elsewhere.
+    assert($newTarget->invoke(null, $old, "../outside.txt", $old, $new, true) === "/srv/outside.txt");
+    assert($newTarget->invoke(null, $old, "../outside.txt", $old, $new, false) === "../../outside.txt");
+
+    # When copying to another drive, every link is recreated, so even one that still works becomes absolute.
+    assert($newTarget->invoke(null, "{$old}/sub", "../file.txt", $old, $new, true, true) === "{$new}/file.txt");
+
+    # Absolute links are handled as before: inside ones follow the move, and outside ones are left alone.
+    assert($newTarget->invoke(null, $old, "{$old}/file.txt", $old, $new, true) === "{$new}/file.txt");
+    assert($newTarget->invoke(null, $old, "/elsewhere/x", $old, $new, true) === "/elsewhere/x");
+});
+
+$smoke->run("Directory moves with absolute symlinks", function () use ($dir) {
+    # Only absolute links to things that exist, which Windows can create too, so this also runs there.
+    $base = realpath($dir) . "/absolute-links";
+    mkdir("{$base}/project/sub", 0777, true);
+    mkdir("{$base}/moved-here");
+    file_put_contents("{$base}/project/sub/file.txt", "inside");
+    file_put_contents("{$base}/outside.txt", "outside");
+    symlink("{$base}/project/sub/file.txt", "{$base}/project/to-inside");
+    symlink("{$base}/outside.txt", "{$base}/project/to-outside");
+
+    # On the same drive, the link to inside follows the move, and the one to outside still works.
+    $directory = new Directory("{$base}/project");
+    $directory->move("{$base}/moved-here");
+    $moved = "{$base}/moved-here/project";
+    SmokeTest::assertSamePath(readlink("{$moved}/to-inside"), "{$moved}/sub/file.txt");
+    assert(file_get_contents("{$moved}/to-inside") === "inside");
+    assert(file_get_contents("{$moved}/to-outside") === "outside");
+
+    # To another drive (D: on GitHub's Windows runners, or /dev/shm elsewhere), the links are recreated, and still
+    # work.
+    $otherParent = (PHP_OS_FAMILY === "Windows") ? "D:" : "/dev/shm";
+    $otherDrive = "{$otherParent}/corelibs-links-" . getmypid();
+    $parent = dirname($otherDrive);
+    $canCopy = is_dir($parent) && is_writable($parent) && !Filesystem::isOnSameFilesystem($base, $parent);
+
+    if (!$canCopy)
+    {
+        SmokeTest::skip("Directory moves with absolute symlinks to another drive", "needs a second drive");
+    }
+    else
+    {
+        mkdir($otherDrive);
+
+        try
+        {
+            $directory->move($otherDrive, preserveOwnership: PreserveOwnershipEnum::PREFERRED);
+            $copied = "{$otherDrive}/project";
+            assert(is_link("{$copied}/to-inside") && file_get_contents("{$copied}/to-inside") === "inside");
+            SmokeTest::assertSamePath(readlink("{$copied}/to-inside"), "{$copied}/sub/file.txt");
+            assert(file_get_contents("{$copied}/to-outside") === "outside" && !file_exists($moved));
+        }
+        finally
+        {
+            Filesystem::deleteDir($otherDrive);
+        }
+    }
+}, needsSymlinks: true, anySymlinks: false);
+

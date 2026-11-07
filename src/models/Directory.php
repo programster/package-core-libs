@@ -421,7 +421,19 @@ class Directory
                     if (is_link($path))
                     {
                         $linkTarget = readlink($path);
-                        $newTarget = self::newSymlinkTarget($directory, $linkTarget, $oldRoot, $newRoot);
+                        $onWindows = PHP_OS_FAMILY === "Windows";
+                        $newTarget = self::newSymlinkTarget($directory, $linkTarget, $oldRoot, $newRoot, $onWindows);
+
+                        # Windows can't create a symlink to something that doesn't exist, so a broken one can't be
+                        # updated.
+                        if ($newTarget !== $linkTarget && $onWindows && !file_exists($path))
+                        {
+                            $problems[] = new DirectoryMoveProblem(
+                                $path,
+                                DirectoryMoveProblemEnum::SYMLINK_NOT_CREATABLE_ON_WINDOWS,
+                                "{$path} needs updating, but it is broken, and Windows can't create a broken symlink."
+                            );
+                        }
 
                         if ($newTarget !== $linkTarget)
                         {
@@ -455,6 +467,11 @@ class Directory
      * @param string $linkTarget - the symlink's current target.
      * @param string $oldRoot - the real path of the directory being moved.
      * @param string $newRoot - the absolute path it will have.
+     * @param bool $mustBeAbsolute - true on Windows, where PHP can't create a relative symlink, so a
+     * relative one that has to be created gets an absolute target instead.
+     * @param bool $isRecreated - true if the symlink is being created again anyway (when copying to
+     * another filesystem), so with $mustBeAbsolute, even a relative one that would still work gets an
+     * absolute target.
      * @return string - the target it should have, which is $linkTarget if it doesn't need to
      * change.
      */
@@ -462,7 +479,9 @@ class Directory
         string $linkDirectory,
         string $linkTarget,
         string $oldRoot,
-        string $newRoot
+        string $newRoot,
+        bool $mustBeAbsolute = false,
+        bool $isRecreated = false
     ): string
     {
         $isAbsolute = Filesystem::isAbsolutePath($linkTarget);
@@ -474,18 +493,23 @@ class Directory
         # Where it should point once the directory has moved.
         $shouldPointAt = $isInside ? $newRoot . substr($pointsAt, strlen($oldRoot)) : $pointsAt;
         $newLinkDirectory = $newRoot . substr($linkDirectory, strlen($oldRoot));
+        $wouldStillWork = Filesystem::normalisePath("{$newLinkDirectory}/{$linkTarget}") === $shouldPointAt;
 
         if ($isAbsolute)
         {
             # An absolute target outside the directory is unaffected by the move, so is left exactly as it is.
             $newTarget = $isInside ? $shouldPointAt : $linkTarget;
         }
+        elseif ($mustBeAbsolute && ($isRecreated || $wouldStillWork === false))
+        {
+            # Windows can't create a relative symlink, so one that has to be created points at the same place
+            # absolutely.
+            $newTarget = $shouldPointAt;
+        }
         else
         {
             # Keep a relative target as it is if it still works from the new location, otherwise work it out again.
-            $wouldPointAt = Filesystem::normalisePath("{$newLinkDirectory}/{$linkTarget}");
-
-            $newTarget = ($wouldPointAt === $shouldPointAt)
+            $newTarget = $wouldStillWork
                 ? $linkTarget
                 : Filesystem::relativePathBetween($newLinkDirectory, $shouldPointAt);
         }
@@ -517,7 +541,7 @@ class Directory
             try
             {
                 Filesystem::removeSymlink($linkPath);
-                $replaced = @symlink($newTarget, $linkPath);
+                $replaced = self::createSymlink($newTarget, $linkPath);
             }
             catch (CoreLibsException $e)
             {
@@ -635,7 +659,15 @@ class Directory
             $userId = $checkOwnership ? posix_geteuid() : 0;
             $groupIds = $checkOwnership ? array_merge([posix_getegid()], posix_getgroups()) : [];
 
-            if (!$isDirectory && !$isSymlink && $type !== 0100000)
+            if ($isSymlink && PHP_OS_FAMILY === "Windows" && !file_exists($path))
+            {
+                $problems[] = new DirectoryMoveProblem(
+                    $path,
+                    DirectoryMoveProblemEnum::SYMLINK_NOT_CREATABLE_ON_WINDOWS,
+                    "{$path} is a broken symlink, which can't be copied, as Windows can't create a broken symlink."
+                );
+            }
+            elseif (!$isDirectory && !$isSymlink && $type !== 0100000)
             {
                 $problems[] = new DirectoryMoveProblem(
                     $path,
@@ -740,7 +772,19 @@ class Directory
         try
         {
             $copySettings = ['overrideUmask' => $overrideUmask, 'preserveOwnership' => $preserveOwnership];
-            self::copyTree($oldRoot, $newRoot, $oldRoot, $newRoot, $copySettings, $directoriesToFinish);
+            $symlinksToCreate = [];
+
+            self::copyTree(
+                $oldRoot,
+                $newRoot,
+                $oldRoot,
+                $newRoot,
+                $copySettings,
+                $directoriesToFinish,
+                $symlinksToCreate
+            );
+
+            self::createCopiedSymlinks($symlinksToCreate, $preserveOwnership);
 
             # The deepest directories come last in the list, and must be finished first.
             foreach (array_reverse($directoriesToFinish) as [$directoryPath, $stats])
@@ -802,6 +846,9 @@ class Directory
      * whether to copy permissions exactly, and how hard to try to keep owners and groups.
      * @param array $directoriesToFinish - [path, lstat() of the original] pairs, which this adds
      * to.
+     * @param array $symlinksToCreate - [path, target, lstat() of the original] for each symlink,
+     * which this adds to, rather than creating them, as on Windows a symlink's target has to exist
+     * before it can be created (see createCopiedSymlinks()).
      * @return void
      * @throws FilesystemException - if anything couldn't be copied.
      */
@@ -811,7 +858,8 @@ class Directory
         string $oldRoot,
         string $newRoot,
         array $copySettings,
-        array &$directoriesToFinish
+        array &$directoriesToFinish,
+        array &$symlinksToCreate
     ): void
     {
         # Suppress the warnings, as we throw exceptions instead.
@@ -831,19 +879,15 @@ class Directory
 
             if ($type === 0120000)
             {
-                # Recreate the symlink, pointing at the same thing (see newSymlinkTarget()).
-                $newTarget = self::newSymlinkTarget($source, readlink($from), $oldRoot, $newRoot);
-
-                if (!@symlink($newTarget, $to))
-                {
-                    throw new FilesystemException("Failed to create the symlink {$to}.");
-                }
-
-                self::restoreOwnership($to, $stats, true, $copySettings['preserveOwnership']);
+                # Recreate the symlink, pointing at the same thing (see newSymlinkTarget()), once everything else is
+                # copied, as on Windows, its target has to exist first.
+                $onWindows = PHP_OS_FAMILY === "Windows";
+                $newTarget = self::newSymlinkTarget($source, readlink($from), $oldRoot, $newRoot, $onWindows, true);
+                $symlinksToCreate[] = [$to, $newTarget, $stats];
             }
             elseif ($type === 0040000)
             {
-                self::copyTree($from, $to, $oldRoot, $newRoot, $copySettings, $directoriesToFinish);
+                self::copyTree($from, $to, $oldRoot, $newRoot, $copySettings, $directoriesToFinish, $symlinksToCreate);
             }
             else
             {
@@ -858,6 +902,76 @@ class Directory
                 self::setModificationTime($to, $stats);
             }
         }
+    }
+
+
+    /**
+     * Create the symlinks copyTree() put off until everything else was copied, for copyThenDelete().
+     * On Windows, a symlink can only be created once its target exists, so one pointing at another
+     * symlink waits until that one exists. Elsewhere, any symlink can be created, so they are all
+     * created in one go.
+     * @param array<array{0: string, 1: string, 2: array}> $symlinks - each symlink's path, target, and
+     * lstat() of the original.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep their owners and groups.
+     * @return void
+     * @throws FilesystemException - if one couldn't be created, or (on Windows) its target never
+     * appears.
+     */
+    private static function createCopiedSymlinks(array $symlinks, PreserveOwnershipEnum $preserveOwnership): void
+    {
+        $toCreate = $symlinks;
+        $madeProgress = true;
+
+        while (count($toCreate) > 0 && $madeProgress)
+        {
+            $madeProgress = false;
+
+            foreach ($toCreate as $index => [$linkPath, $target, $stats])
+            {
+                $targetPath = Filesystem::isAbsolutePath($target) ? $target : dirname($linkPath) . "/" . $target;
+
+                if (PHP_OS_FAMILY !== "Windows" || file_exists($targetPath))
+                {
+                    if (!self::createSymlink($target, $linkPath))
+                    {
+                        throw new FilesystemException("Failed to create the symlink {$linkPath}.");
+                    }
+
+                    self::restoreOwnership($linkPath, $stats, true, $preserveOwnership);
+                    unset($toCreate[$index]);
+                    $madeProgress = true;
+                }
+            }
+        }
+
+        if (count($toCreate) > 0)
+        {
+            $paths = [];
+
+            foreach ($toCreate as [$linkPath])
+            {
+                $paths[] = $linkPath;
+            }
+
+            throw new FilesystemException(
+                "Failed to create these symlinks, as their targets don't exist: " . implode(", ", $paths)
+            );
+        }
+    }
+
+
+    /**
+     * Create a symlink. On Windows, the target is given with "\\", which it needs.
+     * @param string $target - where it points.
+     * @param string $linkPath - where to create it.
+     * @return bool - true if it was created.
+     */
+    private static function createSymlink(string $target, string $linkPath): bool
+    {
+        $systemTarget = (PHP_OS_FAMILY === "Windows") ? str_replace("/", "\\", $target) : $target;
+
+        # Suppress the warning, as the callers throw an exception instead.
+        return @symlink($systemTarget, $linkPath);
     }
 
 
