@@ -6,6 +6,7 @@
 
 namespace Programster\CoreLibs;
 
+use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
 use Programster\CoreLibs\Exceptions\UserCancelledException;
 use Programster\CoreLibs\Exceptions\InputEndedException;
@@ -38,24 +39,8 @@ final class CliLib
         $percentageString = number_format($percentage, $numDecimalPlaces) . '%';
         $percentageString = str_pad($percentageString, $percentageStringLength, " ", STR_PAD_LEFT);
 
-        $percentageStringLength += 3; // add 2 for () and a space before bar starts.
-
-        # Fall back to the traditional terminal width if we can't work it out, rather than failing to show the bar.
-        $terminalWidth = 80;
-
-        try
-        {
-            $tputOutput = trim(Core::runCommand("tput cols"));
-
-            if (ctype_digit($tputOutput) && (int) $tputOutput > 0)
-            {
-                $terminalWidth = (int) $tputOutput;
-            }
-        }
-        catch (CommandFailedException $e)
-        {
-            // Keep the fallback width.
-        }
+        $percentageStringLength += 3; // add 3 for the () and a space before the bar starts.
+        $terminalWidth = self::getTerminalWidth();
 
         # Subtract 2 for the [] around the bar. A terminal narrower than the percentage text leaves no room for a bar,
         # and a percentage outside 0 - 100 would give a negative number of bars, either of which would make
@@ -111,6 +96,73 @@ final class CliLib
         }
 
         return $password;
+    }
+
+
+    /**
+     * Get the width of the terminal, in characters, for showProgressBar(): from "tput cols", or on
+     * Windows (which has no tput) from "mode con". If it can't be worked out (e.g. when the output
+     * isn't a terminal), this gives the traditional width of 80, rather than failing to show a bar.
+     * @return int - the width.
+     */
+    private static function getTerminalWidth(): int
+    {
+        $width = 80;
+
+        try
+        {
+            $width = (PHP_OS_FAMILY === "Windows")
+                ? self::parseModeConWidth(Core::runCommand("mode con"))
+                : self::parseTputWidth(Core::runCommand("tput cols"));
+        }
+        catch (CommandFailedException | UnexpectedOutputException $e)
+        {
+            // Keep the fallback width.
+        }
+
+        return $width;
+    }
+
+
+    /**
+     * Read the width from what "tput cols" printed, for getTerminalWidth().
+     * @param string $output - what tput printed, e.g. "120".
+     * @return int - the width.
+     * @throws UnexpectedOutputException - if it isn't a positive number.
+     */
+    private static function parseTputWidth(string $output): int
+    {
+        $trimmed = trim($output);
+
+        if (!ctype_digit($trimmed) || (int)$trimmed === 0)
+        {
+            throw new UnexpectedOutputException("Expected tput cols to give a width, but got: {$trimmed}");
+        }
+
+        return (int)$trimmed;
+    }
+
+
+    /**
+     * Read the width from what Windows' "mode con" printed, for getTerminalWidth(). It lists the
+     * console's settings as "name: value" lines, starting with the number of lines and then the
+     * number of columns, e.g. "    Lines:          9001" and "    Columns:        120". The names
+     * are translated into the system's language (e.g. "Spalten" in German), so this takes the
+     * second number, rather than looking for the word "Columns".
+     * @param string $output - what mode con printed.
+     * @return int - the width.
+     * @throws UnexpectedOutputException - if it doesn't list at least two numbers.
+     */
+    private static function parseModeConWidth(string $output): int
+    {
+        preg_match_all('/^[^:\r\n]+:\s*([0-9]+)\s*$/m', $output, $matches);
+
+        if (count($matches[1]) < 2 || (int)$matches[1][1] === 0)
+        {
+            throw new UnexpectedOutputException("Expected mode con to give the console's width, but got: {$output}");
+        }
+
+        return (int)$matches[1][1];
     }
 
 
