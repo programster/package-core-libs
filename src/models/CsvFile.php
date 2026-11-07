@@ -17,6 +17,7 @@ use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\CsvLib;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
+use Programster\CoreLibs\CsvReadingTrait;
 use Programster\CoreLibs\Exceptions\InvalidCsvException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\NoCsvHeaderException;
@@ -24,6 +25,8 @@ use Programster\CoreLibs\Exceptions\NonNumericCsvValuesException;
 
 final class CsvFile extends File
 {
+    use CsvReadingTrait;
+
     # These describe how to read the file, so never change.
     private readonly string $m_delimiter;
     private readonly string $m_enclosure;
@@ -275,8 +278,8 @@ final class CsvFile extends File
 
     /**
      * Remove the header row from this CSV file. Afterwards, hasHeader() is false, and there is one
-     * fewer row. The file isn't checked again, as removing the first row can't make a valid file
-     * invalid.
+     * fewer row. CsvLib::removeRows() checks the file again first, in case it was changed by
+     * something else since this CsvFile was created.
      * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
      * replace the file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
      * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
@@ -482,7 +485,7 @@ final class CsvFile extends File
             throw new FilesystemException("Failed to open {$this->m_filepath} for reading.");
         }
 
-        CsvLib::skipByteOrderMark($file);
+        self::skipByteOrderMark($file);
 
         $columnCount = null;
         $blankRowNumber = null;
@@ -496,7 +499,7 @@ final class CsvFile extends File
                 # This counts rows rather than lines, as a quoted value can span several lines.
                 $rowNumber++;
 
-                if (CsvLib::isBlankRow($row))
+                if (self::isBlankRow($row))
                 {
                     # Only remember the first one, as that's the one to report if there's more data after it.
                     $blankRowNumber = $blankRowNumber ?? $rowNumber;

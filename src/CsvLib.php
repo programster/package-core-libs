@@ -21,9 +21,10 @@ use Programster\CoreLibs\Exceptions\BadArgumentException;
 
 final class CsvLib
 {
+    use CsvReadingTrait;
+
     # The UTF-8 byte order mark, which some programs (e.g. Excel) put at the start of a CSV file, and which
     # convertArrayToCsv() adds by default.
-    private const BYTE_ORDER_MARK = "\xEF\xBB\xBF";
 
     /**
      * Converts a CSV file into a JSON file: an array with an object for each row of data, keyed by
@@ -1439,46 +1440,6 @@ final class CsvLib
         # Write to a temporary file first, so that a file that can't be read part way through leaves an existing
         # merged file as it was. This also means $mergedFilepath can be one of the files being merged.
         self::writeOutputFile($mergedFilepath, $writeMergedFile, $useSystemTempDir, $preserveOwnership);
-    }
-
-
-    /**
-     * Determine whether a row returned by fgetcsv/str_getcsv is a blank line, which
-     * fgetcsv/str_getcsv return as [null]. Note that a line of just delimiters (e.g. ",,,") is NOT
-     * a blank line, as it is a row of empty values, which may be legitimate data.
-     * @internal - this is only public so that CsvFile can use it.
-     * @param array $row - the row as returned by fgetcsv/str_getcsv.
-     * @return bool - true if the row came from a blank line, false otherwise.
-     */
-    public static function isBlankRow(array $row): bool
-    {
-        return $row === [null];
-    }
-
-
-    /**
-     * If a file starts with a UTF-8 byte order mark, move past it, so that it doesn't end up as
-     * part of the first value read (e.g. making the first column's name "\xEF\xBB\xBFname" rather
-     * than "name"). This must be called straight after opening the file, before anything has been
-     * read from it.
-     * @internal - this is only public so that CsvFile can use it.
-     * @param resource $handle - the file handle, opened for reading. PHP can't declare a resource
-     * type, so this is only documented here.
-     * @return bool - true if the file started with a byte order mark (which has now been skipped),
-     * false if not.
-     */
-    public static function skipByteOrderMark($handle): bool
-    {
-        $start = fread($handle, strlen(self::BYTE_ORDER_MARK));
-        $hasByteOrderMark = ($start === self::BYTE_ORDER_MARK);
-
-        if (!$hasByteOrderMark)
-        {
-            # Go back to the start, so the bytes we just read are read again as normal.
-            rewind($handle);
-        }
-
-        return $hasByteOrderMark;
     }
 
 
