@@ -9,6 +9,8 @@
 namespace Programster\CoreLibs\Models;
 
 
+use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
+use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
@@ -54,15 +56,28 @@ class File
      * @param string $newPath - the new name or path for the file. It must not end with a "/".
      * @param bool $overwriteExistingFile - whether to replace a file (or symlink) that already
      * exists at $newPath. Defaults to false. A directory is never replaced.
+     * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem, where
+     * the file has to be copied: how hard to try to keep its owner and group (only root can give a
+     * copy to another user). YES (the default) checks first that they can be kept, and doesn't move
+     * it if not. PREFERRED keeps them where it can, and otherwise lets the copy belong to whoever is
+     * running this. NO doesn't try. On the same filesystem, nothing is copied, so ownership is always
+     * kept (apart from a recreated relative symlink, see move()) and this has no effect.
      * @return void
      * @throws BadArgumentException - if $newPath is empty, or ends with a "/".
      * @throws DirectoryDoesNotExistException - if the directory $newPath is in doesn't exist.
      * @throws FileAlreadyExistsException - if there is a directory at $newPath, there is a file
      * there and $overwriteExistingFile is false, or it is the same file as this one (see moveTo()).
      * Nothing is changed if this happens.
+     * @throws BadFilePermissionsException - with $preserveOwnership set to YES, if the file has to be
+     * copied to another filesystem, and its owner or group can't be kept. Nothing is changed if
+     * this happens.
      * @throws FilesystemException - if the file could not be renamed.
      */
-    public function rename(string $newPath, bool $overwriteExistingFile = false): void
+    public function rename(
+        string $newPath,
+        bool $overwriteExistingFile = false,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+    ): void
     {
         if ($newPath === "" || str_ends_with($newPath, "/"))
         {
@@ -83,7 +98,7 @@ class File
             );
         }
 
-        $this->moveTo($targetPath, $overwriteExistingFile);
+        $this->moveTo($targetPath, $overwriteExistingFile, $preserveOwnership);
     }
 
 
@@ -107,6 +122,12 @@ class File
      * if it doesn't exist. Defaults to false, in which case it must already exist.
      * @param bool $overwriteExistingFile - whether to replace a file (or symlink) with this file's
      * name that already exists in the directory. Defaults to false. A directory is never replaced.
+     * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem, where
+     * the file has to be copied: how hard to try to keep its owner and group (only root can give a
+     * copy to another user). YES (the default) checks first that they can be kept, and doesn't move
+     * it if not. PREFERRED keeps them where it can, and otherwise lets the copy belong to whoever is
+     * running this. NO doesn't try. On the same filesystem, nothing is copied, so ownership is always
+     * kept (apart from a recreated relative symlink, see move()) and this has no effect.
      * @return void
      * @throws BadArgumentException - if $directory is empty, or is something other than a directory
      * (e.g. a file).
@@ -115,10 +136,18 @@ class File
      * @throws FileAlreadyExistsException - if the directory has a directory with this file's name
      * in it, it has a file with this name and $overwriteExistingFile is false, or that file is the
      * same file as this one (see moveTo()). The file isn't moved if this happens.
+     * @throws BadFilePermissionsException - with $preserveOwnership set to YES, if the file has to be
+     * copied to another filesystem, and its owner or group can't be kept. Nothing is changed if
+     * this happens.
      * @throws FilesystemException - if the directory could not be created, or the file could not be
      * moved.
      */
-    public function move(string $directory, bool $createIfNotExists = false, bool $overwriteExistingFile = false): void
+    public function move(
+        string $directory,
+        bool $createIfNotExists = false,
+        bool $overwriteExistingFile = false,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+    ): void
     {
         if ($directory === "")
         {
@@ -148,7 +177,8 @@ class File
             }
         }
 
-        $this->moveTo(rtrim($targetDirectory, "/") . "/" . basename($this->m_filepath), $overwriteExistingFile);
+        $targetPath = rtrim($targetDirectory, "/") . "/" . basename($this->m_filepath);
+        $this->moveTo($targetPath, $overwriteExistingFile, $preserveOwnership);
     }
 
 
@@ -179,12 +209,20 @@ class File
      * @param string $targetPath - the new path for the file.
      * @param bool $overwriteExistingFile - whether to replace a file or symlink that already exists
      * at $targetPath.
+     * @param PreserveOwnershipEnum $preserveOwnership - see move().
      * @return void
      * @throws FileAlreadyExistsException - if there is a directory at $targetPath, something else
      * exists there and $overwriteExistingFile is false, or it is the same file as this one.
+     * @throws BadFilePermissionsException - with $preserveOwnership set to YES, if the file has to be
+     * copied to another filesystem, and its owner or group can't be kept. Nothing is changed if
+     * this happens.
      * @throws FilesystemException - if the file could not be moved.
      */
-    private function moveTo(string $targetPath, bool $overwriteExistingFile): void
+    private function moveTo(
+        string $targetPath,
+        bool $overwriteExistingFile,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
     {
         # Compare the real directories, so that e.g. "./bob.txt" and "../dir/bob.txt" count as where the file already
         # is. Only the directory is resolved, so that a symlink is renamed rather than the file it points to.
@@ -229,7 +267,7 @@ class File
             }
             else
             {
-                self::moveFile($currentPath, $newPath, $overwriteExistingFile);
+                self::moveFile($currentPath, $newPath, $overwriteExistingFile, $preserveOwnership);
             }
         }
 
@@ -296,21 +334,30 @@ class File
      * something another process creates there after it was checked is never replaced.
      * On another filesystem, it is copied to a hidden, randomly named file in the new directory
      * (e.g. ".corelibs-move-1a2b3c4d5e6f7a8b"), with its permissions and modification time, and its
-     * owner and group when running as root. That is then put in place the same way, and only once it
-     * is there is the original deleted. So if anything goes wrong part way through, the original is
-     * still there, and only the copy needs removing.
+     * owner and group as $preserveOwnership says. That is then put in place the same way, and only
+     * once it is there is the original deleted. So if anything goes wrong part way through, the
+     * original is still there, and only the copy needs removing.
      * Where hard links aren't allowed (e.g. on a FAT filesystem, or for a file another user owns,
      * with fs.protected_hardlinks), this falls back to rename(), which is only safe from that if
      * nothing appears at the new path in the moment between the checks and the move.
      * @param string $currentPath - the file to move.
      * @param string $newPath - where to move it.
      * @param bool $replace - whether to replace a file or symlink at $newPath.
+     * @param PreserveOwnershipEnum $preserveOwnership - for a copy, how hard to try to keep the
+     * owner and group (see move()).
      * @return void
      * @throws FileAlreadyExistsException - without $replace, if something is at $newPath.
+     * @throws BadFilePermissionsException - with YES, if a copy couldn't keep the owner and group.
+     * This is checked before anything is copied.
      * @throws FilesystemException - if the file couldn't be moved. The original is left where it was
      * if this happens, and any copy is removed.
      */
-    private static function moveFile(string $currentPath, string $newPath, bool $replace): void
+    private static function moveFile(
+        string $currentPath,
+        string $newPath,
+        bool $replace,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
     {
         if (Filesystem::isOnSameFilesystem(dirname($currentPath), dirname($newPath)))
         {
@@ -318,7 +365,12 @@ class File
         }
         else
         {
-            $copyPath = self::copyToTemporaryFile($currentPath, dirname($newPath));
+            if ($preserveOwnership === PreserveOwnershipEnum::YES)
+            {
+                self::checkCopyCanKeepOwnership($currentPath);
+            }
+
+            $copyPath = self::copyToTemporaryFile($currentPath, dirname($newPath), $preserveOwnership);
 
             try
             {
@@ -391,15 +443,68 @@ class File
 
 
     /**
+     * Check, before a file is copied to another filesystem with PreserveOwnershipEnum::YES, that the
+     * copy can keep its owner and group. A copy belongs to whoever makes it, and only root can give
+     * a file to another user, so when not running as root, the file must already belong to the
+     * current user, and to a group they are in.
+     * @param string $path - the file (or symlink) that will be copied.
+     * @return void
+     * @throws BadFilePermissionsException - if the owner or group couldn't be kept, or PHP's posix
+     * extension (needed to check) isn't installed.
+     */
+    private static function checkCopyCanKeepOwnership(string $path): void
+    {
+        if (!function_exists('posix_geteuid'))
+        {
+            throw new BadFilePermissionsException(
+                "Moving {$path} to a different filesystem needs PHP's posix extension, to check that its owner and " .
+                "group can be kept (or pass PreserveOwnershipEnum::PREFERRED or NO)."
+            );
+        }
+
+        $details = lstat($path);
+        $userId = posix_geteuid();
+        $groupIds = array_merge([posix_getegid()], posix_getgroups());
+
+        if ($userId !== 0 && $details['uid'] !== $userId)
+        {
+            throw new BadFilePermissionsException(
+                "Can't move {$path} to a different filesystem, as it is owned by user {$details['uid']}, and only " .
+                "root can give the copy to another user. Run this as root (e.g. with sudo) to keep its owner, or " .
+                "pass PreserveOwnershipEnum::PREFERRED or NO to let the copy belong to the current user."
+            );
+        }
+
+        if ($userId !== 0 && !in_array($details['gid'], $groupIds, true))
+        {
+            throw new BadFilePermissionsException(
+                "Can't move {$path} to a different filesystem, as it belongs to group {$details['gid']}, which the " .
+                "current user isn't in, so the copy can't be given it. Run this as root (e.g. with sudo), or as a " .
+                "member of that group, to keep it, or pass PreserveOwnershipEnum::PREFERRED or NO to let the copy " .
+                "have the current user's group."
+            );
+        }
+    }
+
+
+    /**
      * Copy a file to a new, hidden, randomly named file in a directory, for moveFile(), keeping its
-     * permissions and modification time, and its owner and group when running as root. A symlink is
-     * copied as a symlink with the same target.
+     * permissions and modification time, and its owner and group as $preserveOwnership says. A
+     * symlink is copied as a symlink with the same target.
      * @param string $path - the file to copy.
      * @param string $directory - the directory to copy it into.
+     * @param PreserveOwnershipEnum $preserveOwnership - with NO, the copy belongs to whoever is
+     * running this. Otherwise its owner and group are set to the original's where possible, and with
+     * YES, it is an error if they couldn't be.
      * @return string - the path of the copy.
-     * @throws FilesystemException - if it couldn't be copied. Any partial copy is removed.
+     * @throws FilesystemException - if it couldn't be copied (or, with YES, given its owner and
+     * group). Any partial copy is removed.
      */
-    private static function copyToTemporaryFile(string $path, string $directory): string
+    private static function copyToTemporaryFile(
+        string $path,
+        string $directory,
+        PreserveOwnershipEnum $preserveOwnership
+    ): string
     {
         try
         {
@@ -410,34 +515,83 @@ class File
             throw new FilesystemException("Failed to make a temporary name to move {$path} with.", 0, $e);
         }
 
+        $details = lstat($path);
+        $isSymlink = is_link($path);
+
         # Suppress the warnings, as we throw an exception instead.
-        if (is_link($path))
+        if ($isSymlink)
         {
             $target = @readlink($path);
             $copied = ($target !== false) && @symlink($target, $copyPath);
         }
         else
         {
-            $details = stat($path);
-
-            $copied = @copy($path, $copyPath)
-                && @chmod($copyPath, $details['mode'] & 07777)
-                && @touch($copyPath, $details['mtime']);
-
-            # Only root can give a file to another user, so otherwise it belongs to whoever is running this.
-            if ($copied && function_exists('posix_geteuid') && posix_geteuid() === 0)
-            {
-                $copied = @chown($copyPath, $details['uid']) && @chgrp($copyPath, $details['gid']);
-            }
+            $copied = @copy($path, $copyPath);
         }
 
-        if (!$copied)
+        # Set the owner and group before the permissions, as changing the owner clears the setuid and setgid bits.
+        $ownershipKept = false;
+
+        if ($copied && $preserveOwnership !== PreserveOwnershipEnum::NO)
+        {
+            $ownershipKept = self::giveOwnership($copyPath, $details, $isSymlink);
+        }
+
+        $ownershipFailed = !$ownershipKept && $preserveOwnership === PreserveOwnershipEnum::YES;
+
+        # A symlink's own permissions are ignored, so only a file's are set.
+        if ($copied && !$ownershipFailed && !$isSymlink)
+        {
+            $copied = @chmod($copyPath, $details['mode'] & 07777) && @touch($copyPath, $details['mtime']);
+        }
+
+        if (!$copied || $ownershipFailed)
         {
             @unlink($copyPath);
-            throw new FilesystemException("Failed to copy {$path} to {$directory}.");
+
+            throw new FilesystemException(
+                "Failed to copy {$path} to {$directory} with its owner, group and permissions."
+            );
         }
 
         return $copyPath;
+    }
+
+
+    /**
+     * Try to give a copy its original's owner and group. Only root can set the owner, and anyone
+     * else can only set a group they are in, so this tries, then checks.
+     * @param string $path - the copy.
+     * @param array $details - lstat() of the original.
+     * @param bool $isSymlink - whether $path is a symlink, so the link itself is changed.
+     * @return bool - true if the copy now has the original's owner and group.
+     */
+    private static function giveOwnership(string $path, array $details, bool $isSymlink): bool
+    {
+        $copyDetails = lstat($path);
+
+        # Suppress the warnings, as whether it worked is checked below.
+        if ($copyDetails['uid'] !== $details['uid'] && $isSymlink)
+        {
+            @lchown($path, $details['uid']);
+        }
+        elseif ($copyDetails['uid'] !== $details['uid'])
+        {
+            @chown($path, $details['uid']);
+        }
+
+        if ($copyDetails['gid'] !== $details['gid'] && $isSymlink)
+        {
+            @lchgrp($path, $details['gid']);
+        }
+        elseif ($copyDetails['gid'] !== $details['gid'])
+        {
+            @chgrp($path, $details['gid']);
+        }
+
+        clearstatcache(true, $path);
+        $copyDetails = lstat($path);
+        return ($copyDetails['uid'] === $details['uid']) && ($copyDetails['gid'] === $details['gid']);
     }
 
 

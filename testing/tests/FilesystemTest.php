@@ -5,6 +5,8 @@
  */
 
 use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
+use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
+use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
@@ -155,7 +157,7 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
 
 $smoke->run("replacing file contents in place", function () use ($dir) {
     # createReplacementFile() makes an empty, private file in the system's temporary directory.
-    $tmpFilepath = Filesystem::createReplacementFile();
+    $tmpFilepath = Filesystem::createReplacementFile("{$dir}/replace.txt");
     clearstatcache();
     assert(dirname($tmpFilepath) === sys_get_temp_dir() && str_starts_with(basename($tmpFilepath), "corelibs-tmp-"));
     assert(filesize($tmpFilepath) === 0 && (fileperms($tmpFilepath) & 0777) === 0600);
@@ -1153,6 +1155,203 @@ $smoke->run("zipDir including hidden files", function () use ($dir) {
         $expectedNames = $includeFolder ? array_merge(["project/"], $expectedNames) : $expectedNames;
         sort($expectedNames);
         assert($names === $expectedNames, "{$name} the folder, the zip had: " . implode(", ", $names));
+    }
+});
+
+$smoke->run("createReplacementFile locations, and replaceWithFile renaming", function () use ($dir) {
+    $base = "{$dir}/replacement-locations";
+    mkdir($base);
+
+    # NEVER puts a hidden, private file next to the original.
+    $nextTo = Filesystem::createReplacementFile("{$base}/a.txt", UseSystemTempDirEnum::NEVER);
+    clearstatcache();
+    assert(dirname($nextTo) === realpath($base) && str_starts_with(basename($nextTo), ".corelibs-tmp-"));
+    assert((fileperms($nextTo) & 0777) === 0600);
+
+    # WHEN_SAME_FS uses the system's temporary directory when it is on the same filesystem as the original.
+    $sameFs = Filesystem::createReplacementFile("{$base}/a.txt", UseSystemTempDirEnum::WHEN_SAME_FS);
+    assert(dirname($sameFs) === sys_get_temp_dir());
+    unlink($sameFs);
+
+    if (is_dir("/dev/shm") && stat("/dev/shm")['dev'] !== stat(sys_get_temp_dir())['dev'])
+    {
+        $otherFs = Filesystem::createReplacementFile("/dev/shm/a.txt", UseSystemTempDirEnum::WHEN_SAME_FS);
+        assert(dirname($otherFs) === "/dev/shm");
+        unlink($otherFs);
+    }
+
+    SmokeTest::expectException(
+        DirectoryDoesNotExistException::class,
+        fn() => Filesystem::createReplacementFile("{$base}/missing/a.txt")
+    );
+
+    # AUTO uses the system's temporary directory when it is on the same filesystem, and the file could be renamed
+    # from there (the test directory is inside it here)...
+    file_put_contents("{$base}/auto.txt", "x");
+    $auto = Filesystem::createReplacementFile("{$base}/auto.txt", UseSystemTempDirEnum::AUTO);
+    assert(dirname($auto) === sys_get_temp_dir());
+    unlink($auto);
+
+    # ...and next to the original when the system's temporary directory is on another (disk) filesystem, as renaming
+    # from next to it is then the fastest way. /dev/shm is a separate filesystem in the test containers.
+    $otherFilesystem = "/dev/shm/corelibs-replacement-" . getmypid();
+    $canUseOtherFilesystem = is_dir("/dev/shm")
+        && stat("/dev/shm")['dev'] !== stat(sys_get_temp_dir())['dev']
+        && !Filesystem::isTmpfs(sys_get_temp_dir());
+
+    if ($canUseOtherFilesystem)
+    {
+        mkdir($otherFilesystem);
+
+        try
+        {
+            file_put_contents("{$otherFilesystem}/auto.txt", "x");
+            $auto = Filesystem::createReplacementFile("{$otherFilesystem}/auto.txt", UseSystemTempDirEnum::AUTO);
+            assert(dirname($auto) === $otherFilesystem && str_starts_with(basename($auto), ".corelibs-tmp-"));
+            unlink($auto);
+
+            # And the default (the system's temporary directory) is copied back there, so the original keeps its inode.
+            $inodeBefore = fileinode("{$otherFilesystem}/auto.txt");
+            $tmp = Filesystem::createReplacementFile("{$otherFilesystem}/auto.txt");
+            file_put_contents($tmp, "copied");
+            Filesystem::replaceWithFile("{$otherFilesystem}/auto.txt", $tmp);
+            clearstatcache();
+            assert(fileinode("{$otherFilesystem}/auto.txt") === $inodeBefore);
+            assert(file_get_contents("{$otherFilesystem}/auto.txt") === "copied" && !file_exists($tmp));
+        }
+        finally
+        {
+            Filesystem::deleteDir($otherFilesystem);
+        }
+    }
+
+    # ...and otherwise (e.g. it has another hard link, so would be copied back) in the system's temporary directory.
+    link("{$base}/auto.txt", "{$base}/auto-hard-link.txt");
+    $auto = Filesystem::createReplacementFile("{$base}/auto.txt", UseSystemTempDirEnum::AUTO);
+    assert(dirname($auto) === sys_get_temp_dir());
+    unlink($auto);
+
+    # A tmpfs (held in memory) only counts as having room if that much memory is available too. /dev/shm is a tmpfs
+    # in the test containers, and the system's temporary directory isn't.
+    $hasFreeMemory = new ReflectionMethod(Filesystem::class, "hasFreeMemory");
+
+    if (is_dir("/dev/shm") && str_contains((string)@file_get_contents("/proc/mounts"), " /dev/shm tmpfs "))
+    {
+        assert(Filesystem::isTmpfs("/dev/shm") === true);
+        assert(Filesystem::isTmpfs($base) === false);
+        file_put_contents("{$base}/on-disk.txt", "x");
+        assert(Filesystem::isTmpfs("{$base}/on-disk.txt") === false);
+    }
+
+    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::isTmpfs("{$base}/missing"));
+
+    assert($hasFreeMemory->invoke(null, 0) === true && $hasFreeMemory->invoke(null, PHP_INT_MAX) === false);
+
+    # /proc/mounts writes a space in a mount point as \040, which is turned back into a space.
+    $decodeOctalEscape = new ReflectionMethod(Filesystem::class, "decodeOctalEscape");
+    assert($decodeOctalEscape->invoke(null, ["\\040", "040"]) === " ");
+
+    # A tmpfs temporary directory with room is used even when the file could be renamed, as copying back from memory
+    # is about as fast. /dev/shm is used as the system's temporary directory here, through TMPDIR.
+    $chooseAuto = function (string $tmpDirectory, string $filepath): string {
+        $code = 'require ' . var_export(__DIR__ . '/../../vendor/autoload.php', true) . '; echo ' .
+            'Programster\\CoreLibs\\Filesystem::createReplacementFile(' . var_export($filepath, true) .
+            ', Programster\\CoreLibs\\Enums\\UseSystemTempDirEnum::AUTO);';
+
+        $command = "TMPDIR=" . escapeshellarg($tmpDirectory) . " " . escapeshellarg(PHP_BINARY) . " -r " .
+            escapeshellarg($code) . " 2>&1";
+
+        return trim((string)shell_exec($command));
+    };
+
+    if (is_dir("/dev/shm") && is_writable("/dev/shm") && Filesystem::isTmpfs("/dev/shm"))
+    {
+        file_put_contents("{$base}/renamable.txt", "x");
+        $chosen = $chooseAuto("/dev/shm", "{$base}/renamable.txt");
+        assert(dirname($chosen) === "/dev/shm", "AUTO with a tmpfs temporary directory chose: {$chosen}");
+        unlink($chosen);
+    }
+
+    # Unless that hasn't enough room, when it goes next to the original after all. run-all-php-versions.sh gives the
+    # container a 1 MB filesystem, which is used as the system's temporary directory here, through TMPDIR.
+    $smallFilesystem = getenv("CORELIBS_TEST_SMALL_FILESYSTEM");
+
+    if ($smallFilesystem === false || !is_dir($smallFilesystem) || !is_writable($smallFilesystem))
+    {
+        SmokeTest::skip("createReplacementFile() AUTO avoiding a full /tmp", "needs the small filesystem");
+    }
+    else
+    {
+        file_put_contents("{$base}/big.txt", str_repeat("x", 2 * 1024 * 1024));
+        link("{$base}/big.txt", "{$base}/big-hard-link.txt");
+
+        $chosen = $chooseAuto($smallFilesystem, "{$base}/big.txt");
+        assert(dirname($chosen) === realpath($base), "AUTO with a full temporary directory chose: {$chosen}");
+        unlink($chosen);
+    }
+
+    # A temporary file next to the original is renamed over it, so it is a new file (a different inode), with the
+    # original's permissions.
+    file_put_contents("{$base}/a.txt", "old");
+    chmod("{$base}/a.txt", 0640);
+    $inodeBefore = fileinode("{$base}/a.txt");
+    file_put_contents($nextTo, "new");
+    Filesystem::replaceWithFile("{$base}/a.txt", $nextTo);
+    clearstatcache();
+    assert(file_get_contents("{$base}/a.txt") === "new" && (fileperms("{$base}/a.txt") & 0777) === 0640);
+    assert(fileinode("{$base}/a.txt") !== $inodeBefore && !file_exists($nextTo));
+
+    # One with another hard link is copied back instead, so both names still share the new contents.
+    link("{$base}/a.txt", "{$base}/a-hard-link.txt");
+    $inodeBefore = fileinode("{$base}/a.txt");
+    $tmp = Filesystem::createReplacementFile("{$base}/a.txt", UseSystemTempDirEnum::NEVER);
+    file_put_contents($tmp, "newer");
+    Filesystem::replaceWithFile("{$base}/a.txt", $tmp);
+    clearstatcache();
+    assert(fileinode("{$base}/a.txt") === $inodeBefore && file_get_contents("{$base}/a-hard-link.txt") === "newer");
+
+    # As is a symlink, which stays a symlink to the file it pointed to.
+    file_put_contents("{$base}/target.txt", "old");
+    symlink("target.txt", "{$base}/link.txt");
+    $tmp = Filesystem::createReplacementFile("{$base}/link.txt", UseSystemTempDirEnum::NEVER);
+    file_put_contents($tmp, "via link");
+    Filesystem::replaceWithFile("{$base}/link.txt", $tmp);
+    assert(is_link("{$base}/link.txt") && file_get_contents("{$base}/target.txt") === "via link");
+
+    # The default (the system's temporary directory) is renamed from there too when it is on the same filesystem (as
+    # the test directory is here), unless SELinux is enabled.
+    $inodeBefore = fileinode("{$base}/target.txt");
+    $tmp = Filesystem::createReplacementFile("{$base}/target.txt");
+    file_put_contents($tmp, "renamed");
+    Filesystem::replaceWithFile("{$base}/target.txt", $tmp);
+    clearstatcache();
+    $wasRenamed = fileinode("{$base}/target.txt") !== $inodeBefore;
+    assert($wasRenamed === !file_exists("/sys/fs/selinux/enforce"));
+    assert(file_get_contents("{$base}/target.txt") === "renamed" && !file_exists($tmp));
+
+    # With each PreserveOwnershipEnum, a file that already belongs to whoever is running this is renamed.
+    foreach (PreserveOwnershipEnum::cases() as $preserveOwnership)
+    {
+        $file = "{$base}/{$preserveOwnership->name}.txt";
+        file_put_contents($file, "old");
+        $inodeBefore = fileinode($file);
+        $tmp = Filesystem::createReplacementFile($file, UseSystemTempDirEnum::NEVER);
+        file_put_contents($tmp, "new");
+        Filesystem::replaceWithFile($file, $tmp, $preserveOwnership);
+        clearstatcache();
+        assert(fileinode($file) !== $inodeBefore && file_get_contents($file) === "new", $preserveOwnership->name);
+    }
+
+    # Renaming keeps the owner (as root), and a file owned by someone else is copied back when not running as root.
+    file_put_contents("{$base}/owned.txt", "old");
+
+    if (SmokeTest::giveToOtherUser("{$base}/owned.txt", "replaceWithFile() renaming"))
+    {
+        $tmp = Filesystem::createReplacementFile("{$base}/owned.txt", UseSystemTempDirEnum::NEVER);
+        file_put_contents($tmp, "new");
+        Filesystem::replaceWithFile("{$base}/owned.txt", $tmp);
+        SmokeTest::assertOwnedByOtherUser("{$base}/owned.txt", "replaceWithFile() renaming");
+        assert(file_get_contents("{$base}/owned.txt") === "new");
     }
 });
 

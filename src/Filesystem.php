@@ -10,6 +10,9 @@ namespace Programster\CoreLibs;
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 use Programster\CoreLibs\Enums\FileDeletionOperationEnum;
 use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
+use Programster\CoreLibs\Enums\MemoryTypeEnum;
+use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
+use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
 use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
 use Programster\CoreLibs\Models\FileDeletionProblem;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
@@ -22,6 +25,7 @@ use Programster\CoreLibs\Exceptions\MissingExtensionException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
+use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Models\Directory;
 use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
@@ -348,6 +352,9 @@ final class Filesystem
      * them by the umask (and stopping the move if that can't be done). On the same filesystem,
      * nothing is copied, so permissions are always kept exactly and this has no effect. Defaults to
      * false.
+     * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem: how
+     * hard to try to keep everything's owner and group. Defaults to YES, which stops the move if
+     * they can't all be kept (see Directory::move()).
      * @return void
      * @throws BadArgumentException - if $source is a symlink, or $destination is empty or inside
      * $source.
@@ -359,11 +366,16 @@ final class Filesystem
      * @throws FilesystemException - if the move or copy failed, or the original couldn't be deleted
      * after a copy to a different filesystem.
      */
-    public static function moveDir(string $source, string $destination, bool $overrideUmask = false): void
+    public static function moveDir(
+        string $source,
+        string $destination,
+        bool $overrideUmask = false,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+    ): void
     {
         $absoluteDestination = str_starts_with($destination, "/") ? $destination : getcwd() . "/" . $destination;
         $directory = new Directory($source);
-        $directory->rename($absoluteDestination, $overrideUmask);
+        $directory->rename($absoluteDestination, $overrideUmask, $preserveOwnership);
     }
 
 
@@ -378,19 +390,29 @@ final class Filesystem
      * already exist.
      * @param bool $overwriteExistingFile - whether to replace a file (or symlink) that already
      * exists at $destination. Defaults to false. A directory is never replaced.
+     * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem: how
+     * hard to try to keep the file's owner and group. Defaults to YES, which doesn't move it if they
+     * can't be kept (see File::move()).
      * @return void
      * @throws BadArgumentException - if $destination is empty, or ends with a "/".
      * @throws FileDoesNotExistException - if there is no file at $source.
      * @throws DirectoryDoesNotExistException - if $destination's directory doesn't exist.
      * @throws FileAlreadyExistsException - if there is a directory at $destination, there is a file
      * there and $overwriteExistingFile is false, or it is the same file as $source.
+     * @throws BadFilePermissionsException - with $preserveOwnership set to YES, if moving it to a
+     * different filesystem couldn't keep its owner and group. Nothing is changed if this happens.
      * @throws FilesystemException - if the file could not be moved.
      */
-    public static function moveFile(string $source, string $destination, bool $overwriteExistingFile = false): void
+    public static function moveFile(
+        string $source,
+        string $destination,
+        bool $overwriteExistingFile = false,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+    ): void
     {
         $absoluteDestination = str_starts_with($destination, "/") ? $destination : getcwd() . "/" . $destination;
         $file = new File($source);
-        $file->rename($absoluteDestination, $overwriteExistingFile);
+        $file->rename($absoluteDestination, $overwriteExistingFile, $preserveOwnership);
     }
 
 
@@ -1070,7 +1092,7 @@ final class Filesystem
 
         try
         {
-            $tmpFilepath = self::createReplacementFile();
+            $tmpFilepath = self::createReplacementFile($targetFile);
             $tmpHandle = fopen($tmpFilepath, "w");
 
             if ($tmpHandle === false)
@@ -1140,6 +1162,58 @@ final class Filesystem
         }
 
         return self::filesystemDeviceOf($path1) === self::filesystemDeviceOf($path2);
+    }
+
+
+    /**
+     * Check whether a path is on a tmpfs filesystem, which is held in memory rather than on disk
+     * (e.g. /tmp on Debian 13, or /dev/shm). Writing to one is fast, but uses memory, and it is lost
+     * when the system restarts. This reads /proc/mounts, so only works on Linux. Symlinks are
+     * followed, so a symlink is checked by what it points to.
+     * @param string $path - the file or directory to check.
+     * @return bool - true if it is on a tmpfs.
+     * @throws FileDoesNotExistException - if there is nothing at $path.
+     * @throws UnsupportedPlatformException - if /proc/mounts can't be read (e.g. not on Linux).
+     */
+    public static function isTmpfs(string $path): bool
+    {
+        $realPath = realpath($path);
+
+        if ($realPath === false)
+        {
+            throw new FileDoesNotExistException("isTmpfs: there is nothing at {$path}.");
+        }
+
+        # Suppress the warning, as we throw an exception instead.
+        $mounts = @file("/proc/mounts", FILE_IGNORE_NEW_LINES);
+
+        if ($mounts === false)
+        {
+            throw new UnsupportedPlatformException("isTmpfs: /proc/mounts can't be read, so this only works on Linux.");
+        }
+
+        $decodeOctalEscape = self::decodeOctalEscape(...);
+        $longestMountPoint = "";
+        $type = "";
+
+        foreach ($mounts as $mount)
+        {
+            # Each line is "device mount-point type options ...", with spaces etc. in paths written as octal (\040).
+            $fields = explode(" ", $mount);
+            $mountPoint = preg_replace_callback('/\\\\([0-7]{3})/', $decodeOctalEscape, $fields[1] ?? "");
+
+            # The path is on the mount with the longest mount point that contains it. A later line for the same mount
+            # point is mounted over the earlier one, so wins.
+            $contains = ($mountPoint !== "") && self::isWithinDirectory($realPath, $mountPoint);
+
+            if ($contains && strlen($mountPoint) >= strlen($longestMountPoint))
+            {
+                $longestMountPoint = $mountPoint;
+                $type = $fields[2] ?? "";
+            }
+        }
+
+        return $type === "tmpfs";
     }
 
 
@@ -1732,23 +1806,58 @@ final class Filesystem
 
 
     /**
-     * Create an empty temporary file to write a file's new contents to, before they are copied into
-     * the original with replaceWithFile(). This is useful for rewriting a file a piece at a time
-     * (e.g. row by row), without changing the original until the new contents are complete. This is
-     * always in the system's temporary directory, never next to the original, in case that
-     * directory is served to the public (e.g. by a web server). tempnam() creates it with 0600
-     * permissions, so other users can't read the data while it is there.
+     * Create an empty temporary file to write a file's new contents to, before they replace the
+     * original with replaceWithFile(). This is useful for rewriting a file a piece at a time (e.g.
+     * row by row), without changing the original until the new contents are complete. tempnam()
+     * creates it with 0600 permissions, so other users can't read the data while it is there.
+     * By default it is in the system's temporary directory, never next to the original, in case that
+     * directory is served to the public (e.g. by a web server). $useSystemTempDir can put it next to
+     * the original instead, as a hidden file (e.g. ".corelibs-tmp-AbC123"). replaceWithFile() renames
+     * it over the original rather than copying it back where that is safe, which needs it to be on
+     * the same filesystem (see replaceWithFile()).
+     * @param string $filepath - the path of the file it will replace (which needn't exist yet).
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to put it (see UseSystemTempDirEnum).
+     * @param PreserveOwnershipEnum $preserveOwnership - only used by AUTO: what will be passed to
+     * replaceWithFile(), which decides whether it could rename the file over the original.
      * @return string - the path of the temporary file.
+     * @throws DirectoryDoesNotExistException - if the directory $filepath is in doesn't exist.
      * @throws FilesystemException - if the temporary file could not be created.
      */
-    public static function createReplacementFile(): string
+    public static function createReplacementFile(
+        string $filepath,
+        UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::ALWAYS,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): string
     {
-        # Suppress the warning, as we throw an exception instead.
-        $tmpFilepath = @tempnam(sys_get_temp_dir(), "corelibs-tmp-");
+        $directory = realpath(dirname($filepath));
 
-        if ($tmpFilepath === false)
+        if ($directory === false || !is_dir($directory))
         {
-            throw new FilesystemException("Failed to create a temporary file in " . sys_get_temp_dir() . ".");
+            throw new DirectoryDoesNotExistException("There is no directory at " . dirname($filepath) . ".");
+        }
+
+        $useSystem = match ($useSystemTempDir) {
+            UseSystemTempDirEnum::ALWAYS => true,
+            UseSystemTempDirEnum::NEVER => false,
+            UseSystemTempDirEnum::WHEN_SAME_FS => self::isOnSameFilesystem(sys_get_temp_dir(), $directory),
+            UseSystemTempDirEnum::AUTO => self::shouldUseSystemTempDir($filepath, $preserveOwnership),
+        };
+
+        $tmpDirectory = $useSystem ? sys_get_temp_dir() : $directory;
+
+        # Suppress the warning, as we throw an exception instead. tempnam() quietly falls back to the system's
+        # temporary directory if it can't create the file where asked, so check it is where it should be.
+        $tmpFilepath = @tempnam($tmpDirectory, $useSystem ? "corelibs-tmp-" : ".corelibs-tmp-");
+        $isWhereAsked = ($tmpFilepath !== false) && (realpath(dirname($tmpFilepath)) === realpath($tmpDirectory));
+
+        if (!$isWhereAsked)
+        {
+            if ($tmpFilepath !== false)
+            {
+                @unlink($tmpFilepath);
+            }
+
+            throw new FilesystemException("Failed to create a temporary file in {$tmpDirectory}.");
         }
 
         return $tmpFilepath;
@@ -1756,57 +1865,49 @@ final class Filesystem
 
 
     /**
-     * Copy the contents of a file made by createReplacementFile() into the original file, then
-     * delete it. The contents are written into the original file in place, rather than the
-     * temporary file being renamed over it, so the original keeps its permissions, owner, and any
-     * links to it, and only the file (not its directory) needs to be writable. This isn't atomic:
-     * if it fails part way through (e.g. the disk fills up), the original may be left half-written.
-     * The temporary file is kept in that case, and its path is given in the exception, so that the
-     * new contents aren't lost.
+     * Replace a file's contents with those of a file made by createReplacementFile(), then delete
+     * that file.
+     * Where it is safe to, this renames the temporary file over the original, which is instant and
+     * atomic. That is only when the temporary file is on the same filesystem as the original (next
+     * to it, or in the system's temporary directory if that is on the same filesystem), the
+     * original is a regular file (not a symlink) with no other hard links, its directory can be
+     * written to, and its owner and group can be kept (which needs root, unless the original already
+     * belongs to whoever is running this). The renamed file gets the original's permissions, but
+     * not any ACLs or extended attributes it had. One renamed in from another directory also doesn't
+     * get the original directory's default ACLs, which only apply to files created in it. So when
+     * SELinux is enabled, only a temporary file next to the original is renamed, as one from the
+     * system's temporary directory would keep that directory's SELinux label (e.g. tmp_t), which
+     * can stop services reading it.
+     * Otherwise, the new contents are copied into the original in place, so it keeps its
+     * permissions, owner, ACLs, extended attributes and any links to it, and only the file (not its
+     * directory) needs to be writable. This isn't atomic: if it fails part way through (e.g. the
+     * disk fills up), the original may be left half-written. The temporary file is kept in that
+     * case, and its path is given in the exception, so that the new contents aren't lost.
      * @param string $filepath - the path of the file to replace the contents of.
      * @param string $tmpFilepath - the path of the temporary file with the new contents. It must
      * already be closed.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep the file's owner and
+     * group (see PreserveOwnershipEnum). With NO, the file is renamed whenever it can be, even if it
+     * then belongs to whoever is running this. With PREFERRED (the default) or YES, it is only
+     * renamed if the owner and group can be kept (as root, or if it already belongs to whoever is
+     * running this), and otherwise copied back, which is slower for a large file. Copying back
+     * always keeps them, so YES never has to throw here, and behaves the same as PREFERRED.
      * @return void
      * @throws FilesystemException - if the contents could not be copied across.
      */
-    public static function replaceWithFile(string $filepath, string $tmpFilepath): void
+    public static function replaceWithFile(
+        string $filepath,
+        string $tmpFilepath,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
     {
-        # Suppress the warnings, as we throw an exception instead.
-        $source = @fopen($tmpFilepath, "r");
-        $target = @fopen($filepath, "r+");
+        $renamed = self::canReplaceByRenaming($filepath, $tmpFilepath)
+            && self::replaceByRenaming($filepath, $tmpFilepath, $preserveOwnership);
 
-        if ($source === false || $target === false)
+        if (!$renamed)
         {
-            # Nothing has been written yet, so the original is untouched, and the temporary file isn't needed.
-            if ($source !== false)
-            {
-                fclose($source);
-            }
-
-            @unlink($tmpFilepath);
-            throw new FilesystemException("Failed to open {$filepath} to write its new contents to.");
+            self::replaceByCopying($filepath, $tmpFilepath);
         }
-
-        $newSize = fstat($source)['size'];
-
-        # Write over the old contents first, then cut off whatever is left of them, so the file is only ever
-        # shortened once the new contents are all in place.
-        $succeeded = stream_copy_to_stream($source, $target) === $newSize
-            && ftruncate($target, $newSize)
-            && fflush($target);
-
-        fclose($source);
-        fclose($target);
-
-        if (!$succeeded)
-        {
-            throw new FilesystemException(
-                "Failed to write the new contents of {$filepath}, so it may be incomplete. The complete new contents " .
-                "are in {$tmpFilepath}."
-            );
-        }
-
-        @unlink($tmpFilepath);
     }
 
 
@@ -2134,6 +2235,285 @@ final class Filesystem
         }
 
         return stat($existingPath)['dev'];
+    }
+
+
+    /**
+     * Choose where createReplacementFile() puts its file for UseSystemTempDirEnum::AUTO: first
+     * whatever will work, then whatever is fastest, then the system's temporary directory:
+     *  1. the system's temporary directory, if it is a tmpfs (held in memory) with room, and that
+     *     much memory available. Writing there and copying back is about as fast as renaming, and
+     *     keeps the original's ACLs and extended attributes.
+     *  2. the system's temporary directory, if replaceWithFile() could rename a file from there over
+     *     the original (it is on the same filesystem, and SELinux isn't enabled), and it has room.
+     *  3. otherwise next to the original, if replaceWithFile() could then rename it over the
+     *     original, which is the fastest way.
+     *  4. otherwise the system's temporary directory, if it has room, as it would be copied back
+     *     either way.
+     *  5. otherwise next to the original, if that has room (and the system's temporary directory if
+     *     neither does, which will then fail with the reason).
+     * @param string $filepath - the file it will replace (which needn't exist yet, but its directory
+     * must).
+     * @param PreserveOwnershipEnum $preserveOwnership - what will be passed to replaceWithFile().
+     * @return bool - true to use the system's temporary directory, or false to put it next to the
+     * original.
+     */
+    private static function shouldUseSystemTempDir(string $filepath, PreserveOwnershipEnum $preserveOwnership): bool
+    {
+        $directory = realpath(dirname($filepath));
+        # The new contents aren't known yet, so judge the room needed by the original's size.
+        $neededBytes = is_file($filepath) ? (int)filesize($filepath) : 0;
+        $systemTmpDirectory = sys_get_temp_dir();
+        $isWritable = is_writable($directory) && is_executable($directory);
+        $hasRoom = $isWritable && self::hasFreeSpace($directory, $neededBytes);
+        $systemIsTmpfs = self::isTmpfsIfKnown($systemTmpDirectory);
+
+        # A tmpfs (e.g. /tmp on Debian 13) can be allowed more space than there is free memory, so filling it could push
+        # the system into swap. Only count it as having room if the memory is free too.
+        $systemHasRoom = is_writable($systemTmpDirectory)
+            && self::hasFreeSpace($systemTmpDirectory, $neededBytes)
+            && (!$systemIsTmpfs || self::hasFreeMemory($neededBytes));
+
+        $fileCouldBeRenamed = self::couldRenameOver($filepath, $preserveOwnership);
+        $couldRenameFromNextTo = $hasRoom && $fileCouldBeRenamed;
+
+        $couldRenameFromSystem = $systemHasRoom
+            && $fileCouldBeRenamed
+            && !self::isSelinuxEnabled()
+            && self::isOnSameFilesystem($systemTmpDirectory, $directory);
+
+        return ($systemIsTmpfs && $systemHasRoom)
+            || $couldRenameFromSystem
+            || (!$couldRenameFromNextTo && ($systemHasRoom || !$hasRoom));
+    }
+
+
+    /**
+     * Check whether replaceWithFile() could rename a file next to $filepath over it (see
+     * canReplaceByRenaming()), including whether it could keep the owner and group, as far as can
+     * be told before the file exists.
+     * @param string $filepath - the original file.
+     * @param PreserveOwnershipEnum $preserveOwnership - what will be passed to replaceWithFile().
+     * @return bool - true if it could.
+     */
+    private static function couldRenameOver(string $filepath, PreserveOwnershipEnum $preserveOwnership): bool
+    {
+        $details = (is_file($filepath) && !is_link($filepath)) ? @lstat($filepath) : false;
+        $ownershipKeepable = $preserveOwnership === PreserveOwnershipEnum::NO;
+
+        # A new file belongs to whoever makes it, and only root can give it to another user, or to a group they're
+        # not in. Without the posix extension, this can't be checked, so assume it can't.
+        if (!$ownershipKeepable && $details !== false && function_exists('posix_geteuid'))
+        {
+            $userId = posix_geteuid();
+            $groupIds = array_merge([posix_getegid()], posix_getgroups());
+
+            $ownershipKeepable = ($userId === 0)
+                || ($details['uid'] === $userId && in_array($details['gid'], $groupIds, true));
+        }
+
+        return $details !== false && $details['nlink'] === 1 && $ownershipKeepable;
+    }
+
+
+    /**
+     * Check whether a directory is on a tmpfs, for UseSystemTempDirEnum::AUTO, treating "can't tell"
+     * as no (see isTmpfs()).
+     * @param string $directory - the directory.
+     * @return bool - true if it is known to be on a tmpfs.
+     */
+    private static function isTmpfsIfKnown(string $directory): bool
+    {
+        try
+        {
+            $isTmpfs = self::isTmpfs($directory);
+        }
+        catch (CoreLibsException $e)
+        {
+            $isTmpfs = false;
+        }
+
+        return $isTmpfs;
+    }
+
+
+    /**
+     * Turn an octal escape from /proc/mounts (e.g. "\040" for a space) back into its character.
+     * @param array<string> $match - the preg match, whose first group is the three octal digits.
+     * @return string - the character.
+     */
+    private static function decodeOctalEscape(array $match): string
+    {
+        return chr(octdec($match[1]));
+    }
+
+
+    /**
+     * Check whether there is at least a number of bytes of memory available, from /proc/meminfo.
+     * @param int $bytes - how many bytes are needed.
+     * @return bool - true if there is, or if it can't be told (so the choice isn't based on a guess).
+     */
+    private static function hasFreeMemory(int $bytes): bool
+    {
+        try
+        {
+            $hasFreeMemory = Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::BYTES) >= $bytes;
+        }
+        catch (CoreLibsException $e)
+        {
+            $hasFreeMemory = true;
+        }
+
+        return $hasFreeMemory;
+    }
+
+
+    /**
+     * Check whether a directory's filesystem has at least a number of bytes free.
+     * @param string $directory - the directory.
+     * @param int $bytes - how many bytes are needed.
+     * @return bool - true if there is room, or if it can't be told (so the choice isn't based on a
+     * guess).
+     */
+    private static function hasFreeSpace(string $directory, int $bytes): bool
+    {
+        # Suppress the warning: if it can't be told, assume there is room.
+        $freeBytes = @disk_free_space($directory);
+        return ($freeBytes === false) || ($freeBytes >= $bytes);
+    }
+
+
+    /**
+     * Check whether SELinux is enabled (enforcing or permissive), which labels every file, so a file
+     * renamed in from another directory keeps that directory's label.
+     * @return bool - true if it is enabled.
+     */
+    private static function isSelinuxEnabled(): bool
+    {
+        return file_exists("/sys/fs/selinux/enforce");
+    }
+
+
+    /**
+     * Check whether replaceWithFile() could rename a temporary file over the original, rather than
+     * copying it back: the temporary file must be on the same filesystem, and in the same directory
+     * if SELinux is enabled (so it has the same SELinux label as a new file there would get), the
+     * original must be a regular file, not a symlink, with no other hard links (which would keep
+     * the old contents), and the directory must be writable.
+     * @param string $filepath - the original file.
+     * @param string $tmpFilepath - the temporary file with the new contents.
+     * @return bool - true if it could be renamed, as far as can be told before trying.
+     */
+    private static function canReplaceByRenaming(string $filepath, string $tmpFilepath): bool
+    {
+        $directory = realpath(dirname($filepath));
+        $details = is_file($filepath) && !is_link($filepath) ? @lstat($filepath) : false;
+
+        $tmpDirectory = realpath(dirname($tmpFilepath));
+
+        $isRenamableFromElsewhere = ($tmpDirectory !== false)
+            && !self::isSelinuxEnabled()
+            && self::isOnSameFilesystem($tmpDirectory, $directory);
+
+        $isRenamableFromThere = ($tmpDirectory === $directory) || $isRenamableFromElsewhere;
+
+        return $directory !== false
+            && $details !== false
+            && $details['nlink'] === 1
+            && $isRenamableFromThere
+            && is_writable($directory)
+            && is_executable($directory);
+    }
+
+
+    /**
+     * Rename a temporary file over the original for replaceWithFile(), after giving it the
+     * original's owner, group and permissions.
+     * @param string $filepath - the original file.
+     * @param string $tmpFilepath - the temporary file with the new contents.
+     * @param PreserveOwnershipEnum $preserveOwnership - anything other than NO only renames it if
+     * the owner and group could be kept.
+     * @return bool - true if it was renamed, or false if it wasn't, in which case both files are
+     * left in place, so the contents can be copied back instead.
+     */
+    private static function replaceByRenaming(
+        string $filepath,
+        string $tmpFilepath,
+        PreserveOwnershipEnum $preserveOwnership
+    ): bool
+    {
+        $original = stat($filepath);
+        $tmp = stat($tmpFilepath);
+
+        # Set the owner and group before the permissions, as changing the owner can clear the setuid and setgid bits.
+        # Only root can change the owner, and only to a group it is in for anyone else, so just try, then check.
+        # Suppress the warnings, as whether it worked is checked below.
+        if ($tmp['uid'] !== $original['uid'])
+        {
+            @chown($tmpFilepath, $original['uid']);
+        }
+
+        if ($tmp['gid'] !== $original['gid'])
+        {
+            @chgrp($tmpFilepath, $original['gid']);
+        }
+
+        clearstatcache(true, $tmpFilepath);
+        $tmp = stat($tmpFilepath);
+        $ownershipKept = ($tmp['uid'] === $original['uid']) && ($tmp['gid'] === $original['gid']);
+
+        return ($ownershipKept || $preserveOwnership === PreserveOwnershipEnum::NO)
+            && @chmod($tmpFilepath, $original['mode'] & 07777)
+            && @rename($tmpFilepath, $filepath);
+    }
+
+
+    /**
+     * Copy the contents of a temporary file into the original in place for replaceWithFile(), then
+     * delete it (see replaceWithFile()).
+     * @param string $filepath - the original file.
+     * @param string $tmpFilepath - the temporary file with the new contents.
+     * @return void
+     * @throws FilesystemException - if the contents could not be copied across.
+     */
+    private static function replaceByCopying(string $filepath, string $tmpFilepath): void
+    {
+        # Suppress the warnings, as we throw an exception instead.
+        $source = @fopen($tmpFilepath, "r");
+        $target = @fopen($filepath, "r+");
+
+        if ($source === false || $target === false)
+        {
+            # Nothing has been written yet, so the original is untouched, and the temporary file isn't needed.
+            if ($source !== false)
+            {
+                fclose($source);
+            }
+
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to open {$filepath} to write its new contents to.");
+        }
+
+        $newSize = fstat($source)['size'];
+
+        # Write over the old contents first, then cut off whatever is left of them, so the file is only ever
+        # shortened once the new contents are all in place.
+        $succeeded = stream_copy_to_stream($source, $target) === $newSize
+            && ftruncate($target, $newSize)
+            && fflush($target);
+
+        fclose($source);
+        fclose($target);
+
+        if (!$succeeded)
+        {
+            throw new FilesystemException(
+                "Failed to write the new contents of {$filepath}, so it may be incomplete. The complete new contents " .
+                "are in {$tmpFilepath}."
+            );
+        }
+
+        @unlink($tmpFilepath);
     }
 
 
@@ -2599,7 +2979,7 @@ final class Filesystem
     private static function replaceFileContents(string $filepath, string $contents): void
     {
         self::checkCanChangeFile($filepath);
-        $tmpFilepath = self::createReplacementFile();
+        $tmpFilepath = self::createReplacementFile($filepath);
 
         # Nothing has been copied into the original yet, so if this fails it is untouched, and the temporary file can
         # go.

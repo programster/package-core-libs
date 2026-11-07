@@ -4,6 +4,7 @@
  * Smoke tests for Directory. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
+use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
@@ -11,6 +12,7 @@ use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Filesystem;
+use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Models\Directory;
 use Programster\CoreLibs\Testing\SmokeTest;
 
@@ -240,6 +242,19 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                     "other-group" => "other-group.txt belongs to group 12345, which the current user isn't in",
                 ];
 
+                # Moving one of the files on its own is refused too, and both say how to get round it.
+                SmokeTest::expectException(
+                    \Programster\CoreLibs\Exceptions\BadFilePermissionsException::class,
+                    fn() => (new File("{$fixtures}/other-owner/root-owned.txt"))->move($otherFilesystem),
+                    "Run this as root (e.g. with sudo) to keep its owner"
+                );
+
+                SmokeTest::expectException(
+                    \Programster\CoreLibs\Exceptions\BadFilePermissionsException::class,
+                    fn() => (new Directory("{$fixtures}/other-owner"))->move($otherFilesystem),
+                    "run this as root (e.g. with sudo), or pass PreserveOwnershipEnum::PREFERRED or NO"
+                );
+
                 foreach ($foreignCases as $fixture => $expectedMessage)
                 {
                     $foreignDirectory = new Directory("{$fixtures}/{$fixture}");
@@ -251,6 +266,21 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                         $expectedMessage
                     );
                     assert(is_dir("{$fixtures}/{$fixture}") && !file_exists("{$otherFilesystem}/{$fixture}"));
+                }
+
+                # With PREFERRED or NO, they are moved anyway, and the copies belong to the current user and group.
+                $movedWith = [
+                    "other-owner" => [PreserveOwnershipEnum::PREFERRED, "root-owned.txt", "owned by root\n"],
+                    "other-group" => [PreserveOwnershipEnum::NO, "other-group.txt", "group 12345\n"],
+                ];
+
+                foreach ($movedWith as $fixture => [$preserveOwnership, $file, $contents])
+                {
+                    $foreignDirectory = new Directory("{$fixtures}/{$fixture}");
+                    $foreignDirectory->move($otherFilesystem, preserveOwnership: $preserveOwnership);
+                    $copy = "{$otherFilesystem}/{$fixture}/{$file}";
+                    assert(!file_exists("{$fixtures}/{$fixture}") && file_get_contents($copy) === $contents);
+                    assert(fileowner($copy) === posix_geteuid() && filegroup($copy) === posix_getegid());
                 }
             }
 

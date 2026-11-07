@@ -4,6 +4,7 @@
  * Smoke tests for File. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
+use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
@@ -229,7 +230,7 @@ $smoke->run("File moves never replacing a file created during the move", functio
 
     SmokeTest::expectException(
         FileAlreadyExistsException::class,
-        fn() => $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/theirs.txt", false),
+        fn() => $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/theirs.txt", false, PreserveOwnershipEnum::YES),
         "as something was created there while it was being moved"
     );
 
@@ -239,12 +240,12 @@ $smoke->run("File moves never replacing a file created during the move", functio
     symlink("{$base}/missing", "{$base}/broken-link");
     SmokeTest::expectException(
         FileAlreadyExistsException::class,
-        fn() => $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/broken-link", false)
+        fn() => $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/broken-link", false, PreserveOwnershipEnum::YES)
     );
     assert(is_link("{$base}/broken-link") && file_get_contents("{$base}/mine.txt") === "mine");
 
     # When nothing is there, it moves.
-    $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/moved.txt", false);
+    $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/moved.txt", false, PreserveOwnershipEnum::YES);
     assert(file_get_contents("{$base}/moved.txt") === "mine" && !file_exists("{$base}/mine.txt"));
 
     # Moving to another filesystem goes through a temporary name in the new directory, which is removed again
@@ -260,25 +261,25 @@ $smoke->run("File moves never replacing a file created during the move", functio
 
             SmokeTest::expectException(
                 FileAlreadyExistsException::class,
-                fn() => $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", false)
+                fn() => $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", false, PreserveOwnershipEnum::YES)
             );
 
             assert(file_get_contents("{$otherFilesystem}/theirs.txt") === "theirs");
             assert(file_get_contents("{$base}/moved.txt") === "mine");
-            $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/moved.txt", false);
+            $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/moved.txt", false, PreserveOwnershipEnum::YES);
             assert(file_get_contents("{$otherFilesystem}/moved.txt") === "mine" && !file_exists("{$base}/moved.txt"));
             assert(glob("{$otherFilesystem}/.corelibs-move-*") === []);
-            $moveFile->invoke(null, "{$otherFilesystem}/moved.txt", "{$base}/moved.txt", false);
+            $moveFile->invoke(null, "{$otherFilesystem}/moved.txt", "{$base}/moved.txt", false, PreserveOwnershipEnum::YES);
 
             # The copy keeps the permissions and modification time, and replacing works across filesystems too.
             chmod("{$base}/moved.txt", 0640);
             touch("{$base}/moved.txt", 1000000000);
-            $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", true);
+            $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", true, PreserveOwnershipEnum::YES);
             assert(file_get_contents("{$otherFilesystem}/theirs.txt") === "mine" && !file_exists("{$base}/moved.txt"));
             assert((fileperms("{$otherFilesystem}/theirs.txt") & 0777) === 0640);
             assert(filemtime("{$otherFilesystem}/theirs.txt") === 1000000000);
             assert(glob("{$otherFilesystem}/.corelibs-move-*") === []);
-            $moveFile->invoke(null, "{$otherFilesystem}/theirs.txt", "{$base}/moved.txt", false);
+            $moveFile->invoke(null, "{$otherFilesystem}/theirs.txt", "{$base}/moved.txt", false, PreserveOwnershipEnum::YES);
         }
         finally
         {

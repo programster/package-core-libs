@@ -489,7 +489,7 @@ final class CsvLib
         # leaves the original untouched.
         try
         {
-            $tmpFilepath = Filesystem::createReplacementFile();
+            $tmpFilepath = Filesystem::createReplacementFile($filepath);
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -695,7 +695,7 @@ final class CsvLib
         # through leaves the original untouched.
         try
         {
-            $tmpFilepath = Filesystem::createReplacementFile();
+            $tmpFilepath = Filesystem::createReplacementFile($filepath);
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -829,7 +829,7 @@ final class CsvLib
 
         try
         {
-            $tmpFilepath = Filesystem::createReplacementFile();
+            $tmpFilepath = Filesystem::createReplacementFile($filepath);
             $tmpFile = fopen($tmpFilepath, "w");
 
             if ($tmpFile === false)
@@ -1280,7 +1280,9 @@ final class CsvLib
      * fputcsv.
      * @throws FileDoesNotExistException - if there is no file at one of $filepaths.
      * @throws InvalidCsvException - if one of the files isn't valid (see the CsvFile constructor),
-     * e.g. it has a blank line in the middle. Nothing is written if this happens.
+     * e.g. it has a blank line in the middle, or the files don't have the same number of columns
+     * (or, with $hasHeaders, the same header row). Empty files are skipped. Nothing is written if
+     * this happens.
      * @throws BadFilePermissionsException - if the merged file (or, for a new file, its directory)
      * can't be written to.
      * @throws FilesystemException - if one of the files can't be read, or the merged file can't be
@@ -1296,11 +1298,34 @@ final class CsvLib
         string $escape = "",
     ): void
     {
-        # Check every file first, so a blank line in the middle of one (which makes it invalid) is an error, and
-        # nothing is written.
+        # Check every file first, so a blank line in the middle of one (which makes it invalid), or files that don't
+        # match, are an error, and nothing is written. An empty file has nothing to merge, so it can't mismatch.
+        $first = null;
+
         foreach ($filepaths as $filepath)
         {
-            self::validateCsvFile($filepath, $delimiter, $enclosure, $escape);
+            $csvFile = new CsvFile($filepath, $hasHeaders, $delimiter, $enclosure, $escape);
+
+            if ($csvFile->getColumnCount() > 0)
+            {
+                $header = $hasHeaders ? self::readFirstRow($csvFile) : null;
+                $first ??= ['path' => $filepath, 'columns' => $csvFile->getColumnCount(), 'header' => $header];
+
+                if ($csvFile->getColumnCount() !== $first['columns'])
+                {
+                    throw new InvalidCsvException(
+                        "mergeFiles: {$filepath} has {$csvFile->getColumnCount()} columns, but {$first['path']} has " .
+                        "{$first['columns']}, so they can't be merged."
+                    );
+                }
+
+                if ($header !== $first['header'])
+                {
+                    throw new InvalidCsvException(
+                        "mergeFiles: {$filepath} has a different header from {$first['path']}, so they can't be merged."
+                    );
+                }
+            }
         }
 
         $writeMergedFile = function ($outputFileHandle) use (
@@ -1423,7 +1448,7 @@ final class CsvLib
             );
         }
 
-        $tmpFilepath = Filesystem::createReplacementFile();
+        $tmpFilepath = Filesystem::createReplacementFile($outputFilepath);
         $tmpHandle = @fopen($tmpFilepath, "w");
 
         if ($tmpHandle === false)
@@ -1557,6 +1582,29 @@ final class CsvLib
         }
 
         return $errors;
+    }
+
+
+    /**
+     * Read the first row of a validated CSV file, e.g. its header.
+     * @param CsvFile $csvFile - the CSV file.
+     * @return array<?string> - the values in its first row, or an empty array if it has none.
+     * @throws FilesystemException - if the file could not be opened.
+     */
+    private static function readFirstRow(CsvFile $csvFile): array
+    {
+        # Suppress the warning, as we throw an exception instead.
+        $handle = @fopen($csvFile->getFilepath(), "r");
+
+        if ($handle === false)
+        {
+            throw new FilesystemException("Failed to open {$csvFile->getFilepath()} for reading.");
+        }
+
+        self::skipByteOrderMark($handle);
+        $row = fgetcsv($handle, 0, $csvFile->getDelimiter(), $csvFile->getEnclosure(), $csvFile->getEscape());
+        fclose($handle);
+        return ($row === false) ? [] : $row;
     }
 
 

@@ -10,6 +10,7 @@
 namespace Programster\CoreLibs\Models;
 
 
+use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
@@ -69,6 +70,13 @@ class Directory
      * them by the umask (and stopping the move if that can't be done). On the same filesystem,
      * nothing is copied, so permissions are always kept exactly and this has no effect. Defaults to
      * false.
+     * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem, where
+     * everything has to be copied: how hard to try to keep everything's owner and group (only root
+     * can give a copy to another user). YES (the default) checks first that they can all be kept,
+     * and stops the move if not. PREFERRED keeps them where it can, and otherwise lets the copies
+     * belong to whoever is running this. NO doesn't try, so everything copied belongs to whoever is
+     * running this. On the same filesystem, nothing is copied, so ownership is always kept (apart
+     * from the recreated symlinks described in move()) and this has no effect.
      * @return void
      * @throws BadArgumentException - if $newPath is empty, or is inside this directory.
      * @throws DirectoryDoesNotExistException - if the directory $newPath would be in doesn't exist.
@@ -77,7 +85,11 @@ class Directory
      * the symlink updates (see move()). Nothing is moved if this happens.
      * @throws FilesystemException - if the move failed.
      */
-    public function rename(string $newPath, bool $overrideUmask = false): void
+    public function rename(
+        string $newPath,
+        bool $overrideUmask = false,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+    ): void
     {
         if (rtrim($newPath, "/") === "")
         {
@@ -94,7 +106,7 @@ class Directory
             );
         }
 
-        $this->moveTo($targetPath, null, $overrideUmask);
+        $this->moveTo($targetPath, null, $overrideUmask, $preserveOwnership);
     }
 
 
@@ -118,9 +130,10 @@ class Directory
      * there, and the original is only deleted once the whole copy has worked (if the copy fails, it
      * is removed, and the original is left as it was). So that the copy is the same as the
      * original, these are also checked first, and nothing is copied unless they all pass:
-     *  - every file, directory and symlink keeps its owner and group. A copy is owned by whoever
-     *    makes it, and only root can give a file to another user, so when not running as root,
-     *    everything must already belong to the current user, and to a group they are in.
+     *  - with $preserveOwnership set to YES (the default), every file, directory and symlink keeps
+     *    its owner and group. A copy is owned by whoever makes it, and only root can give a file to
+     *    another user, so when not running as root, everything must already belong to the current
+     *    user, and to a group they are in.
      *  - there are no hard links (files with more than one name), which would become separate
      *    copies, and no special files (e.g. pipes or sockets), which can't be copied.
      *  - every directory can be written to, so that the original can be deleted after copying.
@@ -129,9 +142,9 @@ class Directory
      * becomes 0644 with a umask of 022). With $overrideUmask, they are set to exactly the
      * original's instead, and if that can't be done for any of them, the copy is stopped and
      * removed, and the original is left as it was. Modification times are copied too. Extended
-     * attributes and ACLs can't be copied by PHP, so are lost. This needs PHP's posix extension, to
-     * check who owns what. Symlinks outside this directory that point into it can't be found, so
-     * they will break.
+     * attributes and ACLs can't be copied by PHP, so are lost. With $preserveOwnership set to YES,
+     * this needs PHP's posix extension, to check who owns what. Symlinks outside this directory
+     * that point into it can't be found, so they will break.
      * @param string $directory - the path to the directory to move this one into.
      * @param bool $createIfNotExists - whether to create $directory (and any parent directories) if
      * it doesn't exist. Defaults to false, in which case it must already exist.
@@ -140,6 +153,13 @@ class Directory
      * them by the umask (and stopping the move if that can't be done). On the same filesystem,
      * nothing is copied, so permissions are always kept exactly and this has no effect. Defaults to
      * false.
+     * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem, where
+     * everything has to be copied: how hard to try to keep everything's owner and group (only root
+     * can give a copy to another user). YES (the default) checks first that they can all be kept,
+     * and stops the move if not. PREFERRED keeps them where it can, and otherwise lets the copies
+     * belong to whoever is running this. NO doesn't try, so everything copied belongs to whoever is
+     * running this. On the same filesystem, nothing is copied, so ownership is always kept (apart
+     * from the recreated symlinks described in move()) and this has no effect.
      * @return void
      * @throws BadArgumentException - if $directory is empty, isn't a directory (e.g. is a file), or
      * is this directory or inside it.
@@ -153,7 +173,12 @@ class Directory
      * @throws FilesystemException - if the move or copy failed, a symlink couldn't be updated, or
      * (after a copy) the original couldn't be deleted, despite the checks.
      */
-    public function move(string $directory, bool $createIfNotExists = false, bool $overrideUmask = false): void
+    public function move(
+        string $directory,
+        bool $createIfNotExists = false,
+        bool $overrideUmask = false,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+    ): void
     {
         if ($directory === "")
         {
@@ -184,7 +209,7 @@ class Directory
         }
 
         $targetPath = rtrim($targetDirectory, "/") . "/" . basename($this->m_path);
-        $this->moveTo($targetPath, $directoryToCreate, $overrideUmask);
+        $this->moveTo($targetPath, $directoryToCreate, $overrideUmask, $preserveOwnership);
     }
 
 
@@ -209,6 +234,8 @@ class Directory
      * @param string|null $directoryToCreate - a directory to create first (for move()'s
      * $createIfNotExists), once everything has been checked, or null.
      * @param bool $overrideUmask - for a copy, whether to copy permissions exactly (see move()).
+     * @param PreserveOwnershipEnum $preserveOwnership - for a copy, how hard to try to keep owners
+     * and groups (see move()).
      * @return void
      * @throws BadArgumentException - if $targetPath is inside this directory.
      * @throws FileAlreadyExistsException - if something already exists at $targetPath.
@@ -217,7 +244,12 @@ class Directory
      * @throws FilesystemException - if the move or copy failed, a symlink couldn't be updated, or
      * the original couldn't be deleted after a copy.
      */
-    private function moveTo(string $targetPath, ?string $directoryToCreate, bool $overrideUmask): void
+    private function moveTo(
+        string $targetPath,
+        ?string $directoryToCreate,
+        bool $overrideUmask,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
     {
         $currentPath = realpath($this->m_path);
 
@@ -236,7 +268,7 @@ class Directory
 
             if ($crossesFilesystem)
             {
-                self::planCopy($currentPath, $newPath, $overrideUmask, $problems);
+                self::planCopy($currentPath, $newPath, $overrideUmask, $preserveOwnership, $problems);
             }
             else
             {
@@ -252,7 +284,7 @@ class Directory
 
             if ($crossesFilesystem)
             {
-                self::copyThenDelete($currentPath, $newPath, $overrideUmask);
+                self::copyThenDelete($currentPath, $newPath, $overrideUmask, $preserveOwnership);
             }
             elseif (!@rename($currentPath, $newPath))
             {
@@ -471,20 +503,41 @@ class Directory
      * @param string $newPath - the absolute path the copy will have.
      * @param bool $overrideUmask - whether permissions will be copied exactly, rather than reduced
      * by the umask.
+     * @param PreserveOwnershipEnum $preserveOwnership - with YES, owners and groups are checked too.
      * @param array $problems - descriptions of the problems found, which this adds to.
      * @return void
      */
-    private static function planCopy(string $oldRoot, string $newPath, bool $overrideUmask, array &$problems): void
+    private static function planCopy(
+        string $oldRoot,
+        string $newPath,
+        bool $overrideUmask,
+        PreserveOwnershipEnum $preserveOwnership,
+        array &$problems
+    ): void
     {
-        if (!function_exists('posix_geteuid'))
+        $checkOwnership = $preserveOwnership === PreserveOwnershipEnum::YES;
+
+        if ($checkOwnership && !function_exists('posix_geteuid'))
         {
             $problems[] = "Moving {$oldRoot} to a different filesystem needs PHP's posix extension, to check who " .
-                "owns what, so that ownership isn't silently changed.";
+                "owns what, so that ownership isn't silently changed (or pass PreserveOwnershipEnum::PREFERRED or NO).";
         }
         else
         {
             $totalBytes = 0;
-            self::planCopyEntry($oldRoot, $overrideUmask, $problems, $totalBytes);
+            self::planCopyEntry($oldRoot, $overrideUmask, $checkOwnership, $problems, $totalBytes);
+
+            # Say once, after them, how ownership problems can be avoided.
+            $isOwnershipProblem = function (string $problem): bool {
+                return str_contains($problem, "would change its owner")
+                    || str_contains($problem, "would change its group");
+            };
+
+            if (count(array_filter($problems, $isOwnershipProblem)) > 0)
+            {
+                $problems[] = "To keep these owners and groups, run this as root (e.g. with sudo), or pass " .
+                    "PreserveOwnershipEnum::PREFERRED or NO to let the copies belong to the current user.";
+            }
 
             # Check the space at the nearest existing directory, as the destination may not exist yet.
             $existingAncestor = dirname($newPath);
@@ -509,11 +562,18 @@ class Directory
      * planCopy().
      * @param string $path - the real path of the thing to check. Symlinks in it aren't followed.
      * @param bool $overrideUmask - whether permissions will be copied exactly.
+     * @param bool $checkOwnership - whether to check every owner and group can be kept.
      * @param array $problems - descriptions of the problems found, which this adds to.
      * @param int $totalBytes - the total size of the files found, which this adds to.
      * @return void
      */
-    private static function planCopyEntry(string $path, bool $overrideUmask, array &$problems, int &$totalBytes): void
+    private static function planCopyEntry(
+        string $path,
+        bool $overrideUmask,
+        bool $checkOwnership,
+        array &$problems,
+        int &$totalBytes
+    ): void
     {
         if (count($problems) < self::MAX_PROBLEMS)
         {
@@ -522,8 +582,8 @@ class Directory
             $type = $stats['mode'] & 0170000;
             $isDirectory = $type === 0040000;
             $isSymlink = $type === 0120000;
-            $userId = posix_geteuid();
-            $groupIds = array_merge([posix_getegid()], posix_getgroups());
+            $userId = $checkOwnership ? posix_geteuid() : 0;
+            $groupIds = $checkOwnership ? array_merge([posix_getegid()], posix_getgroups()) : [];
 
             if (!$isDirectory && !$isSymlink && $type !== 0100000)
             {
@@ -534,12 +594,12 @@ class Directory
                 $problems[] = "{$path} is a hard link (it has {$stats['nlink']} names), which would become a " .
                     "separate copy.";
             }
-            elseif ($userId !== 0 && $stats['uid'] !== $userId)
+            elseif ($checkOwnership && $userId !== 0 && $stats['uid'] !== $userId)
             {
                 $problems[] = "{$path} is owned by user {$stats['uid']}, so a copy (owned by user {$userId}) " .
                     "would change its owner. Only root can keep it.";
             }
-            elseif ($userId !== 0 && !in_array($stats['gid'], $groupIds, true))
+            elseif ($checkOwnership && $userId !== 0 && !in_array($stats['gid'], $groupIds, true))
             {
                 $problems[] = "{$path} belongs to group {$stats['gid']}, which the current user isn't in, so a " .
                     "copy would change its group.";
@@ -565,7 +625,8 @@ class Directory
 
                 for ($i = 0; $i < count($entries) && count($problems) < self::MAX_PROBLEMS; $i++)
                 {
-                    self::planCopyEntry("{$path}/{$entries[$i]}", $overrideUmask, $problems, $totalBytes);
+                    $entryPath = "{$path}/{$entries[$i]}";
+                    self::planCopyEntry($entryPath, $overrideUmask, $checkOwnership, $problems, $totalBytes);
                 }
             }
             elseif ($isDirectory && is_readable($path))
@@ -583,11 +644,17 @@ class Directory
      * @param string $newRoot - the absolute path the copy will have.
      * @param bool $overrideUmask - whether to copy permissions exactly, rather than reducing them
      * by the umask.
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep owners and groups.
      * @return void
      * @throws FilesystemException - if the copy failed (the original is untouched), or the original
      * couldn't be deleted afterwards (in which case both now exist).
      */
-    private static function copyThenDelete(string $oldRoot, string $newRoot, bool $overrideUmask): void
+    private static function copyThenDelete(
+        string $oldRoot,
+        string $newRoot,
+        bool $overrideUmask,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
     {
         # Directories get their real owner, permissions and times only once everything is copied, so that a
         # read-only one can't stop the copy, or stop a failed copy being removed.
@@ -595,12 +662,13 @@ class Directory
 
         try
         {
-            self::copyTree($oldRoot, $newRoot, $oldRoot, $newRoot, $overrideUmask, $directoriesToFinish);
+            $copySettings = ['overrideUmask' => $overrideUmask, 'preserveOwnership' => $preserveOwnership];
+            self::copyTree($oldRoot, $newRoot, $oldRoot, $newRoot, $copySettings, $directoriesToFinish);
 
             # The deepest directories come last in the list, and must be finished first.
             foreach (array_reverse($directoriesToFinish) as [$directoryPath, $stats])
             {
-                self::restoreOwnership($directoryPath, $stats, false);
+                self::restoreOwnership($directoryPath, $stats, false, $preserveOwnership);
                 self::setPermissions($directoryPath, $stats, $overrideUmask);
                 self::setModificationTime($directoryPath, $stats);
             }
@@ -653,7 +721,8 @@ class Directory
      * @param string $destination - where to copy it to.
      * @param string $oldRoot - the real path of the directory being moved.
      * @param string $newRoot - the path it is being moved to.
-     * @param bool $overrideUmask - whether to copy permissions exactly.
+     * @param array{overrideUmask: bool, preserveOwnership: PreserveOwnershipEnum} $copySettings -
+     * whether to copy permissions exactly, and how hard to try to keep owners and groups.
      * @param array $directoriesToFinish - [path, lstat() of the original] pairs, which this adds
      * to.
      * @return void
@@ -664,7 +733,7 @@ class Directory
         string $destination,
         string $oldRoot,
         string $newRoot,
-        bool $overrideUmask,
+        array $copySettings,
         array &$directoriesToFinish
     ): void
     {
@@ -693,11 +762,11 @@ class Directory
                     throw new FilesystemException("Failed to create the symlink {$to}.");
                 }
 
-                self::restoreOwnership($to, $stats, true);
+                self::restoreOwnership($to, $stats, true, $copySettings['preserveOwnership']);
             }
             elseif ($type === 0040000)
             {
-                self::copyTree($from, $to, $oldRoot, $newRoot, $overrideUmask, $directoriesToFinish);
+                self::copyTree($from, $to, $oldRoot, $newRoot, $copySettings, $directoriesToFinish);
             }
             else
             {
@@ -707,8 +776,8 @@ class Directory
                 }
 
                 # Permissions come after ownership, as changing the owner clears the setuid and setgid bits.
-                self::restoreOwnership($to, $stats, false);
-                self::setPermissions($to, $stats, $overrideUmask);
+                self::restoreOwnership($to, $stats, false, $copySettings['preserveOwnership']);
+                self::setPermissions($to, $stats, $copySettings['overrideUmask']);
                 self::setModificationTime($to, $stats);
             }
         }
@@ -716,33 +785,59 @@ class Directory
 
 
     /**
-     * Give a copy its original's owner and group. Only root can set the owner, so when not running
-     * as root, only the group is set (the checks made sure the owner is already right).
+     * Give a copy its original's owner and group. Only root can set the owner, and anyone else can
+     * only set a group they are in, so this tries, then checks.
      * @param string $path - the copy.
      * @param array $stats - lstat() of the original.
      * @param bool $isSymlink - whether $path is a symlink, so the link itself is changed, rather
      * than what it points to.
+     * @param PreserveOwnershipEnum $preserveOwnership - with NO, nothing is done. With PREFERRED, a
+     * failure is ignored, leaving the copy owned by whoever is running this. With YES, a failure
+     * throws (the checks should have made sure it can't happen).
      * @return void
-     * @throws FilesystemException - if the owner or group couldn't be set.
+     * @throws FilesystemException - with YES, if the owner or group couldn't be set.
      */
-    private static function restoreOwnership(string $path, array $stats, bool $isSymlink): void
+    private static function restoreOwnership(
+        string $path,
+        array $stats,
+        bool $isSymlink,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
     {
-        # Suppress the warnings, as we throw an exception instead.
-        if (posix_geteuid() === 0)
+        if ($preserveOwnership !== PreserveOwnershipEnum::NO)
         {
-            $ownerSet = $isSymlink ? @lchown($path, $stats['uid']) : @chown($path, $stats['uid']);
+            $copyStats = lstat($path);
 
-            if (!$ownerSet)
+            # Suppress the warnings, as whether it worked is checked below.
+            if ($copyStats['uid'] !== $stats['uid'] && $isSymlink)
             {
-                throw new FilesystemException("Failed to set the owner of {$path} to user {$stats['uid']}.");
+                @lchown($path, $stats['uid']);
             }
-        }
+            elseif ($copyStats['uid'] !== $stats['uid'])
+            {
+                @chown($path, $stats['uid']);
+            }
 
-        $groupSet = $isSymlink ? @lchgrp($path, $stats['gid']) : @chgrp($path, $stats['gid']);
+            if ($copyStats['gid'] !== $stats['gid'] && $isSymlink)
+            {
+                @lchgrp($path, $stats['gid']);
+            }
+            elseif ($copyStats['gid'] !== $stats['gid'])
+            {
+                @chgrp($path, $stats['gid']);
+            }
 
-        if (!$groupSet)
-        {
-            throw new FilesystemException("Failed to set the group of {$path} to group {$stats['gid']}.");
+            clearstatcache(true, $path);
+            $copyStats = lstat($path);
+            $isKept = ($copyStats['uid'] === $stats['uid']) && ($copyStats['gid'] === $stats['gid']);
+
+            if (!$isKept && $preserveOwnership === PreserveOwnershipEnum::YES)
+            {
+                throw new FilesystemException(
+                    "Failed to give {$path} its original owner (user {$stats['uid']}) and group " .
+                    "(group {$stats['gid']})."
+                );
+            }
         }
     }
 

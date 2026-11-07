@@ -819,3 +819,30 @@ $smoke->run("CSV methods treating a blank line in the middle as invalid", functi
     );
 });
 
+$smoke->run("mergeFiles checking the files match", function () use ($dir) {
+    $base = "{$dir}/merge-match";
+    mkdir($base);
+    file_put_contents("{$base}/a.csv", "h1,h2\n1,2\n");
+    file_put_contents("{$base}/three-columns.csv", "h1,h2,h3\n1,2,3\n");
+    file_put_contents("{$base}/other-header.csv", "h1,other\n3,4\n");
+    file_put_contents("{$base}/empty.csv", "");
+
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::mergeFiles(["{$base}/a.csv", "{$base}/three-columns.csv"], "{$base}/out.csv", true),
+        "has 3 columns, but {$base}/a.csv has 2"
+    );
+
+    SmokeTest::expectException(
+        InvalidCsvException::class,
+        fn() => CsvLib::mergeFiles(["{$base}/a.csv", "{$base}/other-header.csv"], "{$base}/out.csv", true),
+        "has a different header"
+    );
+
+    assert(!file_exists("{$base}/out.csv"));
+
+    # Without headers, only the number of columns has to match, and an empty file has nothing to merge.
+    CsvLib::mergeFiles(["{$base}/a.csv", "{$base}/empty.csv", "{$base}/other-header.csv"], "{$base}/out.csv", false);
+    assert(file_get_contents("{$base}/out.csv") === "h1,h2\n1,2\nh1,other\n3,4\n");
+});
+
