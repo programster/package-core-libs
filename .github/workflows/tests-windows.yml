@@ -53,8 +53,9 @@ jobs:
               run: composer install --no-interaction --no-progress --prefer-dist
 
             # Also report the results as annotations on the run, which (unlike the logs) can be read without logging
-            # in to GitHub. A step can only have 10 error annotations, so the failures are grouped into at most 9,
-            # with one more for the last lines of output if it failed without listing any (e.g. a fatal error).
+            # in to GitHub: one for the summary, one listing what was skipped, and the failures. A step can only have
+            # 10 error annotations, so the failures are grouped into at most 9, with one more for the last lines of
+            # output if it failed without listing any (e.g. a fatal error).
             - name: Run the tests
               shell: bash
               run: |
@@ -64,6 +65,10 @@ jobs:
                   cat test-output.txt
                   summary=$(grep -E "passed, [0-9]+ failed" test-output.txt | head -1)
                   echo "::notice title=PHP ${{ matrix.php }} results::${summary:-no summary line}"
+
+                  # List the checks that couldn't run on Windows (and so didn't fail), all in one annotation.
+                  skipped=$(grep -E "^  SKIPPED " test-output.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+                  echo "::notice title=PHP ${{ matrix.php }} skipped::${skipped:-nothing was skipped}"
                   grep -E "^  FAIL " test-output.txt > failures.txt || true
                   total=$(wc -l < failures.txt)
 
