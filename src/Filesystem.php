@@ -473,9 +473,9 @@ final class Filesystem
     /**
      * Move (or rename) a file. This is a shortcut for File::move(), with the new name taken from
      * $destination, which explains what is checked: a directory is never replaced, a file is only
-     * replaced with $overwriteExistingFile, and a symlink is moved as the link itself (a relative one is recreated so that it still
-     * points at the same place). Unlike File, a relative path here is relative to the current
-     * working directory, as with PHP's own functions.
+     * replaced with $overwriteExistingFile, and a symlink is moved as the link itself (a relative
+     * one is recreated so that it still points at the same place). Unlike File, a relative path
+     * here is relative to the current working directory, as with PHP's own functions.
      * @param string $source - the file to move.
      * @param string $destination - the path it should have afterwards. The directory it is in must
      * already exist.
@@ -1061,7 +1061,9 @@ final class Filesystem
         $systemTmpDirectory = sys_get_temp_dir();
         $realDestination = realpath($destinationFolder);
 
-        if (is_writable($systemTmpDirectory) && self::isOnSameFilesystem($systemTmpDirectory, $realDestination))
+        $canUseSystemTmp = self::canWriteToDirectory($systemTmpDirectory);
+
+        if ($canUseSystemTmp && self::isOnSameFilesystem($systemTmpDirectory, $realDestination))
         {
             $tmpDirectory = $systemTmpDirectory . "/" . self::randomName("corelibs-unzip-");
         }
@@ -1244,7 +1246,7 @@ final class Filesystem
         {
             self::checkCanChangeFile($targetFile);
         }
-        elseif (!is_writable(dirname($targetFile)))
+        elseif (!self::canWriteToDirectory(dirname($targetFile)))
         {
             throw new BadFilePermissionsException(
                 "{$targetFile} can't be created, as " . dirname($targetFile) . " can't be written to."
@@ -2430,6 +2432,45 @@ final class Filesystem
 
 
     /**
+     * Check whether new files can be created in a directory (and things in it renamed or deleted).
+     * On Windows, is_writable() can be false for a directory that can be written to (e.g. one in
+     * WSL, reached through \\wsl.localhost), so when it says no there, this tries creating (and
+     * then deleting) a hidden file in it instead. Elsewhere, it is is_writable(). Either way, on
+     * Unix, the directory must also be entered to use it (see canEnterDirectory()).
+     * @param string $directory - the directory to check.
+     * @return bool - true if it can be written to.
+     */
+    public static function canWriteToDirectory(string $directory): bool
+    {
+        $canWrite = is_writable($directory);
+
+        if (!$canWrite && PHP_OS_FAMILY === "Windows" && is_dir($directory))
+        {
+            try
+            {
+                $probe = "{$directory}/.corelibs-write-test-" . bin2hex(random_bytes(8));
+            }
+            catch (\Random\RandomException $e)
+            {
+                $probe = "";
+            }
+
+            # Suppress the warnings, as failing just means it can't be written to.
+            $handle = ($probe === "") ? false : @fopen($probe, "x");
+            $canWrite = ($handle !== false);
+
+            if ($handle !== false)
+            {
+                fclose($handle);
+                @unlink($probe);
+            }
+        }
+
+        return $canWrite;
+    }
+
+
+    /**
      * Check whether a directory can be listed and entered, which is needed to find, delete or copy
      * what is in it. On Windows, is_readable() can be false for a directory that can be listed
      * (e.g. one in WSL, reached through \\wsl.localhost), so there, this tries opening it instead.
@@ -3037,7 +3078,7 @@ final class Filesystem
     {
         $problems = [];
 
-        if (!is_writable($destination) || !self::canEnterDirectory($destination))
+        if (!self::canWriteToDirectory($destination) || !self::canEnterDirectory($destination))
         {
             $problems[] = "{$destination} can't be written to.";
         }
@@ -3150,14 +3191,14 @@ final class Filesystem
         # The new contents aren't known yet, so judge the room needed by the original's size.
         $neededBytes = is_file($filepath) ? (int)filesize($filepath) : 0;
         $systemTmpDirectory = sys_get_temp_dir();
-        $isWritable = is_writable($directory) && self::canEnterDirectory($directory);
+        $isWritable = self::canWriteToDirectory($directory) && self::canEnterDirectory($directory);
         $hasRoom = $isWritable && self::hasFreeSpace($directory, $neededBytes);
         $systemIsTmpfs = self::isTmpfsIfKnown($systemTmpDirectory);
 
         # A tmpfs (e.g. /tmp on Debian 13) can be allowed more space than there is free memory, so filling it could push
         # the system into swap. Only count it as having room if the memory is free too.
         $systemHasRoom = (
-               is_writable($systemTmpDirectory)
+               self::canWriteToDirectory($systemTmpDirectory)
             && self::hasFreeSpace($systemTmpDirectory, $neededBytes)
             && (!$systemIsTmpfs || self::hasFreeMemory($neededBytes))
         );
@@ -3392,7 +3433,7 @@ final class Filesystem
             && $details !== false
             && $details['nlink'] === 1
             && $isRenamableFromThere
-            && is_writable($directory)
+            && self::canWriteToDirectory($directory)
             && self::canEnterDirectory($directory)
         );
     }
@@ -3894,7 +3935,7 @@ final class Filesystem
             && !is_writable($path)
         );
 
-        if (!is_writable($parentDir) || !self::canEnterDirectory($parentDir))
+        if (!self::canWriteToDirectory($parentDir) || !self::canEnterDirectory($parentDir))
         {
             $problems[] = new FileDeletionProblem($path, $parentDir, FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE);
         }

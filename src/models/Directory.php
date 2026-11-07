@@ -266,7 +266,9 @@ class Directory
     {
         $listener = $moveSettings['listener'];
 
-        $currentPath = realpath($this->m_path);
+        # Tidied, as on Windows realpath() gives "\\", while the destination is worked out with "/", so the same path
+        # could otherwise look like a different one (e.g. "inside itself").
+        $currentPath = Filesystem::normalisePath(realpath($this->m_path));
 
         # Resolve the destination's parent, following the symlinks in the part of it that exists, as the system would,
         # even if it doesn't exist yet (for $createIfNotExists). Otherwise it could be compared with the real path of
@@ -403,7 +405,7 @@ class Directory
 
         foreach (array_unique($mustBeWritable) as $directory)
         {
-            if (!is_writable($directory))
+            if (!Filesystem::canWriteToDirectory($directory))
             {
                 $problems[] = new DirectoryMoveProblem(
                     $directory,
@@ -480,7 +482,9 @@ class Directory
 
                         if ($isReadable && ($newTarget !== $linkTarget || $onWindows))
                         {
-                            if (!is_writable($directory) || !Filesystem::canEnterDirectory($directory))
+                            $canUpdate = Filesystem::canWriteToDirectory($directory);
+
+                            if (!$canUpdate || !Filesystem::canEnterDirectory($directory))
                             {
                                 $problems[] = new DirectoryMoveProblem(
                                     $path,
@@ -767,7 +771,7 @@ class Directory
                     "{$path} can't be read, so it can't be copied."
                 );
             }
-            elseif ($isDirectory && (!is_writable($path) || !Filesystem::canEnterDirectory($path)))
+            elseif ($isDirectory && (!Filesystem::canWriteToDirectory($path) || !Filesystem::canEnterDirectory($path)))
             {
                 # The original is deleted after copying, which means removing everything in each directory.
                 $problems[] = new DirectoryMoveProblem(

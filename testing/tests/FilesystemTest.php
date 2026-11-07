@@ -1310,7 +1310,14 @@ $smoke->run("fileperms", function () use ($dir) {
     chmod("{$base}/dir", 01777);
     assert(Filesystem::fileperms("{$base}/dir") === "drwxrwxrwt");
     chmod("{$base}/dir", 01776);
-    assert(Filesystem::fileperms("{$base}/dir") === "drwxrwxrwT");
+    clearstatcache();
+
+    # As with setuid above, WSL 1 drops the sticky bit from a directory others can't enter, so only check it was kept.
+    if ((fileperms("{$base}/dir") & 01000) === 01000)
+    {
+        assert(Filesystem::fileperms("{$base}/dir") === "drwxrwxrwT");
+    }
+
 
     # A symlink is reported as the link itself, even when it is broken.
     symlink("{$base}/file.txt", "{$base}/link");
@@ -2112,9 +2119,11 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
     # With $resolveSymlinks, the real paths are given instead, including for what is found through a followed symlink.
     $realBase = realpath($base);
     assert(Filesystem::getDirContents("{$base}/link", resolveSymlinks: true) === $tidy(["{$realBase}/real/sub/f.txt"]));
+    # Compare them resolved, as Windows can give a folder's short name (e.g. RUNNER~1) in one and its long one in another.
     $resolvedDirectories = Filesystem::listDirectories("{$base}/link", resolveSymlinks: true);
     $message = "listDirectories() resolving symlinks gave: " . implode(", ", $resolvedDirectories);
-    assert($resolvedDirectories === $tidy(["{$realBase}/real/sub"]), $message);
+    assert(count($resolvedDirectories) === 1, $message);
+    SmokeTest::assertSamePath($resolvedDirectories[0], "{$realBase}/real/sub", $message);
     symlink("{$base}/elsewhere", "{$base}/real/sub/to-elsewhere");
     $followed = Filesystem::getDirContents("{$base}/link", followSymlinks: true, resolveSymlinks: true);
     sort($followed);

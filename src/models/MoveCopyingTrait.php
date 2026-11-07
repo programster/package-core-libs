@@ -66,7 +66,7 @@ trait MoveCopyingTrait
 
         $useSystemTmpDirectory = (
                PHP_OS_FAMILY !== "Windows"
-            && is_writable($systemTmpDirectory)
+            && Filesystem::canWriteToDirectory($systemTmpDirectory)
             && Filesystem::canEnterDirectory($systemTmpDirectory)
             && !Filesystem::isSelinuxEnabled()
             && Filesystem::isOnSameFilesystem($systemTmpDirectory, $destinationDirectory)

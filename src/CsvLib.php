@@ -1473,7 +1473,7 @@ final class CsvLib
         {
             Filesystem::checkCanChangeFile($outputFilepath);
         }
-        elseif (!is_writable(dirname($outputFilepath)))
+        elseif (!Filesystem::canWriteToDirectory(dirname($outputFilepath)))
         {
             throw new BadFilePermissionsException(
                 "{$outputFilepath} can't be created, as " . dirname($outputFilepath) . " can't be written to."
