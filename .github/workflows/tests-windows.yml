@@ -45,12 +45,38 @@ jobs:
               uses: shivammathur/setup-php@v2
               with:
                   php-version: ${{ matrix.php }}
-                  extensions: mbstring, sodium, sockets, zip, curl, openssl
+                  extensions: fileinfo, mbstring, sodium, sockets, zip, curl, openssl
                   ini-values: zend.assertions=1, assert.exception=1
                   coverage: none
 
             - name: Install Composer dependencies
               run: composer install --no-interaction --no-progress --prefer-dist
 
+            # Also report the results as annotations on the run, which (unlike the logs) can be read without logging
+            # in to GitHub. A step can only have 10 error annotations, so the failures are grouped into at most 9,
+            # with one more for the last lines of output if it failed without listing any (e.g. a fatal error).
             - name: Run the tests
-              run: php testing/main.php
+              shell: bash
+              run: |
+                  php testing/main.php > test-output.txt 2>&1
+                  status=$?
+                  cat test-output.txt
+                  summary=$(grep -E "passed, [0-9]+ failed" test-output.txt | head -1)
+                  echo "::notice title=PHP ${{ matrix.php }} results::${summary:-no summary line}"
+                  grep -E "^  FAIL " test-output.txt > failures.txt || true
+                  total=$(wc -l < failures.txt)
+
+                  if [ "$total" -gt 0 ]; then
+                      per=$(( (total + 8) / 9 ))
+                      split -l "$per" failures.txt failure-group-
+
+                      for group in failure-group-*; do
+                          message=$(sed 's/%/%25/g' "$group" | awk '{printf "%s%%0A", $0}')
+                          echo "::error title=PHP ${{ matrix.php }} failures::${message}"
+                      done
+                  elif [ "$status" -ne 0 ]; then
+                      message=$(tail -n 30 test-output.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+                      echo "::error title=PHP ${{ matrix.php }} failed without a summary::${message}"
+                  fi
+
+                  exit $status
