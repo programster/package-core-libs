@@ -265,7 +265,16 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                 ];
 
                 assert($reasons === $expectedReasons);
-                assert(str_contains($e->getProblems()[0]->getDescription(), "names), which would become a separate"));
+                # Which problem comes first depends on the order the directory lists its contents in, so look at all of
+                # them.
+                $descriptions = [];
+
+                foreach ($e->getProblems() as $problem)
+                {
+                    $descriptions[] = $problem->getDescription();
+                }
+
+                assert(str_contains(implode("\n", $descriptions), "names), which would become a separate"));
             }
 
             # Files owned by another user, or by a group the current user isn't in, would change owner or group if
