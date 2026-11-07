@@ -1654,3 +1654,26 @@ $smoke->run("replaceFileContents", function () use ($dir) {
     assert(array_values(array_diff(scandir($base), [".", ".."])) === ["a.txt"]);
 });
 
+$smoke->run("isTmpfs on each system", function () use ($dir) {
+    # It works on every supported system (always false on Windows, which has no tmpfs), rather than throwing.
+    $isTmpfs = Filesystem::isTmpfs($dir);
+    assert(PHP_OS_FAMILY !== "Windows" || $isTmpfs === false);
+
+    # The macOS and BSD route reads the mount command's output, so check that with sample output here.
+    $parse = new ReflectionMethod(Filesystem::class, "parseMountCommandOutput");
+    $typeAt = new ReflectionMethod(Filesystem::class, "filesystemTypeAt");
+
+    $output = "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)\n" .
+        "devfs on /dev (devfs, local, nobrowse)\n" .
+        "/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)\n" .
+        "tmpfs on /tmp (tmpfs, local)\n" .
+        "/dev/disk4s1 on /Volumes/My Disk (hfs, local, nodev, nosuid, journaled)\n";
+
+    $mounts = $parse->invoke(null, $output);
+    assert($mounts[3] === ["/tmp", "tmpfs"] && $mounts[4] === ["/Volumes/My Disk", "hfs"]);
+    assert($typeAt->invoke(null, "/tmp/work/file.txt", $mounts) === "tmpfs");
+    assert($typeAt->invoke(null, "/Volumes/My Disk/file.txt", $mounts) === "hfs");
+    assert($typeAt->invoke(null, "/Users/someone", $mounts) === "apfs");
+    assert($typeAt->invoke(null, "/tmpfile", $mounts) === "apfs");
+});
+

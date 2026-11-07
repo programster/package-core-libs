@@ -1232,12 +1232,15 @@ final class Filesystem
     /**
      * Check whether a path is on a tmpfs filesystem, which is held in memory rather than on disk
      * (e.g. /tmp on Debian 13, or /dev/shm). Writing to one is fast, but uses memory, and it is lost
-     * when the system restarts. This reads /proc/mounts, so only works on Linux. Symlinks are
-     * followed, so a symlink is checked by what it points to.
+     * when the system restarts. This reads /proc/mounts on Linux, and the output of the mount command
+     * on macOS and BSD (macOS doesn't normally use tmpfs, but BSD does). Windows has no tmpfs, so this
+     * is always false there. Symlinks are followed, so a symlink is checked by what it points to.
      * @param string $path - the file or directory to check.
      * @return bool - true if it is on a tmpfs.
      * @throws FileDoesNotExistException - if there is nothing at $path.
-     * @throws UnsupportedPlatformException - if /proc/mounts can't be read (e.g. not on Linux).
+     * @throws UnsupportedPlatformException - on a system other than Linux, macOS, BSD or Windows, or
+     * Linux without a readable /proc/mounts.
+     * @throws CommandFailedException - if the mount command failed (macOS and BSD).
      */
     public static function isTmpfs(string $path): bool
     {
@@ -1248,37 +1251,14 @@ final class Filesystem
             throw new FileDoesNotExistException("isTmpfs: there is nothing at {$path}.");
         }
 
-        # Suppress the warning, as we throw an exception instead.
-        $mounts = @file("/proc/mounts", FILE_IGNORE_NEW_LINES);
+        $mounts = match (PHP_OS_FAMILY) {
+            "Linux" => self::readLinuxMounts(),
+            "Darwin", "BSD" => self::parseMountCommandOutput(Core::runCommand("mount")),
+            "Windows" => [],
+            default => throw new UnsupportedPlatformException("isTmpfs: unsupported OS " . PHP_OS_FAMILY),
+        };
 
-        if ($mounts === false)
-        {
-            throw new UnsupportedPlatformException("isTmpfs: /proc/mounts can't be read, so this only works on Linux.");
-        }
-
-        $decodeOctalEscape = self::decodeOctalEscape(...);
-        $longestMountPoint = "";
-        $type = "";
-
-        foreach ($mounts as $mount)
-        {
-            # Each line is "device mount-point type options ...", with spaces etc. in paths written as octal (\040).
-            $fields = explode(" ", $mount);
-            $mountPoint = preg_replace_callback('/\\\\([0-7]{3})/', $decodeOctalEscape, $fields[1] ?? "");
-
-            # The path is on the mount with the longest mount point that contains it. A later line for the same mount
-            # point is mounted over the earlier one, so wins.
-            # Don't follow symlinks in the mount points, which could set off automounts, or hang on a network mount.
-            $contains = ($mountPoint !== "") && self::isWithinDirectory($realPath, $mountPoint, false);
-
-            if ($contains && strlen($mountPoint) >= strlen($longestMountPoint))
-            {
-                $longestMountPoint = $mountPoint;
-                $type = $fields[2] ?? "";
-            }
-        }
-
-        return $type === "tmpfs";
+        return self::filesystemTypeAt($realPath, $mounts) === "tmpfs";
     }
 
 
@@ -2983,6 +2963,90 @@ final class Filesystem
         }
 
         return $details !== false && $details['nlink'] === 1 && $ownershipKeepable;
+    }
+
+
+    /**
+     * Read the mounted filesystems from /proc/mounts on Linux, for isTmpfs().
+     * @return array<array{0: string, 1: string}> - each mount's mount point and filesystem type, in
+     * the order they were mounted.
+     * @throws UnsupportedPlatformException - if /proc/mounts can't be read.
+     */
+    private static function readLinuxMounts(): array
+    {
+        # Suppress the warning, as we throw an exception instead.
+        $lines = @file("/proc/mounts", FILE_IGNORE_NEW_LINES);
+
+        if ($lines === false)
+        {
+            throw new UnsupportedPlatformException("isTmpfs: /proc/mounts can't be read.");
+        }
+
+        $decodeOctalEscape = self::decodeOctalEscape(...);
+        $mounts = [];
+
+        foreach ($lines as $line)
+        {
+            # Each line is "device mount-point type options ...", with spaces etc. in paths written as octal (\040).
+            $fields = explode(" ", $line);
+            $mountPoint = preg_replace_callback('/\\\\([0-7]{3})/', $decodeOctalEscape, $fields[1] ?? "");
+            $mounts[] = [$mountPoint, $fields[2] ?? ""];
+        }
+
+        return $mounts;
+    }
+
+
+    /**
+     * Read the mounted filesystems from the output of the mount command on macOS and BSD, for
+     * isTmpfs(). Each line looks like "/dev/disk3s1 on / (apfs, local, journaled)", or
+     * "tmpfs on /tmp (tmpfs, local)", where the mount point can contain spaces.
+     * @param string $output - what the mount command printed.
+     * @return array<array{0: string, 1: string}> - each mount's mount point and filesystem type, in
+     * the order they were listed.
+     */
+    private static function parseMountCommandOutput(string $output): array
+    {
+        $mounts = [];
+
+        foreach (explode("\n", $output) as $line)
+        {
+            if (preg_match('/^.+? on (.+) \(([^,)]+)/', $line, $match) === 1)
+            {
+                $mounts[] = [$match[1], trim($match[2])];
+            }
+        }
+
+        return $mounts;
+    }
+
+
+    /**
+     * Find the type of the filesystem a path is on, for isTmpfs(): that of the mount with the
+     * longest mount point that contains it. A later mount on the same mount point is mounted over
+     * an earlier one, so wins.
+     * @param string $realPath - the real path to look up.
+     * @param array<array{0: string, 1: string}> $mounts - each mount's mount point and type.
+     * @return string - the filesystem type, or "" if no mount contains it.
+     */
+    private static function filesystemTypeAt(string $realPath, array $mounts): string
+    {
+        $longestMountPoint = "";
+        $type = "";
+
+        foreach ($mounts as [$mountPoint, $mountType])
+        {
+            # Don't follow symlinks in the mount points, which could set off automounts, or hang on a network mount.
+            $contains = ($mountPoint !== "") && self::isWithinDirectory($realPath, $mountPoint, false);
+
+            if ($contains && strlen($mountPoint) >= strlen($longestMountPoint))
+            {
+                $longestMountPoint = $mountPoint;
+                $type = $mountType;
+            }
+        }
+
+        return $type;
     }
 
 
