@@ -97,6 +97,7 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
     $moveIntoMissing = function () use ($renamedDirectory) { $renamedDirectory->move("not-there"); };
     $useSymlink = function () use ($renamed) { new Directory("{$renamed}/sub/abs-root"); };
     $useMissing = function () use ($base) { new Directory("{$base}/nope"); };
+
     $refusals = [
         [BadArgumentException::class, $moveIntoItself],
         [FileAlreadyExistsException::class, $renameOntoExisting],
@@ -316,6 +317,7 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                 foreach ($foreignCases as $fixture => $expectedMessage)
                 {
                     $foreignDirectory = new Directory("{$fixtures}/{$fixture}");
+
                     SmokeTest::expectException(
                         \Programster\CoreLibs\Exceptions\BadFilePermissionsException::class,
                         function () use ($foreignDirectory, $otherFilesystem) {
@@ -383,11 +385,13 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                 mkdir("{$base}/too-big");
                 file_put_contents("{$base}/too-big/big.bin", str_repeat("x", 2 * 1024 * 1024));
                 $tooBig = new Directory("{$base}/too-big");
+
                 SmokeTest::expectException(
                     \Programster\CoreLibs\Exceptions\BadFilePermissionsException::class,
                     function () use ($tooBig, $smallFilesystem) { $tooBig->move($smallFilesystem); },
                     "but copying needs 2097152"
                 );
+
                 assert(is_file("{$base}/too-big/big.bin") && !file_exists("{$smallFilesystem}/too-big"));
             }
 
@@ -409,6 +413,7 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                     $moveWithReadOnly,
                     "locked can't be written to, so the original couldn't be deleted after copying"
                 );
+
                 assert(is_file("{$base}/with-read-only/locked/r.txt"));
                 assert(!file_exists("{$otherFilesystem}/with-read-only"));
                 chmod("{$base}/with-read-only/locked", 0755);
@@ -454,6 +459,7 @@ $smoke->run("moves to another drive on Windows keeping ownership", function () u
     # On Windows, a copy on another drive can't keep its owner and ACLs, so YES (the default) refuses such a move, and
     # PREFERRED allows it. GitHub's Windows runners have a D: drive, separate from the temporary directory's.
     $otherDrive = "D:/corelibs-ownership-" . getmypid();
+
     $canTest = (
            PHP_OS_FAMILY === "Windows"
         && is_dir("D:/")

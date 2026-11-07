@@ -232,6 +232,7 @@ final class SmokeTest
     public static function assertOwnedByOtherUser(string $filepath, string $checkName): void
     {
         clearstatcache();
+
         assert(
             fileowner($filepath) === self::OTHER_USER_ID && filegroup($filepath) === self::OTHER_USER_ID,
             "{$checkName} changed the file's owner"

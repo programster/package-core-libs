@@ -159,8 +159,10 @@ $smoke->run("redirectUser", function () use ($dir) {
     # A path on this site, or anything with $allowExternal, sends the header and exits. That can only be seen through
     # a web server, as the CLI doesn't send headers, and exiting would end the tests.
     mkdir("{$dir}/redirect-www");
+
     $page = '<?php require ' . var_export(__DIR__ . '/../../vendor/autoload.php', true) . '; ' .
         'Programster\\CoreLibs\\Core::redirectUser($_GET["to"], isset($_GET["external"])); echo "did not exit";';
+
     file_put_contents("{$dir}/redirect-www/index.php", $page);
     $portFinder = stream_socket_server("tcp://127.0.0.1:0");
     $port = (int) substr(strrchr(stream_socket_get_name($portFinder, false), ":"), 1);

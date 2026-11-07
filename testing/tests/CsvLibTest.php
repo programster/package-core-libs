@@ -51,11 +51,13 @@ $smoke->run("CSV methods", function () use ($dir) {
 
     # A blank line in the middle makes the file invalid, so trim() throws and leaves it unchanged.
     file_put_contents("{$dir}/trim-blank-lines.csv", " a \n\n b \n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::trim("{$dir}/trim-blank-lines.csv"),
         "blank line at row 2"
     );
+
     assert(file_get_contents("{$dir}/trim-blank-lines.csv") === " a \n\n b \n");
     copy("{$dir}/a.csv", "{$dir}/b.csv");
     CsvLib::removeColumns("{$dir}/b.csv", [2]);
@@ -70,6 +72,7 @@ $smoke->run("CSV methods", function () use ($dir) {
     # Blank lines at the end of either file don't count as rows, and aren't added to the output.
     file_put_contents("{$dir}/diff2-blank-end.csv", "2,x\n1,z\n\n\n");
     file_put_contents("{$dir}/diff2-blank-end-crlf.csv", "2,x\r\n1,z\r\n\r\n");
+
     $trailingBlankPairs = [
         ["{$dir}/diff1.csv", "{$dir}/diff2-blank-end.csv"],
         ["{$dir}/diff2-blank-end.csv", "{$dir}/diff1.csv"],
@@ -87,11 +90,13 @@ $smoke->run("CSV methods", function () use ($dir) {
 
     # Blank lines in the middle of a file are rejected, even if both files have them in the same place.
     file_put_contents("{$dir}/diff-blank-middle.csv", "2,x\n\n1,z\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/diff-blank-middle.csv"),
         "blank line at row 2"
     );
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::decimalDiff("{$dir}/diff-blank-middle.csv", "{$dir}/diff-blank-middle.csv"),
@@ -100,11 +105,13 @@ $smoke->run("CSV methods", function () use ($dir) {
 
     # Files with different numbers of rows can't be compared, whichever one is longer.
     file_put_contents("{$dir}/diff3.csv", "2,x\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/diff3.csv"),
         "has 2 rows of data, but {$dir}/diff3.csv has 1"
     );
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::decimalDiff("{$dir}/diff3.csv", "{$dir}/diff1.csv"),
@@ -113,11 +120,13 @@ $smoke->run("CSV methods", function () use ($dir) {
 
     # Files with different numbers of columns can't be compared, whichever one is wider.
     file_put_contents("{$dir}/diff-wide.csv", "2,x,a\n1,z,b\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/diff-wide.csv"),
         "has 2 columns"
     );
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::decimalDiff("{$dir}/diff-wide.csv", "{$dir}/diff1.csv"),
@@ -128,17 +137,20 @@ $smoke->run("CSV methods", function () use ($dir) {
     # like numbers). If only one does, it's skipped.
     file_put_contents("{$dir}/head1.csv", "2024,b\n5,x\n3,y\n");
     file_put_contents("{$dir}/head2.csv", "2023,b\n2,x\n1,z\n");
+
     $headerDiff = CsvLib::decimalDiff(
         "{$dir}/head1.csv",
         "{$dir}/head2.csv",
         file1HasHeader: true,
         file2HasHeader: true
     );
+
     assert(file_get_contents($headerDiff) === "2024|2023,b\n3,x\n2,y|z\n");
     $headerDiff = CsvLib::decimalDiff("{$dir}/head1.csv", "{$dir}/diff2.csv", file1HasHeader: true);
     assert(file_get_contents($headerDiff) === "3,x\n2,y|z\n");
     $headerDiff = CsvLib::decimalDiff("{$dir}/diff1.csv", "{$dir}/head2.csv", file2HasHeader: true);
     assert(file_get_contents($headerDiff) === "3,x\n2,y|z\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::decimalDiff("{$dir}/head1.csv", "{$dir}/diff2.csv"),
@@ -149,6 +161,7 @@ $smoke->run("CSV methods", function () use ($dir) {
     file_put_contents("{$dir}/tol1.csv", "price,qty\n1.00,2\n");
     file_put_contents("{$dir}/tol2.csv", "cost,qty\n1.04,2\n");
     file_put_contents("{$dir}/tol2-no-header.csv", "1.04,2\n");
+
     $tolWithHeaders = fn(float $tolerance) => CsvLib::diffTolerance(
         "{$dir}/tol1.csv",
         "{$dir}/tol2.csv",
@@ -156,9 +169,11 @@ $smoke->run("CSV methods", function () use ($dir) {
         file1HasHeader: true,
         file2HasHeader: true
     );
+
     assert($tolWithHeaders(0.05));
     assert(!$tolWithHeaders(0.01));
     assert(CsvLib::diffTolerance("{$dir}/tol1.csv", "{$dir}/tol2-no-header.csv", [1 => 0.05], file1HasHeader: true));
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::diffTolerance("{$dir}/tol1.csv", "{$dir}/tol2.csv", [1 => 0.05]),
@@ -193,6 +208,7 @@ $smoke->run("CSV methods", function () use ($dir) {
             fn(CsvCellError $error) => [$error->filepath, $error->rowNumber, $error->columnNumber, $error->value],
             $e->getErrors()
         );
+
         assert(str_contains($e->getMessage(), "3 non-numeric value(s) were found"));
         assert(str_contains($e->getMessage(), "{$dir}/tol-bad1.csv row 3, column 1: 'N/A'"));
     }
@@ -218,6 +234,7 @@ $smoke->run("CSV methods", function () use ($dir) {
 
     # Under 100, the message lists the first 10, and says how many more getErrors() has.
     file_put_contents("{$dir}/tol-some.csv", str_repeat("x\n", 15));
+
     SmokeTest::expectException(
         NonNumericCsvValuesException::class,
         fn() => CsvLib::diffTolerance("{$dir}/tol-some.csv", "{$dir}/tol-some.csv", [1 => 0]),
@@ -235,6 +252,7 @@ $smoke->run("CSV methods", function () use ($dir) {
     catch (NonNumericCsvValuesException $e)
     {
         $manyErrors = $e->getErrors();
+
         assert($e->getMessage() === "diffTolerance: found 100 or more (stopped counting at 100) non-numeric values " .
             "in the columns being compared. Call getErrors() on this exception to get them.");
     }
@@ -247,7 +265,9 @@ $smoke->run("CSV methods", function () use ($dir) {
         fn() => CsvLib::diffTolerance("{$dir}/tol-text1.csv", "{$dir}/tol-zero1.csv", [1 => 0]),
         "has 2 rows of data, but {$dir}/tol-zero1.csv has 1"
     );
+
     file_put_contents("{$dir}/tol-blank-middle.csv", "1\n\n2\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::diffTolerance("{$dir}/tol-blank-middle.csv", "{$dir}/tol-blank-middle.csv", [1 => 0]),
@@ -275,11 +295,13 @@ $smoke->run("CSV methods", function () use ($dir) {
     CsvLib::validateCsvFile("{$dir}/empty.csv");
     $emptyCsv = new CsvFile("{$dir}/empty.csv", false);
     assert($emptyCsv->getRowCount() === 0 && $emptyCsv->getColumnCount() === 0);
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => new CsvFile("{$dir}/empty.csv", true),
         "should have a header row, but has no rows"
     );
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::decimalDiff("{$dir}/empty.csv", "{$dir}/diff1.csv"),
@@ -289,23 +311,29 @@ $smoke->run("CSV methods", function () use ($dir) {
     # validateCsvFile() rejects blank lines before more data, and rows with a different number of columns. Rows are
     # counted rather than lines, as a value can span several lines.
     file_put_contents("{$dir}/invalid-blank.csv", "a,b\n\"line1\nline2\",x\n\n\n3,4\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::validateCsvFile("{$dir}/invalid-blank.csv"),
         "blank line at row 3, before more data at row 5"
     );
+
     file_put_contents("{$dir}/invalid-columns.csv", "a,b\n1,2\n3,4,5\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::validateCsvFile("{$dir}/invalid-columns.csv"),
         "has 3 columns at row 3, but 2 in the first row"
     );
+
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => CsvLib::validateCsvFile("{$dir}/nope.csv"));
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => new CsvFile("{$dir}/invalid-columns.csv", true),
         "has 3 columns at row 3"
     );
+
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => new CsvFile("{$dir}/nope.csv", true));
 
     # removeTrailingBlankLines() keeps the last row's own line ending, and nothing else after it.
@@ -350,6 +378,7 @@ $smoke->run("CSV methods", function () use ($dir) {
     SmokeTest::expectException(\Error::class, function () use ($reloadCsv) { $reloadCsv->m_rowCount = 99; });
     clearstatcache();
     SmokeTest::assertPermissions("{$dir}/trailing.csv", 0640);
+
     SmokeTest::expectException(
         FileDoesNotExistException::class,
         fn() => CsvLib::removeTrailingBlankLines("{$dir}/nope.csv")
@@ -357,6 +386,7 @@ $smoke->run("CSV methods", function () use ($dir) {
 
     # removeRows() counts from 0 by default, or from 1, and ignores duplicates and order.
     $rowsFile = "{$dir}/rows.csv";
+
     $rowsCases = [
         [[0, 2], true],
         [[1, 3], false],
@@ -378,6 +408,7 @@ $smoke->run("CSV methods", function () use ($dir) {
 
     # Row numbers that don't exist throw, and leave the file as it was.
     file_put_contents($rowsFile, "h\n1\n");
+
     $badRowNumbers = [
         [[2], true, "rows are numbered 0 to 1"],
         [[-1], true, "rows are numbered 0 to 1"],
@@ -395,6 +426,7 @@ $smoke->run("CSV methods", function () use ($dir) {
     }
 
     assert(file_get_contents($rowsFile) === "h\n1\n");
+
     SmokeTest::expectException(
         BadArgumentException::class,
         fn() => CsvLib::removeRows("{$dir}/empty.csv", [0]),
@@ -421,11 +453,13 @@ $smoke->run("CSV methods", function () use ($dir) {
     $withHeader->removeHeader();
     assert(file_get_contents("{$dir}/with-header.csv") === "1,2\n3,4\n");
     assert(!$withHeader->hasHeader() && $withHeader->getRowCount() === 2 && $withHeader->getColumnCount() === 2);
+
     SmokeTest::expectException(
         NoCsvHeaderException::class,
         fn() => $withHeader->removeHeader(),
         "has no header row to remove"
     );
+
     assert(file_get_contents("{$dir}/with-header.csv") === "1,2\n3,4\n");
 
     # Removing a header that's the only row gives the same counts as checking the file again would.
@@ -447,11 +481,13 @@ $smoke->run("CSV methods", function () use ($dir) {
     assert($semi1->toArray() === [["a" => "5", "b" => "x"]]);
     $semi1NoHeader = new CsvFile("{$dir}/semi1.csv", false, ";");
     assert(!$semi1NoHeader->hasHeader() && $semi1NoHeader->toArray() === [["a", "b"], ["5", "x"]]);
+
     SmokeTest::expectException(
         NoCsvHeaderException::class,
         fn() => $semi1NoHeader->toJson("{$dir}/semi1.json", true),
         "has no header row"
     );
+
     $semi1->toJson("{$dir}/semi1.json", true);
     assert(file_get_contents("{$dir}/semi1.json") === '[{"a":"5","b":"x"}]');
     $walkedRows = [];
@@ -468,11 +504,13 @@ $smoke->run("CSV methods", function () use ($dir) {
     assert(file_get_contents($semi1->decimalDiff($semi2NoHeader)) === "3;x\n");
     assert(file_get_contents($semi2NoHeader->decimalDiff($semi1)) === "-3;x\n");
     assert($semi1->diffTolerance($semi2NoHeader, [1 => 3]));
+
     SmokeTest::expectException(
         BadArgumentException::class,
         fn() => $semi1->decimalDiff(new CsvFile("{$dir}/diff1.csv", false)),
         "must use the same delimiter"
     );
+
     assert(CsvLib::diffTolerance("{$dir}/a.csv", "{$dir}/a.csv", [1 => 0], file1HasHeader: true, file2HasHeader: true));
     CsvLib::mergeFiles(["{$dir}/a.csv", "{$dir}/a.csv"], "{$dir}/merged.csv", true);
 });
@@ -519,6 +557,7 @@ $smoke->run("convertArrayToCsv null values and mismatched keys", function () use
         ["key1" => "value1", "key2" => "value2", "key3" => "value3"],
         ["key1" => "value4", "key2" => null, "key3" => "value5"],
     ];
+
     CsvLib::convertArrayToCsv("{$dir}/null-values.csv", $rows, true, addByteOrderMark: false);
     assert(file_get_contents("{$dir}/null-values.csv") === "key1,key2,key3\nvalue1,value2,value3\nvalue4,,value5\n");
 
@@ -527,6 +566,7 @@ $smoke->run("convertArrayToCsv null values and mismatched keys", function () use
         ["key1" => "value1", "key2" => "value2"],
         ["key1" => "some other value", "key3" => "hello"],
     ];
+
     SmokeTest::expectException(
         BadArgumentException::class,
         fn() => CsvLib::convertArrayToCsv("{$dir}/mismatched.csv", $mismatchedRows, true),
@@ -540,12 +580,14 @@ $smoke->run("csvWalk headers, keys and row indexes", function () {
     $filepath = __DIR__ . "/../assets/example-csv.csv";
     $walk = function (bool $hasHeaders, ?array $headers) use ($filepath): array {
         $rows = [];
+
         CsvLib::csvWalk(
             $filepath,
             function (array $row, int $rowIndex) use (&$rows) { $rows[$rowIndex] = $row; },
             $hasHeaders,
             $headers
         );
+
         return $rows;
     };
 
@@ -562,6 +604,7 @@ $smoke->run("csvWalk headers, keys and row indexes", function () {
         ["k1" => "hello", "k2" => "world"],
         ["k1" => "foo", "k2" => "bar"],
     ];
+
     assert($walk(false, ["k1", "k2"]) === $expectedNoHeader);
     assert($walk(false, null) === [["first", "second"], ["hello", "world"], ["foo", "bar"]]);
 });
@@ -575,6 +618,7 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
         "removeRows" => fn(string $file) => CsvLib::removeRows($file, [0]),
         "removeTrailingBlankLines" => fn(string $file) => CsvLib::removeTrailingBlankLines($file),
     ];
+
     $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
 
     # The directory isn't writable (for anyone but root), as only the file itself needs to be.
@@ -605,10 +649,12 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
 
     # A failure part way through leaves the original as it was.
     file_put_contents("{$dir}/in-place/bad.csv", "a,b\n\nc,d\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::removeColumns("{$dir}/in-place/bad.csv", [1])
     );
+
     assert(file_get_contents("{$dir}/in-place/bad.csv") === "a,b\n\nc,d\n");
 
     # Nothing is left behind in the temporary directory, whether the change worked or not.
@@ -642,6 +688,7 @@ $smoke->run("CSV reading methods close the file however they end", function () u
     file_put_contents("{$dir}/close-good.csv", "a,b\n1,2\n3,4\n");
     file_put_contents("{$dir}/close-bad.csv", "a,b\n1,2\n3,4,5\n");
     $throwingCallback = function (array $row, int $rowIndex) { throw new \RuntimeException("callback failed"); };
+
     $cases = [
         "convertCsvToArray() finishing" => fn() => CsvLib::convertCsvToArray("{$dir}/close-good.csv", true),
         "convertCsvToArray() on a bad row" => fn() => CsvLib::convertCsvToArray("{$dir}/close-bad.csv", true),
@@ -687,11 +734,13 @@ $smoke->run("CSV writing methods only replace the output once it is complete", f
     # convertArrayToCsv(): a bad row part way through leaves an existing file exactly as it was.
     $resetExisting("{$base}/array.csv");
     $rows = [["a" => 1, "b" => 2], ["a" => 3, "c" => 4]];
+
     SmokeTest::expectException(
         BadArgumentException::class,
         fn() => CsvLib::convertArrayToCsv("{$base}/array.csv", $rows, true, addByteOrderMark: false),
         "missing the expected key b"
     );
+
     assert(file_get_contents("{$base}/array.csv") === "old contents\n");
 
     # When it works, an existing file keeps its permissions, and a new one gets the default for a new file.
@@ -705,10 +754,12 @@ $smoke->run("CSV writing methods only replace the output once it is complete", f
     # convertCsvToJson(): a value that can't be encoded (invalid UTF-8) leaves an existing file as it was.
     $resetExisting("{$base}/out.json");
     file_put_contents("{$base}/bad-utf8.csv", "name\nok\n\xFF\n");
+
     SmokeTest::expectException(
         \JsonException::class,
         fn() => CsvLib::convertCsvToJson("{$base}/bad-utf8.csv", "{$base}/out.json", true)
     );
+
     assert(file_get_contents("{$base}/out.json") === "old contents\n");
 
     # mergeFiles(): the output can be one of the files being merged. This used to empty it before it was read.
@@ -719,11 +770,13 @@ $smoke->run("CSV writing methods only replace the output once it is complete", f
 
     # A missing file is found before anything is written, leaving an existing merged file as it was.
     $resetExisting("{$base}/merged.csv");
+
     SmokeTest::expectException(
         FileDoesNotExistException::class,
         fn() => CsvLib::mergeFiles(["{$base}/merge-b.csv", "{$base}/nope.csv"], "{$base}/merged.csv", true),
         "There is no file at {$base}/nope.csv"
     );
+
     assert(file_get_contents("{$base}/merged.csv") === "old contents\n");
 
     # Nothing is left in the temporary directory, whether they worked or not.
@@ -736,6 +789,7 @@ $smoke->run("CSV writing methods only replace the output once it is complete", f
         chmod("{$base}/read-only.csv", 0444);
         mkdir("{$base}/read-only-dir");
         chmod("{$base}/read-only-dir", 0555);
+
         $unwritable = [
             fn() => CsvLib::convertArrayToCsv("{$base}/read-only.csv", [["a" => 1]], true),
             fn() => CsvLib::mergeFiles(["{$base}/merge-b.csv"], "{$base}/read-only.csv", true),
@@ -772,10 +826,12 @@ $smoke->run("convertCsvToJson", function () use ($dir) {
 
     # A blank line in the middle makes the file invalid, and nothing is written.
     file_put_contents("{$dir}/blank-middle.csv", "h1\na\n\nb\n");
+
     SmokeTest::expectException(
         InvalidCsvException::class,
         fn() => CsvLib::convertCsvToJson("{$dir}/blank-middle.csv", "{$dir}/blank-middle.json", true)
     );
+
     assert(!file_exists("{$dir}/blank-middle.json"));
 
     SmokeTest::expectException(

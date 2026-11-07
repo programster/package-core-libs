@@ -33,9 +33,11 @@ $smoke->run("directories and files", function () use ($dir) {
         fn() => Filesystem::mkdir("{$dir}/no-parent/child"),
         "mkdir(): No such file or directory"
     );
+
     assert(!file_exists("{$dir}/no-parent"));
     $isFile = "{$dir}/sub/deep/f.txt";
     file_put_contents($isFile, "");
+
     # The reason is in the message, even though SmokeTest (like many applications) has its own error handler, which
     # leaves error_get_last() empty.
     SmokeTest::expectException(
@@ -45,22 +47,27 @@ $smoke->run("directories and files", function () use ($dir) {
         "Failed to create the directory {$isFile}/child: mkdir(): " .
         ((PHP_OS_FAMILY === "Windows") ? "No such file or directory" : "Not a directory")
     );
+
     file_put_contents("{$dir}/sub/deep/f.txt", "abc\nxyz\n");
     Filesystem::getDirectories($dir, true);
     Filesystem::getDirContents($dir);
+
     SmokeTest::expectException(
         DirectoryDoesNotExistException::class,
         fn() => Filesystem::getDirectories("{$dir}/nope")
     );
+
     SmokeTest::expectException(
         DirectoryDoesNotExistException::class,
         fn() => Filesystem::getDirContents("{$dir}/nope")
     );
+
     # A file isn't a directory either.
     SmokeTest::expectException(
         DirectoryDoesNotExistException::class,
         fn() => Filesystem::getDirContents("{$dir}/sub/deep/f.txt")
     );
+
     assert(Filesystem::getDirSize("{$dir}/sub") > 0);
     assert(Filesystem::getFileSize("{$dir}/sub/deep/f.txt") === 8.0);
     Filesystem::fileWalk("{$dir}/sub/deep/f.txt", fn(string $line) => null);
@@ -69,10 +76,12 @@ $smoke->run("directories and files", function () use ($dir) {
     Filesystem::fileperms("{$dir}/sub/deep/f.txt");
     assert(Filesystem::getFileExtension("a.tar.gz") === "gz");
     SmokeTest::expectException(NoFileExtensionException::class, fn() => Filesystem::getFileExtension("README"));
+
     SmokeTest::expectException(
         NoFileExtensionException::class,
         fn() => Filesystem::getFileExtension("/var/v1.2/README")
     );
+
     SmokeTest::expectException(NoFileExtensionException::class, fn() => Filesystem::getFileExtension("file."));
     Filesystem::deleteDir(Filesystem::tmpDir());
     Filesystem::mkdir("{$dir}/perms", "0o750");
@@ -157,6 +166,7 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
             BadFilePermissionsException::class,
             fn() => Filesystem::convertFileToUtf8("{$dir}/utf8-dir/read-only.txt")
         );
+
         assert(file_get_contents("{$dir}/utf8-dir/read-only.txt") === "\xE6");
     }
 
@@ -194,6 +204,7 @@ $smoke->run("replacing file contents in place", function () use ($dir) {
         FileDoesNotExistException::class,
         fn() => Filesystem::checkCanChangeFile("{$dir}/nope.txt")
     );
+
     Filesystem::checkCanChangeFile("{$dir}/replace.txt");
     chmod("{$dir}/replace.txt", 0444);
 
@@ -230,6 +241,7 @@ $smoke->run("downloadFile", function () use ($dir) {
     $port = (int) substr(strrchr(stream_socket_get_name($portFinder, false), ":"), 1);
     fclose($portFinder);
     $nullDevice = ['file', SmokeTest::nullDevice(), 'w'];
+
     $server = proc_open(
         [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', "{$dir}/www"],
         [1 => $nullDevice, 2 => $nullDevice],
@@ -264,6 +276,7 @@ $smoke->run("downloadFile", function () use ($dir) {
             FilesystemException::class,
             fn() => Filesystem::downloadFile("http://127.0.0.1:1/x")
         );
+
         $newTempFiles = array_diff(glob(sys_get_temp_dir() . "/*"), $tempFilesBefore);
         assert(count($newTempFiles) === 1, "expected only the successful download's file to be left behind");
     }
@@ -282,12 +295,15 @@ $smoke->run("downloadFile without curl", function () {
         'set_error_handler(fn(int $number, string $message) => true); ' .
         'try { Programster\\CoreLibs\\Filesystem::downloadFile("http://127.0.0.1:1/x"); echo "downloaded"; } ' .
         'catch (Exception $e) { echo get_class($e), ": ", $e->getMessage(); }';
+
     # Run it from a script file, rather than with -r, as shell quoting of code differs on Windows.
     $script = tempnam(sys_get_temp_dir(), "corelibs-no-curl-");
     file_put_contents($script, "<?php {$code}");
+
     $output = (string)shell_exec(
         escapeshellarg(PHP_BINARY) . " -d disable_functions=curl_version " . escapeshellarg($script) . " 2>&1"
     );
+
     unlink($script);
     $expected = FilesystemException::class . ": Failed to download http://127.0.0.1:1/x: fopen(";
     assert(str_starts_with($output, $expected), "downloadFile() without curl gave: {$output}");
@@ -320,6 +336,7 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
 
     # ZipArchive::open() returns an error code (which is truthy) rather than false on failure, so check it's caught.
     file_put_contents("{$dir}/bad.zip", "this is not a zip file");
+
     SmokeTest::expectException(
         FilesystemException::class,
         fn() => Filesystem::unzip("{$dir}/bad.zip", "{$dir}/bad", false)
@@ -548,11 +565,13 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
         mkdir("{$dir}/delete-parent/child", 0777, true);
         file_put_contents("{$dir}/delete-parent/child/file.txt", "f");
         chmod("{$dir}/delete-parent", 0555);
+
         SmokeTest::expectException(
             DirectoryNotDeletableException::class,
             fn() => Filesystem::deleteDir("{$dir}/delete-parent/child"),
             "(e.g. {$dir}/delete-parent/child, as {$dir}/delete-parent can't be written to)"
         );
+
         assert(file_get_contents("{$dir}/delete-parent/child/file.txt") === "f");
         Filesystem::emptyDir("{$dir}/delete-parent/child");
         assert(scandir("{$dir}/delete-parent/child") === [".", ".."]);
@@ -609,11 +628,13 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
     # A symlink that points "up" to a directory containing it can't be deleted this way, and nothing is touched.
     mkdir("{$base}/container/inner", 0777, true);
     symlink("{$base}/container", "{$base}/container/inner/up");
+
     SmokeTest::expectException(
         BadArgumentException::class,
         fn() => Filesystem::deleteDir("{$base}/container/inner/up", followSymlinks: true),
         "which contains the link itself"
     );
+
     assert(is_link("{$base}/container/inner/up") && is_dir("{$base}/container/inner"));
 
     # Without followSymlinks, a symlink is still refused, and the message mentions the option.
@@ -632,6 +653,7 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
         file_put_contents("{$base}/locked-parent/target/t.txt", "t");
         symlink("{$base}/locked-parent/target", "{$base}/start2/link");
         chmod("{$base}/locked-parent", 0555);
+
         SmokeTest::expectException(
             DirectoryNotDeletableException::class,
             fn() => Filesystem::deleteDir("{$base}/start2", followSymlinks: true),
@@ -639,6 +661,7 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
             "(e.g. " . realpath($base) . "/locked-parent/target, as " . realpath($base) . "/locked-parent can't be " .
             "written to)"
         );
+
         assert(file_get_contents("{$base}/start2/keep.txt") === "keep");
         assert(file_get_contents("{$base}/locked-parent/target/t.txt") === "t");
         chmod("{$base}/locked-parent", 0755);
@@ -671,20 +694,24 @@ $smoke->run("fileFilter", function () use ($dir) {
     {
         # The same file under another path (here a symlink) counts as in place.
         symlink("{$base}/in-place.txt", "{$base}/in-place-symlink.txt");
+
         Filesystem::fileFilter(
             "{$base}/in-place.txt",
             fn(string $line) => $line !== "def\n",
             "{$base}/in-place-symlink.txt"
         );
+
         assert(file_get_contents("{$base}/in-place.txt") === "abc\n" && is_link("{$base}/in-place-symlink.txt"));
     }
 
     # The callback throwing part way through leaves the file untouched.
     file_put_contents("{$base}/throws.txt", "one\ntwo\nthree\n");
+
     SmokeTest::expectException(\RuntimeException::class, fn() => Filesystem::fileFilter(
         "{$base}/throws.txt",
         fn(string $line) => ($line === "three\n") ? throw new \RuntimeException("stop") : true
     ));
+
     assert(file_get_contents("{$base}/throws.txt") === "one\ntwo\nthree\n");
 
     # To a new output file: it is created with the default permissions for a new file (not the temporary file's
@@ -706,6 +733,7 @@ $smoke->run("fileFilter", function () use ($dir) {
 
     # Nothing is left in the temporary directory, whether it worked or not.
     assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
+
     SmokeTest::expectException(
         FileDoesNotExistException::class,
         fn() => Filesystem::fileFilter("{$base}/nope.txt", $keepNonX)
@@ -719,17 +747,21 @@ $smoke->run("fileFilter", function () use ($dir) {
         $recordingCallback = function (string $line) use (&$callbackRan) { $callbackRan = true; return true; };
         file_put_contents("{$base}/read-only.txt", "abc\n");
         chmod("{$base}/read-only.txt", 0444);
+
         SmokeTest::expectException(
             BadFilePermissionsException::class,
             fn() => Filesystem::fileFilter("{$base}/read-only.txt", $recordingCallback)
         );
+
         mkdir("{$base}/read-only-dir");
         chmod("{$base}/read-only-dir", 0555);
+
         SmokeTest::expectException(
             BadFilePermissionsException::class,
             fn() => Filesystem::fileFilter("{$base}/source.txt", $recordingCallback, "{$base}/read-only-dir/out.txt"),
             "can't be created"
         );
+
         assert($callbackRan === false && !file_exists("{$base}/read-only-dir/out.txt"));
         chmod("{$base}/read-only-dir", 0755);
     }
@@ -764,18 +796,23 @@ $smoke->run("tmpDir", function () use ($dir) {
         # directory that can't be written to.
         mkdir("{$dir}/read-only-tmp");
         chmod("{$dir}/read-only-tmp", 0555);
+
         $code = 'require ' . var_export(__DIR__ . '/../../vendor/autoload.php', true) . '; ' .
             'try { Programster\\CoreLibs\\Filesystem::tmpDir(); echo "created"; } ' .
             'catch (Exception $e) { echo get_class($e), ": ", $e->getMessage(); }';
+
         $output = shell_exec(
             escapeshellarg(PHP_BINARY) . " -d sys_temp_dir=" . escapeshellarg("{$dir}/read-only-tmp") . " -r " .
             escapeshellarg($code) . " 2>&1"
         );
+
         $expectedStart = FilesystemException::class . ": Failed to create a temporary directory";
+
         assert(
             str_starts_with((string)$output, $expectedStart),
             "tmpDir() in a read-only directory gave: {$output}"
         );
+
         assert(scandir("{$dir}/read-only-tmp") === [".", ".."]);
         chmod("{$dir}/read-only-tmp", 0755);
     }
@@ -789,11 +826,13 @@ $smoke->run("zipDir error messages", function () use ($dir) {
         mkdir("{$dir}/zip-unreadable");
         file_put_contents("{$dir}/zip-unreadable/secret.txt", "secret");
         chmod("{$dir}/zip-unreadable/secret.txt", 0000);
+
         SmokeTest::expectException(
             FilesystemException::class,
             fn() => Filesystem::zipDir("{$dir}/zip-unreadable", "{$dir}/unreadable.zip"),
             "Failed to write the zip file {$dir}/unreadable.zip: ZipArchive::close(): Can't open file"
         );
+
         chmod("{$dir}/zip-unreadable/secret.txt", 0644);
     }
 });
@@ -820,6 +859,7 @@ $smoke->run("getDirectories / getDirContents and symlinks", function () use ($di
     # By default, symlinks to directories are listed, but not gone into.
     $directories = Filesystem::getDirectories($root, true);
     sort($directories);
+
     $expected = [
         "{$root}/a",
         "{$root}/a/to-b",
@@ -828,6 +868,7 @@ $smoke->run("getDirectories / getDirContents and symlinks", function () use ($di
         "{$root}/b/to-a",
         "{$root}/elsewhere-link",
     ];
+
     assert($directories === $expected, "getDirectories() gave: " . implode(", ", $directories));
     assert(Filesystem::getDirContents($root) === ["{$root}/a/a.txt"]);
 
@@ -835,11 +876,13 @@ $smoke->run("getDirectories / getDirContents and symlinks", function () use ($di
     # to a directory already being listed isn't, so it can't go round in circles.
     $files = Filesystem::getDirContents($root, followSymlinks: true);
     sort($files);
+
     $expectedFiles = [
         "{$root}/a/a.txt",
         "{$root}/b/to-a/a.txt",
         "{$root}/elsewhere-link/e.txt",
     ];
+
     assert($files === $expectedFiles, "getDirContents() following symlinks gave: " . implode(", ", $files));
     # listDirectories() and listDirContents() are aliases for getDirectories() and getDirContents().
     $listed = Filesystem::listDirectories($root, true);
@@ -881,12 +924,15 @@ $smoke->run("unzip", function () use ($dir) {
         FileDoesNotExistException::class,
         fn() => Filesystem::unzip("{$base}/nope.zip", "{$base}/out")
     );
+
     file_put_contents("{$base}/a-file", "not a directory");
+
     SmokeTest::expectException(
         BadArgumentException::class,
         fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/a-file", false),
         "as it isn't a directory"
     );
+
     assert(file_get_contents("{$base}/a-file") === "not a directory" && is_file("{$base}/keep.zip"));
 
     # Nothing is left of the temporary directory it extracts into, wherever that was.
@@ -933,11 +979,13 @@ $smoke->run("unzip", function () use ($dir) {
     # is moved, leaving the destination exactly as it was.
     mkdir("{$base}/blocked");
     file_put_contents("{$base}/blocked/source", "a file in the way");
+
     SmokeTest::expectException(
         FilesystemException::class,
         fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/blocked", false),
         "the zip has a directory at {$base}/blocked/source, where there is already a file."
     );
+
     assert(file_get_contents("{$base}/blocked/source") === "a file in the way");
     assert(array_values(array_diff(scandir("{$base}/blocked"), [".", ".."])) === ["source"]);
 
@@ -949,18 +997,22 @@ $smoke->run("unzip", function () use ($dir) {
     $clashZip->addFromString("clash", "a file");
     $clashZip->addFromString("clash/inside.txt", "inside a directory");
     $clashZip->close();
+
     SmokeTest::expectException(
         FilesystemException::class,
         fn() => Filesystem::unzip("{$base}/clash.zip", "{$base}/new-for-clash/deeper", false),
         "Unable to unzip {$base}/clash.zip"
     );
+
     assert(!file_exists("{$base}/new-for-clash"));
 
     mkdir("{$base}/existing-for-clash");
+
     SmokeTest::expectException(
         FilesystemException::class,
         fn() => Filesystem::unzip("{$base}/clash.zip", "{$base}/existing-for-clash", false)
     );
+
     assert(scandir("{$base}/existing-for-clash") === [".", ".."]);
     assert(glob(sys_get_temp_dir() . "/corelibs-unzip-*") === []);
 
@@ -969,6 +1021,7 @@ $smoke->run("unzip", function () use ($dir) {
         # A destination that can't be created gives the reason, even though the test runner has its own error handler.
         mkdir("{$base}/read-only");
         chmod("{$base}/read-only", 0555);
+
         SmokeTest::expectException(
             FilesystemException::class,
             fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/read-only/out", false),
@@ -979,11 +1032,13 @@ $smoke->run("unzip", function () use ($dir) {
         mkdir("{$base}/locked-zip");
         copy("{$base}/keep.zip", "{$base}/locked-zip/locked.zip");
         chmod("{$base}/locked-zip", 0555);
+
         SmokeTest::expectException(
             FilesystemException::class,
             fn() => Filesystem::unzip("{$base}/locked-zip/locked.zip", "{$base}/from-locked"),
             "but failed to delete the zip: unlink("
         );
+
         assert(file_get_contents("{$base}/from-locked/source/inner/a.txt") === "a");
         assert(is_file("{$base}/locked-zip/locked.zip"));
         chmod("{$base}/read-only", 0755);
@@ -1187,6 +1242,7 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
 
     # Following a symlink that leads back to a folder above it would go round in circles, so it is refused.
     symlink("{$base}/outside", "{$base}/outside/deeper/loop");
+
     SmokeTest::expectException(
         FilesystemException::class,
         fn() => Filesystem::zipDir("{$base}/project", "{$base}/loop.zip", false, followSymlinks: true),
@@ -1281,6 +1337,7 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     # ...and next to the original when the system's temporary directory is on another (disk) filesystem, as renaming
     # from next to it is then the fastest way. /dev/shm is a separate filesystem in the test containers.
     $otherFilesystem = "/dev/shm/corelibs-replacement-" . getmypid();
+
     $canUseOtherFilesystem = (
            is_dir("/dev/shm")
         && stat("/dev/shm")['dev'] !== stat(sys_get_temp_dir())['dev']
@@ -1576,6 +1633,7 @@ $smoke->run("unzip symlinks on Windows", function () use ($dir) {
         mkdir("{$base}/tmp/project/real", 0777, true);
         mkdir("{$base}/out");
         file_put_contents("{$base}/tmp/project/real/f.txt", "inside");
+
         $targets = [
             "project/dir-link" => "real",
             "project/file-link" => "real/f.txt",
