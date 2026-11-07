@@ -62,7 +62,17 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
     foreach ($expectedTargets as $link => $expectedTarget)
     {
         $actualTarget = readlink("{$moved}/{$link}");
-        assert($actualTarget === $expectedTarget, "{$link} points at {$actualTarget}");
+
+        # An absolute target can be written as the real path (e.g. macOS's /private/var/... for /var/...), so compare
+        # those resolved. A relative one must be exactly as expected.
+        if (Filesystem::isAbsolutePath($expectedTarget))
+        {
+            SmokeTest::assertSamePath($actualTarget, $expectedTarget, "{$link} points at {$actualTarget}");
+        }
+        else
+        {
+            assert($actualTarget === $expectedTarget, "{$link} points at {$actualTarget}");
+        }
     }
 
     assert(file_get_contents("{$moved}/rel-outside") === "outside");
@@ -77,7 +87,7 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
     assert(file_get_contents("{$renamed}/out-and-back") === "file");
     assert(readlink("{$renamed}/rel-outside") === "../../outside/o.txt");
     assert(readlink("{$renamed}/rel-inside") === "file.txt");
-    assert(readlink("{$renamed}/abs-inside") === "{$renamed}/sub/deep.txt");
+    SmokeTest::assertSamePath(readlink("{$renamed}/abs-inside"), "{$renamed}/sub/deep.txt");
 
     # Things that can't be done throw, and change nothing.
     mkdir("{$base}/taken");
@@ -191,8 +201,8 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
             assert(readlink("{$moved}/rel-inside") === "file.txt");
             assert(file_get_contents("{$moved}/rel-outside") === "outside");
             assert(!str_starts_with(readlink("{$moved}/rel-outside"), "/"));
-            assert(readlink("{$moved}/abs-inside") === "{$moved}/sub/deep.txt");
-            assert(readlink("{$moved}/abs-outside") === "{$base}/outside/o.txt");
+            SmokeTest::assertSamePath(readlink("{$moved}/abs-inside"), "{$moved}/sub/deep.txt");
+            SmokeTest::assertSamePath(readlink("{$moved}/abs-outside"), "{$base}/outside/o.txt");
 
             # Without $overrideUmask, a copy's permissions are reduced by the umask, as for any new file, and the move
             # still goes ahead. With it, they are copied exactly.
@@ -421,7 +431,7 @@ $smoke->run("Directory move keeping a link to a link", function () use ($dir) {
     symlink("{$base}/outside.txt", "{$base}/project/b");
     symlink("{$base}/project/b", "{$base}/project/to-b");
     (new Directory("{$base}/project"))->move("{$base}/elsewhere");
-    assert(readlink("{$base}/elsewhere/project/to-b") === "{$base}/elsewhere/project/b");
+    SmokeTest::assertSamePath(readlink("{$base}/elsewhere/project/to-b"), "{$base}/elsewhere/project/b");
     assert(file_get_contents("{$base}/elsewhere/project/to-b") === "outside");
 }, needsSymlinks: true);
 

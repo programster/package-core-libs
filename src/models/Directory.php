@@ -255,9 +255,10 @@ class Directory
     {
         $currentPath = realpath($this->m_path);
 
-        # Resolve the destination's parent where it exists, so symlinks in its path are followed as the system would.
-        $realParent = realpath(dirname($targetPath));
-        $newParent = ($realParent !== false) ? $realParent : Filesystem::normalisePath(dirname($targetPath));
+        # Resolve the destination's parent, following the symlinks in the part of it that exists, as the system would,
+        # even if it doesn't exist yet (for $createIfNotExists). Otherwise it could be compared with the real path of
+        # the directory, e.g. macOS's /var/... with its real /private/var/..., and the symlinks worked out wrong.
+        $newParent = Filesystem::resolvePath(dirname($targetPath));
         $newPath = rtrim($newParent, "/") . "/" . basename($targetPath);
 
         if ($newPath !== $currentPath)

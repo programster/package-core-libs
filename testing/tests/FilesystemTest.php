@@ -786,6 +786,9 @@ $smoke->run("getDirectories / getDirContents and symlinks", function () use ($di
     mkdir("{$base}/elsewhere");
     file_put_contents("{$base}/inside/a/a.txt", "a");
     file_put_contents("{$base}/elsewhere/e.txt", "e");
+
+    # Listing gives real paths, so expect those (e.g. macOS's /private/var/... for /var/...).
+    $base = realpath($base);
     $root = "{$base}/inside";
 
     # A link back up to a directory being listed, a link to a directory elsewhere, and two links between sibling
@@ -1031,6 +1034,9 @@ $smoke->run("fileperms", function () use ($dir) {
 $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     $base = "{$dir}/zip-links";
     mkdir("{$base}/outside/deeper", 0777, true);
+
+    # The messages give real paths, so expect those (e.g. macOS's /private/var/... for /var/...).
+    $base = realpath($base);
     file_put_contents("{$base}/outside/o.txt", "outside");
     file_put_contents("{$base}/outside/deeper/d.txt", "deeper");
     mkdir("{$base}/project/real", 0777, true);

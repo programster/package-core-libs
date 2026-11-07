@@ -199,7 +199,7 @@ $smoke->run("File rename and move", function () use ($dir) {
         # A symlink with an absolute target still points to the same place wherever it goes, so it is moved as it is.
         symlink("{$base}/links/target.txt", "{$base}/links/absolute-link");
         (new File("{$base}/links/absolute-link"))->move("deeper");
-        assert(readlink("{$base}/links/deeper/absolute-link") === "{$base}/links/target.txt");
+        SmokeTest::assertSamePath(readlink("{$base}/links/deeper/absolute-link"), "{$base}/links/target.txt");
 
         # Filesystem::moveFile() does the same as File::rename(), but a relative path is relative to the working directory.
         file_put_contents("{$base}/shortcut.txt", "shortcut");
