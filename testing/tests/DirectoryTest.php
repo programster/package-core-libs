@@ -425,3 +425,62 @@ $smoke->run("Directory move keeping a link to a link", function () use ($dir) {
     assert(file_get_contents("{$base}/elsewhere/project/to-b") === "outside");
 }, needsSymlinks: true);
 
+$smoke->run("moves to another drive on Windows keeping ownership", function () use ($dir) {
+    # On Windows, a copy on another drive can't keep its owner and ACLs, so YES (the default) refuses such a move, and
+    # PREFERRED allows it. GitHub's Windows runners have a D: drive, separate from the temporary directory's.
+    $otherDrive = "D:/corelibs-ownership-" . getmypid();
+    $canTest = PHP_OS_FAMILY === "Windows"
+        && is_dir("D:/")
+        && is_writable("D:/")
+        && !Filesystem::isOnSameFilesystem(sys_get_temp_dir(), "D:/");
+
+    if (!$canTest)
+    {
+        SmokeTest::skip("moves to another drive on Windows keeping ownership", "needs Windows with a separate D: drive");
+    }
+    else
+    {
+        $base = "{$dir}/windows-drives";
+        mkdir("{$base}/folder", 0777, true);
+        mkdir($otherDrive);
+        file_put_contents("{$base}/file.txt", "file");
+        file_put_contents("{$base}/folder/inside.txt", "inside");
+
+        try
+        {
+            $file = new File("{$base}/file.txt");
+
+            SmokeTest::expectException(
+                BadFilePermissionsException::class,
+                fn() => $file->move($otherDrive),
+                "Windows can't keep a file's owner and ACLs"
+            );
+
+            $folder = new Directory("{$base}/folder");
+
+            try
+            {
+                $folder->move($otherDrive);
+                assert(false, "moving the folder to another drive with YES should have been refused");
+            }
+            catch (DirectoryNotMovableException $e)
+            {
+                $reason = $e->getProblems()[0]->getReason();
+                assert($reason === DirectoryMoveProblemEnum::OWNERSHIP_NOT_KEEPABLE_ON_WINDOWS);
+            }
+
+            assert(is_file("{$base}/file.txt") && is_dir("{$base}/folder"));
+
+            # With PREFERRED, both are moved, as copies that belong to the current user.
+            $file->move($otherDrive, preserveOwnership: PreserveOwnershipEnum::PREFERRED);
+            $folder->move($otherDrive, preserveOwnership: PreserveOwnershipEnum::PREFERRED);
+            assert(file_get_contents("{$otherDrive}/file.txt") === "file" && !file_exists("{$base}/file.txt"));
+            assert(file_get_contents("{$otherDrive}/folder/inside.txt") === "inside" && !file_exists("{$base}/folder"));
+        }
+        finally
+        {
+            Filesystem::deleteDir($otherDrive);
+        }
+    }
+});
+

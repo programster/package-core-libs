@@ -59,7 +59,9 @@ class File
      * copy to another user). YES (the default) checks first that they can be kept, and doesn't move
      * it if not. PREFERRED keeps them where it can, and otherwise lets the copy belong to whoever is
      * running this. NO doesn't try. On the same filesystem, nothing is copied, so ownership is always
-     * kept (apart from a recreated relative symlink, see move()) and this has no effect.
+     * kept (apart from a recreated relative symlink, see move()) and this has no effect. On Windows,
+     * a copy on another drive always belongs to whoever makes it, with the ACLs of the directory it
+     * is copied into, so with YES, a move to another drive is always refused there.
      * @return void
      * @throws BadArgumentException - if $newPath is empty, or ends with a "/".
      * @throws DirectoryDoesNotExistException - if the directory $newPath is in doesn't exist.
@@ -125,7 +127,9 @@ class File
      * copy to another user). YES (the default) checks first that they can be kept, and doesn't move
      * it if not. PREFERRED keeps them where it can, and otherwise lets the copy belong to whoever is
      * running this. NO doesn't try. On the same filesystem, nothing is copied, so ownership is always
-     * kept (apart from a recreated relative symlink, see move()) and this has no effect.
+     * kept (apart from a recreated relative symlink, see move()) and this has no effect. On Windows,
+     * a copy on another drive always belongs to whoever makes it, with the ACLs of the directory it
+     * is copied into, so with YES, a move to another drive is always refused there.
      * @return void
      * @throws BadArgumentException - if $directory is empty, or is something other than a directory
      * (e.g. a file).
@@ -447,11 +451,21 @@ class File
      * current user, and to a group they are in.
      * @param string $path - the file (or symlink) that will be copied.
      * @return void
-     * @throws BadFilePermissionsException - if the owner or group couldn't be kept, or PHP's posix
-     * extension (needed to check) isn't installed.
+     * @throws BadFilePermissionsException - if the owner or group couldn't be kept, this is Windows
+     * (where they can't be kept when copying to another drive), or PHP's posix extension (needed to
+     * check) isn't installed.
      */
     private static function checkCopyCanKeepOwnership(string $path): void
     {
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            throw new BadFilePermissionsException(
+                "Can't move {$path} to a different drive, as Windows can't keep a file's owner and ACLs when " .
+                "copying it to another drive (PHP can't read or copy them). Pass PreserveOwnershipEnum::PREFERRED " .
+                "or NO to allow its owner to change."
+            );
+        }
+
         if (!function_exists('posix_geteuid'))
         {
             throw new BadFilePermissionsException(

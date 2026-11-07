@@ -133,7 +133,9 @@ class Directory
      *  - with $preserveOwnership set to YES (the default), every file, directory and symlink keeps
      *    its owner and group. A copy is owned by whoever makes it, and only root can give a file to
      *    another user, so when not running as root, everything must already belong to the current
-     *    user, and to a group they are in.
+     *    user, and to a group they are in. On Windows, a copy on another drive always belongs to
+     *    whoever makes it, with the ACLs of the directory it is copied into, and PHP can't read or
+     *    copy the original's, so with YES, a move to another drive is always refused there.
      *  - there are no hard links (files with more than one name), which would become separate
      *    copies, and no special files (e.g. pipes or sockets), which can't be copied.
      *  - every directory can be written to, so that the original can be deleted after copying.
@@ -545,7 +547,17 @@ class Directory
     {
         $checkOwnership = $preserveOwnership === PreserveOwnershipEnum::YES;
 
-        if ($checkOwnership && !function_exists('posix_geteuid'))
+        if ($checkOwnership && PHP_OS_FAMILY === "Windows")
+        {
+            $problems[] = new DirectoryMoveProblem(
+                $oldRoot,
+                DirectoryMoveProblemEnum::OWNERSHIP_NOT_KEEPABLE_ON_WINDOWS,
+                "Windows can't keep a file's owner and ACLs when copying it to another drive (PHP can't read or " .
+                "copy them), so moving {$oldRoot} there would change their owner. Pass " .
+                "PreserveOwnershipEnum::PREFERRED or NO to allow that."
+            );
+        }
+        elseif ($checkOwnership && !function_exists('posix_geteuid'))
         {
             $problems[] = new DirectoryMoveProblem(
                 $oldRoot,

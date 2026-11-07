@@ -44,6 +44,10 @@ enum DirectoryMoveProblemEnum : string
     # A directory can't be written to, so after copying it to another filesystem, the original couldn't be deleted.
     case ORIGINAL_NOT_DELETABLE = 'original_not_deletable';
 
+    # On Windows, a copy on another drive belongs to whoever makes it, with the ACLs of the directory it is copied into,
+    # and PHP can't read or copy the original's, so ownership can't be kept. Only with PreserveOwnershipEnum::YES.
+    case OWNERSHIP_NOT_KEEPABLE_ON_WINDOWS = 'ownership_not_keepable_on_windows';
+
     # The other filesystem doesn't have enough free space for the copy.
     case NOT_ENOUGH_SPACE = 'not_enough_space';
 }
