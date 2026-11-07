@@ -23,7 +23,10 @@ $smoke->run("getMemory", function () {
     $available = Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::BYTES);
     $used = Core::getMemory(MemoryTypeEnum::USED, DataSizeUnitEnum::BYTES);
     assert($total > 0 && $available > 0 && $available <= $total, "total {$total}, available {$available}");
-    assert(abs(($used + $available) - $total) < 1024 * 1024, "used and available don't add up to the total");
+    # Each call reads the memory again (on Windows, by starting PowerShell), and what is available changes in between,
+    # so allow 5% of the total for that.
+    $difference = abs(($used + $available) - $total);
+    assert($difference < $total * 0.05, "used and available are {$difference} bytes from adding up to the total");
     assert(Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::GIB) > 0);
     assert(Core::getMemory(MemoryTypeEnum::SWAP_TOTAL, DataSizeUnitEnum::BYTES) >= 0);
 
