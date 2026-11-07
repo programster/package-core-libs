@@ -706,7 +706,9 @@ final class Filesystem
      * symlink. Symlinks inside it are stored in the zip as symlinks (which unzip() recreates), rather
      * than followed. Those that point somewhere inside the folder are stored relative to themselves,
      * so they still work wherever the zip is extracted. Those that point outside it are stored as
-     * they are, unless $followSymlinks is set.
+     * they are, unless $followSymlinks is set. A broken symlink (pointing at something that doesn't
+     * exist) stops the zip being made, and no zip file is left behind, as it can't be recreated on
+     * Windows, and isn't much use anywhere.
      * @param string $sourceFolder - path to the folder we wish to zip up.
      * @param string $dest - path and name to give the zipfile e.g. (/tmp/my_zip.zip)
      * @param bool $deleteOnComplete - specify false if you want to keep the original uncompressed
@@ -717,9 +719,8 @@ final class Filesystem
      * is in it, so extracting it puts those straight into the destination.
      * @param bool $followSymlinks - true to zip what symlinks pointing outside $sourceFolder point
      * to (their files, or their folders and everything in them), in place of the symlinks, so the
-     * zip doesn't depend on anything outside it. Symlinks pointing inside $sourceFolder, and broken
-     * ones, are still stored as symlinks. Nothing outside $sourceFolder is deleted by
-     * $deleteOnComplete either way.
+     * zip doesn't depend on anything outside it. Symlinks pointing inside $sourceFolder are still
+     * stored as symlinks. Nothing outside $sourceFolder is deleted by $deleteOnComplete either way.
      * @return void
      * @throws FileAlreadyExistsException - if there is already a file at $dest.
      * @throws DirectoryDoesNotExistException - if there is no folder at $sourceFolder.
@@ -729,7 +730,8 @@ final class Filesystem
      * @throws BadArgumentException - with $deleteOnComplete, if $sourceFolder was replaced by a
      * symlink while it was being zipped, so isn't deleted.
      * @throws FilesystemException - if the zip file could not be created or written, a symlink
-     * couldn't be read, or (with $followSymlinks) following a symlink would go round in circles.
+     * couldn't be read or is broken, or (with $followSymlinks) following a symlink would go round in
+     * circles. No zip file is left behind if this happens.
      */
     public static function zipDir(
         string $sourceFolder,
@@ -787,7 +789,30 @@ final class Filesystem
         }
 
         $root = ['source' => $resolvedSourceFolder, 'zip' => $baseDir, 'followSymlinks' => $followSymlinks];
-        self::addDirectoryToZip($zip, $resolvedSourceFolder, $baseDir, $root, [$resolvedSourceFolder]);
+        $brokenLinks = [];
+
+        try
+        {
+            $ancestors = [$resolvedSourceFolder];
+            self::addDirectoryToZip($zip, $resolvedSourceFolder, $baseDir, $root, $ancestors, $brokenLinks);
+
+            # A broken symlink can't be recreated on Windows, and isn't much use anywhere, so don't zip one.
+            if (count($brokenLinks) > 0)
+            {
+                throw new FilesystemException(
+                    "Can't zip {$sourceFolder}, as it has broken symlinks (pointing at something that doesn't " .
+                    "exist), so nothing was zipped:\n - " . implode("\n - ", array_slice($brokenLinks, 0, 20))
+                );
+            }
+        }
+        catch (FilesystemException $e)
+        {
+            # Nothing is written until the zip is closed, so discard what was added, which leaves no zip file behind.
+            # (Without this, the zip would be written as it is when the object is destroyed.)
+            $zip->unchangeAll();
+            $zip->close();
+            throw $e;
+        }
 
         # The files are only actually read and written into the zip when it is closed, so this is where most failures
         # show up (e.g. a file that can't be read, or the disk being full). This raises a warning as well as returning
@@ -2203,6 +2228,8 @@ final class Filesystem
      * follow symlinks pointing outside it.
      * @param array<string> $ancestors - the real paths of the directories above this one that are
      * being zipped (including $directory), so following a symlink can't go round in circles.
+     * @param array<string> $brokenLinks - descriptions of the broken symlinks found, which aren't
+     * added, and which this adds to.
      * @return void
      * @throws FilesystemException - if a directory or symlink couldn't be read, or following a
      * symlink would go round in circles.
@@ -2212,7 +2239,8 @@ final class Filesystem
         string $directory,
         string $zipDirectory,
         array $root,
-        array $ancestors
+        array $ancestors,
+        array &$brokenLinks
     ): void
     {
         foreach (self::readDirectoryEntries($directory) as $entry)
@@ -2224,12 +2252,12 @@ final class Filesystem
 
             if (is_link($path))
             {
-                self::addSymlinkToZip($zip, $path, $zipPath, $root, $ancestors);
+                self::addSymlinkToZip($zip, $path, $zipPath, $root, $ancestors, $brokenLinks);
             }
             elseif (is_dir($path))
             {
                 $zip->addEmptyDir($zipPath);
-                self::addDirectoryToZip($zip, $path, $zipPath, $root, array_merge($ancestors, [$path]));
+                self::addDirectoryToZip($zip, $path, $zipPath, $root, array_merge($ancestors, [$path]), $brokenLinks);
             }
             else
             {
@@ -2248,6 +2276,8 @@ final class Filesystem
      * @param string $zipPath - the path in the zip to add it at.
      * @param array{source: string, zip: string, followSymlinks: bool} $root - see addDirectoryToZip().
      * @param array<string> $ancestors - see addDirectoryToZip().
+     * @param array<string> $brokenLinks - see addDirectoryToZip(). A broken symlink is added to this,
+     * rather than to the zip.
      * @return void
      * @throws FilesystemException - if the symlink couldn't be read, or following it would go round
      * in circles.
@@ -2257,7 +2287,8 @@ final class Filesystem
         string $linkPath,
         string $zipPath,
         array $root,
-        array $ancestors
+        array $ancestors,
+        array &$brokenLinks
     ): void
     {
         # Suppress the warning, as we throw an exception instead.
@@ -2268,23 +2299,21 @@ final class Filesystem
             throw new FilesystemException("Failed to read where the symlink {$linkPath} points.");
         }
 
-        # Where it really leads, following any further links, or (for a broken link) where it would lead.
+        # Where it really leads, following any further links, which is false for a broken link.
         $realTarget = realpath($linkPath);
 
-        $resolvedTarget = ($realTarget !== false)
-            ? $realTarget
-            : self::resolveLinkTarget(dirname($linkPath), $rawTarget);
-
-        # The target has already been resolved, so compare it as it is.
-        if (self::isWithinDirectory($resolvedTarget, $root['source'], false))
+        if ($realTarget === false)
+        {
+            $brokenLinks[] = "{$linkPath} (pointing at {$rawTarget})";
+        }
+        elseif (self::isWithinDirectory($realTarget, $root['source'], false))
         {
             # Without a folder at the top of the zip, its paths have nothing in front of them, not even a "/".
-            $targetZipPath = ltrim($root['zip'] . substr($resolvedTarget, strlen($root['source'])), "/");
+            $targetZipPath = ltrim($root['zip'] . substr($realTarget, strlen($root['source'])), "/");
             self::addZipSymlink($zip, $zipPath, self::relativePathBetween(dirname($zipPath), $targetZipPath));
         }
-        elseif (!$root['followSymlinks'] || $realTarget === false)
+        elseif (!$root['followSymlinks'])
         {
-            # Not following symlinks, or there's nothing there to follow.
             self::addZipSymlink($zip, $zipPath, $rawTarget);
         }
         elseif (is_dir($realTarget))
@@ -2298,7 +2327,8 @@ final class Filesystem
             }
 
             $zip->addEmptyDir($zipPath);
-            self::addDirectoryToZip($zip, $realTarget, $zipPath, $root, array_merge($ancestors, [$realTarget]));
+            $followedAncestors = array_merge($ancestors, [$realTarget]);
+            self::addDirectoryToZip($zip, $realTarget, $zipPath, $root, $followedAncestors, $brokenLinks);
         }
         else
         {

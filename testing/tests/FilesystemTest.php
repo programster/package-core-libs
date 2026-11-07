@@ -1031,7 +1031,6 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     symlink("real", "{$base}/project/dir-link");
     symlink("real/f.txt", "{$base}/project/file-link");
     symlink("{$base}/project/real/f.txt", "{$base}/project/absolute-inside");
-    symlink("{$base}/project/missing", "{$base}/project/broken");
 
     # The targets stored for each symlink entry in a zip.
     $storedLinks = function (string $zipPath): array {
@@ -1054,12 +1053,23 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
         return $links;
     };
 
+    # A broken symlink stops the zip being made, and no zip file is left behind.
+    symlink("{$base}/project/missing", "{$base}/project/broken");
+
+    SmokeTest::expectException(
+        FilesystemException::class,
+        fn() => Filesystem::zipDir("{$base}/project", "{$base}/broken.zip", false),
+        "{$base}/project/broken (pointing at {$base}/project/missing)"
+    );
+
+    assert(!file_exists("{$base}/broken.zip") && is_link("{$base}/project/broken"));
+    unlink("{$base}/project/broken");
+
     # Symlinks inside the folder are stored as symlinks relative to themselves, rather than followed.
     Filesystem::zipDir("{$base}/project", "{$base}/inside.zip", false);
 
     $expected = [
         "project/absolute-inside" => "real/f.txt",
-        "project/broken" => "missing",
         "project/dir-link" => "real",
         "project/file-link" => "real/f.txt",
     ];
@@ -1071,7 +1081,6 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     assert(readlink("{$base}/out-inside/project/dir-link") === "real");
     assert(file_get_contents("{$base}/out-inside/project/dir-link/f.txt") === "inside");
     assert(file_get_contents("{$base}/out-inside/project/absolute-inside") === "inside");
-    assert(is_link("{$base}/out-inside/project/broken"));
 
     # A symlink pointing outside is stored as it is, so an untrusted unzip refuses it, leaving nothing behind.
     symlink("{$base}/outside", "{$base}/project/outside-dir");
@@ -1148,6 +1157,8 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
         fn() => Filesystem::zipDir("{$base}/project", "{$base}/loop.zip", false, followSymlinks: true),
         "would go round in circles"
     );
+
+    assert(!file_exists("{$base}/loop.zip"));
 
     # Without $includeFolder, only what is in the folder is zipped, so it is extracted straight into the destination,
     # and symlinks inside it still point at the right place.
