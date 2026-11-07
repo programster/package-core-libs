@@ -1553,7 +1553,9 @@ $smoke->run("unzip symlinks on Windows", function () use ($dir) {
     assert($result['problems'] === [] && !file_exists("{$base}/tmp/project/dir-link"));
     $merge->invoke(null, "{$base}/tmp", $out);
     $create->invoke(null, $result['links']);
-    assert(readlink("{$out}/project/dir-link") === Filesystem::normalisePath("{$out}/project/real"));
+    # Windows reports the target with "\\", so compare them tidied up.
+    $dirLinkTarget = Filesystem::normalisePath(readlink("{$out}/project/dir-link"));
+    assert($dirLinkTarget === Filesystem::normalisePath("{$out}/project/real"));
     assert(file_get_contents("{$out}/project/dir-link/f.txt") === "inside");
     assert(file_get_contents("{$out}/project/to-file-link") === "inside");
 
@@ -1578,5 +1580,5 @@ $smoke->run("unzip symlinks on Windows", function () use ($dir) {
     assert(str_contains($problems, "project/broken pointing to") && str_contains($problems, "which won't exist"));
     assert(str_contains($problems, "project/real/up pointing to a folder above it"));
     assert(count($result['problems']) === 2 && file_exists("{$base}/tmp/project/dir-link"));
-}, needsSymlinks: true);
+}, needsSymlinks: true, anySymlinks: false);
 

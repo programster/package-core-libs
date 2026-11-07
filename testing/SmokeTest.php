@@ -20,8 +20,8 @@ final class SmokeTest
     # Checks that couldn't be run in this environment (e.g. ones that need root), so they can be reported.
     private static array $s_skipped = [];
 
-    # Whether symlinks can be created here, found the first time it is needed (see canCreateSymlinks()).
-    private static ?bool $s_canCreateSymlinks = null;
+    # Whether each kind of symlink can be created here, found the first time it is needed (see canCreateSymlinks()).
+    private static array $s_canCreateSymlinks = [];
 
 
     public function __construct()
@@ -46,13 +46,16 @@ final class SmokeTest
      * @param callable $test - the test to run.
      * @param bool $needsSymlinks - true if the whole test is about symlinks, so it is skipped (and
      * reported as skipped) where they can't be created, e.g. on Windows without admin rights.
+     * @param bool $anySymlinks - with $needsSymlinks, true (the default) if it needs relative and
+     * broken symlinks too, or false if absolute ones to things that exist are enough (see
+     * canCreateSymlinks()).
      * @return void
      */
-    public function run(string $label, callable $test, bool $needsSymlinks = false): void
+    public function run(string $label, callable $test, bool $needsSymlinks = false, bool $anySymlinks = true): void
     {
         $numWarningsBefore = count($this->m_warnings);
         $error = "";
-        $shouldRun = !$needsSymlinks || self::canCreateSymlinks($label);
+        $shouldRun = !$needsSymlinks || self::canCreateSymlinks($label, $anySymlinks);
 
         try
         {
@@ -275,30 +278,45 @@ final class SmokeTest
 
 
     /**
-     * Check whether symlinks can be created here (on Windows, they need admin rights or developer
-     * mode). If not, record the check as skipped, so that main.php can report it.
+     * Check whether symlinks can be created here. If not, record the check as skipped, so that
+     * main.php can report it. On Windows, symlinks need admin rights or developer mode, and even
+     * then, PHP can only create one whose target exists, and resolves a relative target from the
+     * current directory rather than the link's folder.
      * @param string $checkName - what the check is for, to show if it is skipped.
-     * @return bool - true if symlinks can be created.
+     * @param bool $anyKind - true (the default) to need any kind of symlink, including relative
+     * and broken ones, as most symlink tests make. False to only need an absolute symlink to
+     * something that exists.
+     * @return bool - true if symlinks of that kind can be created.
      */
-    public static function canCreateSymlinks(string $checkName): bool
+    public static function canCreateSymlinks(string $checkName, bool $anyKind = true): bool
     {
-        if (self::$s_canCreateSymlinks === null)
-        {
-            $probe = sys_get_temp_dir() . "/corelibs-symlink-check-" . getmypid();
-            self::$s_canCreateSymlinks = @symlink(__FILE__, $probe);
+        $kind = $anyKind ? "any" : "absolute";
 
-            if (self::$s_canCreateSymlinks)
+        if (!isset(self::$s_canCreateSymlinks[$kind]))
+        {
+            $probeDirectory = sys_get_temp_dir() . "/corelibs-symlink-check-" . getmypid();
+            @mkdir($probeDirectory);
+
+            # A relative link to something that doesn't exist, or an absolute link to something that does.
+            $target = $anyKind ? "missing-target" : __FILE__;
+            $created = @symlink($target, "{$probeDirectory}/link");
+            self::$s_canCreateSymlinks[$kind] = $created && @readlink("{$probeDirectory}/link") === $target;
+
+            if ($created)
             {
-                unlink($probe);
+                @unlink("{$probeDirectory}/link");
             }
+
+            @rmdir($probeDirectory);
         }
 
-        if (!self::$s_canCreateSymlinks)
+        if (!self::$s_canCreateSymlinks[$kind])
         {
-            self::$s_skipped[] = "{$checkName} (needs symlinks, which can't be created here)";
+            $needs = $anyKind ? "relative and broken symlinks" : "symlinks";
+            self::$s_skipped[] = "{$checkName} (needs {$needs}, which can't be created here)";
         }
 
-        return self::$s_canCreateSymlinks;
+        return self::$s_canCreateSymlinks[$kind];
     }
 
 
