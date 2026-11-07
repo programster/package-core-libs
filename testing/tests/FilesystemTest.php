@@ -1518,3 +1518,65 @@ $smoke->run("getDirSize", function () use ($dir) {
     SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::getDirSize("{$base}/missing"));
 });
 
+$smoke->run("unzip symlinks on Windows", function () use ($dir) {
+    # On Windows, unzip() makes symlinks last, as absolute ones (or copies), since PHP there can only create a symlink
+    # whose target exists. That route only runs on Windows, so call its steps directly, with a staged extraction: the
+    # temporary directory holds the zip's contents, with each symlink as a file holding its target.
+    $plan = new ReflectionMethod(Filesystem::class, "planWindowsSymlinks");
+    $merge = new ReflectionMethod(Filesystem::class, "mergeDirectoryInto");
+    $create = new ReflectionMethod(Filesystem::class, "createWindowsSymlinks");
+
+    $stage = function (string $base): array {
+        mkdir("{$base}/tmp/project/real", 0777, true);
+        mkdir("{$base}/out");
+        file_put_contents("{$base}/tmp/project/real/f.txt", "inside");
+        $targets = [
+            "project/dir-link" => "real",
+            "project/file-link" => "real/f.txt",
+            "project/to-file-link" => "file-link",
+        ];
+
+        foreach ($targets as $entry => $target)
+        {
+            file_put_contents("{$base}/tmp/{$entry}", $target);
+        }
+
+        return $targets;
+    };
+
+    # Links become absolute ones inside the destination, made once everything else is there, including one that
+    # points at another link (which has to be made first).
+    $base = "{$dir}/windows-links";
+    $targets = $stage($base);
+    $out = realpath("{$base}/out");
+    $result = $plan->invoke(null, "{$base}/tmp", $out, $targets, false);
+    assert($result['problems'] === [] && !file_exists("{$base}/tmp/project/dir-link"));
+    $merge->invoke(null, "{$base}/tmp", $out);
+    $create->invoke(null, $result['links']);
+    assert(readlink("{$out}/project/dir-link") === Filesystem::normalisePath("{$out}/project/real"));
+    assert(file_get_contents("{$out}/project/dir-link/f.txt") === "inside");
+    assert(file_get_contents("{$out}/project/to-file-link") === "inside");
+
+    # With copying, links inside the zip become copies of what they point at.
+    $base = "{$dir}/windows-copies";
+    $targets = $stage($base);
+    $out = realpath("{$base}/out");
+    $result = $plan->invoke(null, "{$base}/tmp", $out, $targets, true);
+    $merge->invoke(null, "{$base}/tmp", $out);
+    $create->invoke(null, $result['links']);
+    assert(!is_link("{$out}/project/dir-link") && file_get_contents("{$out}/project/dir-link/f.txt") === "inside");
+    assert(!is_link("{$out}/project/file-link") && file_get_contents("{$out}/project/file-link") === "inside");
+    assert(!is_link("{$out}/project/to-file-link") && file_get_contents("{$out}/project/to-file-link") === "inside");
+
+    # A broken link is refused, and so (when copying) is one to a folder above it, leaving the placeholders in place.
+    $base = "{$dir}/windows-refused";
+    $targets = $stage($base) + ["project/broken" => "missing", "project/real/up" => ".."];
+    file_put_contents("{$base}/tmp/project/broken", "missing");
+    file_put_contents("{$base}/tmp/project/real/up", "..");
+    $result = $plan->invoke(null, "{$base}/tmp", realpath("{$base}/out"), $targets, true);
+    $problems = implode("\n", $result['problems']);
+    assert(str_contains($problems, "project/broken pointing to") && str_contains($problems, "which won't exist"));
+    assert(str_contains($problems, "project/real/up pointing to a folder above it"));
+    assert(count($result['problems']) === 2 && file_exists("{$base}/tmp/project/dir-link"));
+}, needsSymlinks: true);
+

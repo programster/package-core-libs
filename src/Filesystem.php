@@ -868,12 +868,24 @@ final class Filesystem
      * set, a zip with a symlink that points outside $destinationFolder (e.g. to "/etc/passwd", or
      * "../../x") is refused before anything is moved into place, as an untrusted zip could use one
      * to make later code read or write files outside it.
+     * On Windows, PHP can only create a symlink whose target already exists, and can't create a
+     * relative one, so there the symlinks are created last, once everything else is in place, as
+     * absolute symlinks (so they break if the destination is moved later). A zip with a symlink
+     * whose target won't exist (a broken symlink) is refused there, before anything is moved.
+     * $convertSymlinksOnWindows replaces the symlinks that point inside the zip with copies of what
+     * they point at instead, so nothing depends on where the destination is.
      * @param string $sourceZip - zip file to unzip.
      * @param string $destinationFolder - path to the folder we wish to unzip into.
      * @param bool $deleteOnComplete - whether to delete the zip file once its contents have been
      * extracted. Defaults to true.
      * @param bool $trusted - true to allow symlinks that point outside $destinationFolder. Only set
      * this for zips from a source you trust. Defaults to false.
+     * @param bool $convertSymlinksOnWindows - on Windows, true to replace each symlink that points
+     * inside the zip with a copy of the file or folder it points at, rather than an absolute
+     * symlink, e.g. if the destination will be moved afterwards. Copies take more space, and a
+     * symlink to a folder above itself is refused, as copying it would never end. Symlinks pointing
+     * outside the zip (only allowed with $trusted) are never copied. Has no effect elsewhere.
+     * Defaults to false.
      * @return void
      * @throws MissingExtensionException - if PHP's zip extension isn't installed.
      * @throws FileDoesNotExistException - if there is no file at $sourceZip.
@@ -890,7 +902,8 @@ final class Filesystem
         string $sourceZip,
         string $destinationFolder,
         bool $deleteOnComplete = true,
-        bool $trusted = false
+        bool $trusted = false,
+        bool $convertSymlinksOnWindows = false
     ): void
     {
         if (!extension_loaded('zip'))
@@ -963,11 +976,27 @@ final class Filesystem
         $zip->close();
         $problems = [];
 
+        $windowsLinks = [];
+
         # extractTo() writes each symlink as a file holding its target, so check those targets, and then turn them
-        # into symlinks, before checking they can all be merged into the destination.
+        # into symlinks, before checking they can all be merged into the destination. On Windows, they are made once
+        # everything else is in place instead (see planWindowsSymlinks()).
         if ($extracted)
         {
-            $problems = self::recreateExtractedSymlinks($tmpDirectory, $realDestination, $symlinkEntries, $trusted);
+            $links = self::checkExtractedSymlinks($tmpDirectory, $realDestination, $symlinkEntries, $trusted);
+            $problems = $links['problems'];
+        }
+
+        if ($extracted && count($problems) === 0 && PHP_OS_FAMILY === "Windows")
+        {
+            $copyLinks = $convertSymlinksOnWindows;
+            $plan = self::planWindowsSymlinks($tmpDirectory, $realDestination, $links['targets'], $copyLinks);
+            $problems = $plan['problems'];
+            $windowsLinks = $plan['links'];
+        }
+        elseif ($extracted && count($problems) === 0)
+        {
+            $problems = self::recreateExtractedSymlinks($tmpDirectory, $links['targets']);
         }
 
         if ($extracted && count($problems) === 0)
@@ -999,6 +1028,7 @@ final class Filesystem
 
         # Suppress the warning: it is empty now, and if it can't be removed, the files are still all in place.
         @rmdir($tmpDirectory);
+        self::createWindowsSymlinks($windowsLinks);
 
         if ($deleteOnComplete)
         {
@@ -2385,17 +2415,17 @@ final class Filesystem
 
 
     /**
-     * Turn the symlinks unzip() extracted (which ZipArchive::extractTo() writes as files holding
-     * their targets) back into symlinks. Every one is checked first, and nothing is changed if any
-     * has a problem.
+     * Check the symlinks unzip() extracted, which ZipArchive::extractTo() writes as files holding
+     * their targets: that each is a valid symlink, and (unless $trusted) points inside $destination.
      * @param string $tmpDirectory - where the zip was extracted.
      * @param string $destination - the real path of where it will be moved, which the symlinks'
      * targets are checked against.
      * @param array<string> $entries - the names of the zip's symlink entries.
      * @param bool $trusted - true to allow symlinks pointing outside $destination.
-     * @return array<string> - descriptions of the problems found, which is empty if there are none.
+     * @return array{problems: array<string>, targets: array<string, string>} - descriptions of the
+     * problems found, and each valid symlink's entry name mapped to its target.
      */
-    private static function recreateExtractedSymlinks(
+    private static function checkExtractedSymlinks(
         string $tmpDirectory,
         string $destination,
         array $entries,
@@ -2431,25 +2461,260 @@ final class Filesystem
             }
             else
             {
-                $targets[$extractedPath] = $target;
+                $targets[$entry] = $target;
+            }
+        }
+
+        return ['problems' => $problems, 'targets' => $targets];
+    }
+
+
+    /**
+     * Turn the checked symlinks unzip() extracted back into symlinks, where they are in the temporary
+     * directory, on systems that can create any symlink (i.e. not Windows).
+     * @param string $tmpDirectory - where the zip was extracted.
+     * @param array<string, string> $targets - each symlink's entry name mapped to its target.
+     * @return array<string> - descriptions of the symlinks that couldn't be created.
+     */
+    private static function recreateExtractedSymlinks(string $tmpDirectory, array $targets): array
+    {
+        $problems = [];
+
+        foreach ($targets as $entry => $target)
+        {
+            $extractedPath = "{$tmpDirectory}/{$entry}";
+            $replaced = @unlink($extractedPath) && @symlink($target, $extractedPath);
+
+            if (!$replaced)
+            {
+                $problems[] = "the symlink {$entry} couldn't be created.";
+            }
+        }
+
+        return $problems;
+    }
+
+
+    /**
+     * Plan the symlinks unzip() will create on Windows, where PHP can only create a symlink whose
+     * target exists, and can't create a relative one. Each becomes an absolute symlink, made once
+     * everything else is in place (or with $copy, a copy of what it points at, if that is inside the
+     * zip). This checks first that each one's target will exist by then (following symlinks to
+     * symlinks), that none would take the place of an existing directory, and (with $copy) that
+     * none points at a folder above itself. Only if there are no problems are the files holding
+     * their targets removed from the temporary directory, so they aren't moved into place.
+     * @param string $tmpDirectory - where the zip was extracted.
+     * @param string $destination - the real path of where it will be moved.
+     * @param array<string, string> $targets - each symlink's entry name mapped to its target.
+     * @param bool $copy - whether to copy what symlinks inside the zip point at, rather than link
+     * to it.
+     * @return array{problems: array<string>, links: array<string, array{target: string, copy: bool}>}
+     * - descriptions of the problems found, and each symlink's final path mapped to its absolute
+     * target, and whether to copy it.
+     */
+    private static function planWindowsSymlinks(
+        string $tmpDirectory,
+        string $destination,
+        array $targets,
+        bool $copy
+    ): array
+    {
+        $links = [];
+        $normalisedDestination = self::normalisePath($destination);
+
+        foreach ($targets as $entry => $target)
+        {
+            $finalPath = "{$normalisedDestination}/{$entry}";
+            $absoluteTarget = self::resolveLinkTarget(dirname($finalPath), $target);
+            $isInside = self::isWithinDirectory($absoluteTarget, $normalisedDestination, false);
+            $links[$finalPath] = ['target' => $absoluteTarget, 'copy' => $copy && $isInside];
+        }
+
+        $problems = [];
+
+        foreach ($links as $finalPath => $link)
+        {
+            $leadsTo = self::whereLinkWillLead($link['target'], $links, $tmpDirectory, $normalisedDestination);
+
+            if ($leadsTo === "")
+            {
+                $problems[] = "the zip has a symlink at {$finalPath} pointing to {$link['target']}, which won't " .
+                    "exist, and Windows can't create a symlink to something that doesn't exist.";
+            }
+            elseif (is_dir($finalPath) && !is_link($finalPath))
+            {
+                $problems[] = "the zip has a symlink at {$finalPath}, where there is already a directory.";
+            }
+            elseif ($link['copy'] && self::isWithinDirectory($finalPath, $link['target'], false))
+            {
+                $problems[] = "the zip has a symlink at {$finalPath} pointing to a folder above it, " .
+                    "{$link['target']}, which can't be copied into itself.";
             }
         }
 
         if (count($problems) === 0)
         {
-            foreach ($targets as $extractedPath => $target)
+            foreach (array_keys($targets) as $entry)
             {
-                $replaced = @unlink($extractedPath) && @symlink($target, $extractedPath);
+                @unlink("{$tmpDirectory}/{$entry}");
+            }
+        }
 
-                if (!$replaced)
+        return ['problems' => $problems, 'links' => $links];
+    }
+
+
+    /**
+     * Work out where a path in the destination will lead once unzip() has put everything in place,
+     * for planWindowsSymlinks(), following the planned symlinks it goes through.
+     * @param string $path - the absolute path to follow.
+     * @param array<string, array{target: string, copy: bool}> $links - the planned symlinks, by their
+     * final paths (normalised).
+     * @param string $tmpDirectory - where the zip was extracted.
+     * @param string $destination - the destination's real path, normalised.
+     * @return string - the path it leads to, or "" if that won't exist (or the symlinks go round in
+     * circles).
+     */
+    private static function whereLinkWillLead(
+        string $path,
+        array $links,
+        string $tmpDirectory,
+        string $destination
+    ): string
+    {
+        $current = self::normalisePath($path);
+        $hops = 0;
+        $followedOne = true;
+
+        # Swap the start of the path for a planned symlink's target wherever it goes through one, until it doesn't.
+        while ($followedOne && $hops <= count($links))
+        {
+            $followedOne = false;
+
+            foreach ($links as $linkPath => $link)
+            {
+                if (!$followedOne && self::isWithinDirectory($current, $linkPath, false))
                 {
-                    $entry = substr($extractedPath, strlen($tmpDirectory) + 1);
-                    $problems[] = "the symlink {$entry} couldn't be created.";
+                    $current = self::normalisePath($link['target'] . substr($current, strlen($linkPath)));
+                    $followedOne = true;
+                    $hops++;
                 }
             }
         }
 
-        return $problems;
+        # Either it is in the zip (so in the temporary directory now), or it already exists.
+        $inZip = self::isWithinDirectory($current, $destination, false)
+            && file_exists($tmpDirectory . substr($current, strlen($destination)));
+
+        $exists = !$followedOne && ($inZip || file_exists($current));
+        return $exists ? $current : "";
+    }
+
+
+    /**
+     * Create the symlinks unzip() planned on Windows (see planWindowsSymlinks()), now that everything
+     * else is in place. One whose target is another symlink waits until that one exists. Anything
+     * already at a symlink's path (a file, as directories were checked for) is replaced, as files
+     * are by unzipping.
+     * @param array<string, array{target: string, copy: bool}> $links - each symlink's final path
+     * mapped to its absolute target, and whether to copy it.
+     * @return void
+     * @throws FilesystemException - if a symlink couldn't be created, despite the checks. The rest of
+     * the zip's contents are in place if this happens.
+     */
+    private static function createWindowsSymlinks(array $links): void
+    {
+        $toCreate = $links;
+        $madeProgress = true;
+
+        while (count($toCreate) > 0 && $madeProgress)
+        {
+            $madeProgress = false;
+
+            foreach ($toCreate as $linkPath => $link)
+            {
+                # A folder being copied must not still be waiting for symlinks inside it.
+                $isWaitingFor = function (string $otherPath) use ($link): bool {
+                    return self::isWithinDirectory($otherPath, $link['target'], false);
+                };
+
+                $waiting = $link['copy'] && count(array_filter(array_keys($toCreate), $isWaitingFor)) > 0;
+
+                if (file_exists($link['target']) && !$waiting)
+                {
+                    self::createWindowsSymlink($linkPath, $link['target'], $link['copy']);
+                    unset($toCreate[$linkPath]);
+                    $madeProgress = true;
+                }
+            }
+        }
+
+        if (count($toCreate) > 0)
+        {
+            throw new FilesystemException(
+                "Unzipped everything apart from these symlinks, whose targets don't exist after all: " .
+                implode(", ", array_keys($toCreate))
+            );
+        }
+    }
+
+
+    /**
+     * Create one symlink (or copy) for createWindowsSymlinks(), replacing a file already there.
+     * @param string $linkPath - where to create it.
+     * @param string $target - the absolute path it points at, which exists.
+     * @param bool $copy - true to copy what $target is, rather than link to it.
+     * @return void
+     * @throws FilesystemException - if it couldn't be created.
+     */
+    private static function createWindowsSymlink(string $linkPath, string $target, bool $copy): void
+    {
+        # Suppress the warnings, as we throw an exception instead. Windows wants "\\" in a symlink's target.
+        $alreadyThere = file_exists($linkPath) || is_link($linkPath);
+        $cleared = !$alreadyThere || self::unlinkFileOrSymlink($linkPath);
+
+        $created = $copy
+            ? $cleared && self::copyRecursively($target, $linkPath)
+            : $cleared && @symlink(str_replace("/", DIRECTORY_SEPARATOR, $target), $linkPath);
+
+        if (!$created)
+        {
+            throw new FilesystemException("Unzipped it, but failed to create the symlink {$linkPath} to {$target}.");
+        }
+    }
+
+
+    /**
+     * Copy a file or a directory and everything in it, for createWindowsSymlink(). Symlinks inside
+     * are copied as symlinks.
+     * @param string $source - the file or directory to copy.
+     * @param string $destination - where to copy it, where nothing is.
+     * @return bool - true if everything was copied.
+     * @throws FilesystemException - if a directory couldn't be read.
+     */
+    private static function copyRecursively(string $source, string $destination): bool
+    {
+        # Suppress the warnings, as the caller throws an exception instead.
+        if (is_link($source))
+        {
+            $target = @readlink($source);
+            $copied = ($target !== false) && @symlink($target, $destination);
+        }
+        elseif (is_dir($source))
+        {
+            $copied = @mkdir($destination);
+
+            foreach ($copied ? self::readDirectoryEntries($source) : [] as $entry)
+            {
+                $copied = $copied && self::copyRecursively("{$source}/{$entry}", "{$destination}/{$entry}");
+            }
+        }
+        else
+        {
+            $copied = @copy($source, $destination);
+        }
+
+        return $copied;
     }
 
 
