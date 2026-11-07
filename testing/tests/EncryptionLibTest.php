@@ -16,9 +16,13 @@ $smoke->run("encryption and passwords", function () {
     assert(EncryptionLib::decrypt(EncryptionLib::encrypt("hello", $key), $key) === "hello");
     $encryptedWithOtherKey = EncryptionLib::encrypt("hello", $key);
 
+    $decryptWithWrongKey = function () use ($encryptedWithOtherKey): void {
+        EncryptionLib::decrypt($encryptedWithOtherKey, EncryptionLib::generateKey());
+    };
+
     SmokeTest::expectException(
         DecryptionFailedException::class,
-        fn() => EncryptionLib::decrypt($encryptedWithOtherKey, EncryptionLib::generateKey())
+        $decryptWithWrongKey
     );
 
     $iv = random_bytes(16);

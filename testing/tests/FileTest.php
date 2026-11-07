@@ -49,11 +49,31 @@ $smoke->run("File rename and move", function () use ($dir) {
 
     # rename() doesn't overwrite, create directories, or take a directory.
     file_put_contents("{$base}/sub/taken.txt", "other");
-    SmokeTest::expectException(FileAlreadyExistsException::class, fn() => $file->rename("taken.txt"));
+
+    $renameOntoTaken = function () use ($file): void {
+        $file->rename("taken.txt");
+    };
+
+    SmokeTest::expectException(FileAlreadyExistsException::class, $renameOntoTaken);
     assert(file_get_contents("{$base}/sub/taken.txt") === "other" && is_file("{$base}/sub/e.txt"));
-    SmokeTest::expectException(DirectoryDoesNotExistException::class, fn() => $file->rename("nope/f.txt"));
-    SmokeTest::expectException(BadArgumentException::class, fn() => $file->rename("other/"));
-    SmokeTest::expectException(BadArgumentException::class, fn() => $file->rename(""));
+
+    $renameIntoMissingDirectory = function () use ($file): void {
+        $file->rename("nope/f.txt");
+    };
+
+    SmokeTest::expectException(DirectoryDoesNotExistException::class, $renameIntoMissingDirectory);
+
+    $renameToDirectoryPath = function () use ($file): void {
+        $file->rename("other/");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $renameToDirectoryPath);
+
+    $renameToEmptyName = function () use ($file): void {
+        $file->rename("");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $renameToEmptyName);
     SmokeTest::assertSamePath($file->getFilepath(), "{$base}/sub/e.txt");
 
     # move() keeps the name, and only creates the directory if asked to.
@@ -61,9 +81,13 @@ $smoke->run("File rename and move", function () use ($dir) {
     SmokeTest::assertSamePath($file->getFilepath(), "{$base}/e.txt");
     assert(is_file("{$base}/e.txt"));
 
+    $moveIntoMissingDirectory = function () use ($file, $base): void {
+        $file->move("{$base}/new/deeper");
+    };
+
     SmokeTest::expectException(
         DirectoryDoesNotExistException::class,
-        fn() => $file->move("{$base}/new/deeper"),
+        $moveIntoMissingDirectory,
         "Set \$createIfNotExists to true"
     );
 
@@ -71,9 +95,19 @@ $smoke->run("File rename and move", function () use ($dir) {
     $file->move("{$base}/new/deeper", true);
     SmokeTest::assertSamePath($file->getFilepath(), "{$base}/new/deeper/e.txt");
     assert(is_file("{$base}/new/deeper/e.txt"));
-    SmokeTest::expectException(BadArgumentException::class, fn() => $file->move("{$base}/sub/taken.txt"));
+
+    $moveOntoTakenName = function () use ($file, $base): void {
+        $file->move("{$base}/sub/taken.txt");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $moveOntoTakenName);
     file_put_contents("{$base}/sub/e.txt", "other");
-    SmokeTest::expectException(FileAlreadyExistsException::class, fn() => $file->move("{$base}/sub"));
+
+    $moveOntoDirectoryWithTakenName = function () use ($file, $base): void {
+        $file->move("{$base}/sub");
+    };
+
+    SmokeTest::expectException(FileAlreadyExistsException::class, $moveOntoDirectoryWithTakenName);
     assert(file_get_contents("{$base}/sub/e.txt") === "other");
 
     # With $overwriteExistingFile, an existing file is replaced, by both rename() and move().
@@ -94,9 +128,15 @@ $smoke->run("File rename and move", function () use ($dir) {
         mkdir("{$base}/sub/taken.txt");
 
         $directoryClashes = [
-            fn() => $file->rename("a-dir", true),
-            fn() => $file->rename("dir-link", true),
-            fn() => $file->move("sub", false, true),
+            function () use ($file): void {
+                $file->rename("a-dir", true);
+            },
+            function () use ($file): void {
+                $file->rename("dir-link", true);
+            },
+            function () use ($file): void {
+                $file->move("sub", false, true);
+            },
         ];
 
         foreach ($directoryClashes as $clash)
@@ -114,7 +154,12 @@ $smoke->run("File rename and move", function () use ($dir) {
         assert(!is_link("{$base}/file-link") && file_get_contents("{$base}/file-link") === "data");
         assert(file_get_contents("{$base}/pointed-at.txt") === "keep");
         symlink("{$base}/missing.txt", "{$base}/broken-link");
-        SmokeTest::expectException(FileAlreadyExistsException::class, fn() => $file->rename("broken-link"));
+
+        $renameOntoBrokenLink = function () use ($file): void {
+            $file->rename("broken-link");
+        };
+
+        SmokeTest::expectException(FileAlreadyExistsException::class, $renameOntoBrokenLink);
         $file->rename("broken-link", true);
         assert(!is_link("{$base}/broken-link") && file_get_contents("{$base}/broken-link") === "data");
 
@@ -132,9 +177,13 @@ $smoke->run("File rename and move", function () use ($dir) {
 
         foreach ($sameFileCases as [$source, $target])
         {
+            $renameOntoItself = function () use ($source, $target): void {
+                (new File($source))->rename($target, true);
+            };
+
             SmokeTest::expectException(
                 FileAlreadyExistsException::class,
-                fn() => (new File($source))->rename($target, true),
+                $renameOntoItself,
                 "they are the same file"
             );
         }
@@ -226,9 +275,18 @@ $smoke->run("File rename and move", function () use ($dir) {
         Filesystem::moveFile("{$base}/shortcut-back.txt", "{$base}/sub/in-the-way.txt", true);
         assert(file_get_contents("{$base}/sub/in-the-way.txt") === "shortcut");
 
+        $openMissingFile = function () use ($base): void {
+            new File("{$base}/nope.txt");
+        };
+
         # Only existing files can be used.
-        SmokeTest::expectException(FileDoesNotExistException::class, fn() => new File("{$base}/nope.txt"));
-        SmokeTest::expectException(FileDoesNotExistException::class, fn() => new File("{$base}/sub"));
+        SmokeTest::expectException(FileDoesNotExistException::class, $openMissingFile);
+
+        $openDirectory = function () use ($base): void {
+            new File("{$base}/sub");
+        };
+
+        SmokeTest::expectException(FileDoesNotExistException::class, $openDirectory);
 
         # CsvFile gets these too, and keeps working after a move.
         file_put_contents("{$base}/data.csv", "a,b\n1,2\n");
@@ -249,9 +307,13 @@ $smoke->run("File moves never replacing a file created during the move", functio
     file_put_contents("{$base}/theirs.txt", "theirs");
     $moveFile = new ReflectionMethod(File::class, "moveFile");
 
+    $moveOntoAppearedFile = function () use ($moveFile, $base): void {
+        $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/theirs.txt", false, PreserveOwnershipEnum::YES);
+    };
+
     SmokeTest::expectException(
         FileAlreadyExistsException::class,
-        fn() => $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/theirs.txt", false, PreserveOwnershipEnum::YES),
+        $moveOntoAppearedFile,
         "as something was created there while it was being moved"
     );
 
@@ -262,9 +324,13 @@ $smoke->run("File moves never replacing a file created during the move", functio
         # A broken symlink counts as something being there too.
         symlink("{$base}/missing", "{$base}/broken-link");
 
+        $moveOntoBrokenLink = function () use ($moveFile, $base): void {
+            $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/broken-link", false, PreserveOwnershipEnum::YES);
+        };
+
         SmokeTest::expectException(
             FileAlreadyExistsException::class,
-            fn() => $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/broken-link", false, PreserveOwnershipEnum::YES)
+            $moveOntoBrokenLink
         );
 
         assert(is_link("{$base}/broken-link") && file_get_contents("{$base}/mine.txt") === "mine");
@@ -285,9 +351,14 @@ $smoke->run("File moves never replacing a file created during the move", functio
         {
             file_put_contents("{$otherFilesystem}/theirs.txt", "theirs");
 
+            $moveOntoAppearedFileElsewhere = function () use ($moveFile, $base, $otherFilesystem): void {
+                $theirs = "{$otherFilesystem}/theirs.txt";
+                $moveFile->invoke(null, "{$base}/moved.txt", $theirs, false, PreserveOwnershipEnum::YES);
+            };
+
             SmokeTest::expectException(
                 FileAlreadyExistsException::class,
-                fn() => $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", false, PreserveOwnershipEnum::YES)
+                $moveOntoAppearedFileElsewhere
             );
 
             assert(file_get_contents("{$otherFilesystem}/theirs.txt") === "theirs");
@@ -321,9 +392,13 @@ $smoke->run("File moves never replacing a file created during the move", functio
         file_put_contents("{$base}/other/link", "theirs");
         $moveRelativeSymlink = new ReflectionMethod(File::class, "moveRelativeSymlink");
 
+        $moveLinkOntoTaken = function () use ($moveRelativeSymlink, $base): void {
+            $moveRelativeSymlink->invoke(null, "{$base}/link", "{$base}/other/link", "moved.txt", false);
+        };
+
         SmokeTest::expectException(
             FileAlreadyExistsException::class,
-            fn() => $moveRelativeSymlink->invoke(null, "{$base}/link", "{$base}/other/link", "moved.txt", false)
+            $moveLinkOntoTaken
         );
 
         assert(file_get_contents("{$base}/other/link") === "theirs" && is_link("{$base}/link"));
@@ -379,9 +454,13 @@ $smoke->run("renaming that only changes the case of the name", function () use (
         file_put_contents("{$base}/Other.txt", "upper");
         assert(!Filesystem::isCaseOnlyRename("{$base}/other.txt", "{$base}/Other.txt"));
 
+        $renameCaseOfHardLink = function () use ($base): void {
+            (new File("{$base}/other.txt"))->rename("Other.txt");
+        };
+
         SmokeTest::expectException(
             FileAlreadyExistsException::class,
-            fn() => (new File("{$base}/other.txt"))->rename("Other.txt")
+            $renameCaseOfHardLink
         );
 
         assert(file_get_contents("{$base}/Other.txt") === "upper");
@@ -398,10 +477,14 @@ $smoke->run("moving a symlink where link() follows them", function () use ($dir)
     file_put_contents("{$base}/taken", "taken");
     $place = new ReflectionMethod(File::class, "placeSymlinkWithoutReplacing");
 
+    $placeOntoTaken = function () use ($place, $base): void {
+        $place->invoke(null, "{$base}/link", "{$base}/taken", "{$base}/link");
+    };
+
     # Something already there is never replaced.
     SmokeTest::expectException(
         FileAlreadyExistsException::class,
-        fn() => $place->invoke(null, "{$base}/link", "{$base}/taken", "{$base}/link")
+        $placeOntoTaken
     );
 
     assert(file_get_contents("{$base}/taken") === "taken" && is_link("{$base}/link"));

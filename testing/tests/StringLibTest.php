@@ -14,17 +14,40 @@ use Programster\CoreLibs\Testing\SmokeTest;
 
 $smoke->run("StringLib", function () {
     assert(strlen(StringLib::generateRandomString(20)) === 20);
-    SmokeTest::expectException(BadArgumentException::class, fn() => StringLib::generateRandomString(0));
-    SmokeTest::expectException(BadArgumentException::class, fn() => StringLib::generateRandomString(-1));
+
+    $generateEmptyString = function (): void {
+        StringLib::generateRandomString(0);
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $generateEmptyString);
+
+    $generateNegativeLength = function (): void {
+        StringLib::generateRandomString(-1);
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $generateNegativeLength);
+
+    $generateFromNoCharacters = function (): void {
+        StringLib::generateRandomString(5, false, false, false, false);
+    };
 
     SmokeTest::expectException(
         BadArgumentException::class,
-        fn() => StringLib::generateRandomString(5, false, false, false, false)
+        $generateFromNoCharacters
     );
 
-    SmokeTest::expectException(BadArgumentException::class, fn() => StringLib::generateRandomString(3));
+    $generateTooShortForAllTypes = function (): void {
+        StringLib::generateRandomString(3);
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $generateTooShortForAllTypes);
     assert(StringLib::base64UrlDecode(StringLib::base64UrlEncode("hi?>")) === "hi?>");
-    SmokeTest::expectException(StringConversionFailedException::class, fn() => StringLib::base64UrlDecode("a"));
+
+    $decodeInvalidBase64 = function (): void {
+        StringLib::base64UrlDecode("a");
+    };
+
+    SmokeTest::expectException(StringConversionFailedException::class, $decodeInvalidBase64);
     assert(StringLib::startsWith("abc", "a") && StringLib::endsWith("abc", "c"));
     assert(StringLib::br2nl("a<br />b") === "a" . PHP_EOL . "b" && StringLib::nl2br("a\nb") === "a<br />b");
     assert(StringLib::nl2br("a\r\nb") === "a<br />b" && StringLib::nl2br("a\rb") === "a<br />b");

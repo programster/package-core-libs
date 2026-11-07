@@ -26,11 +26,21 @@ $smoke->run("getPublicIp", function () {
 
         # A response that isn't an IP address, such as a proxy's error page, must be rejected.
         FakeHttpsStream::install("<html>Please log in to the Wi-Fi</html>");
-        SmokeTest::expectException(NetworkException::class, fn() => Network::getPublicIp());
+
+        $getPublicIpFromBadResponse = function (): void {
+            Network::getPublicIp();
+        };
+
+        SmokeTest::expectException(NetworkException::class, $getPublicIpFromBadResponse);
 
         # As must the server not being reachable, with PHP's reason in the message rather than "unknown error".
         FakeHttpsStream::install(null);
-        SmokeTest::expectException(NetworkException::class, fn() => Network::getPublicIp());
+
+        $getPublicIpWhenUnreachable = function (): void {
+            Network::getPublicIp();
+        };
+
+        SmokeTest::expectException(NetworkException::class, $getPublicIpWhenUnreachable);
 
         try
         {
@@ -52,8 +62,18 @@ $smoke->run("isPrivateIp / isPortOpen / getIps", function () {
     assert(Network::isPrivateIp("10.0.0.1") && !Network::isPrivateIp("8.8.8.8"));
     assert(Network::isPrivateIp("127.0.0.1") && Network::isPrivateIp("fd00::1"));
     assert(!Network::isPrivateIp("2001:4860::8888"));
-    SmokeTest::expectException(BadArgumentException::class, fn() => Network::isPrivateIp("not-an-ip"));
-    SmokeTest::expectException(BadArgumentException::class, fn() => Network::isPrivateIp("[::1]"));
+
+    $checkInvalidIp = function (): void {
+        Network::isPrivateIp("not-an-ip");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $checkInvalidIp);
+
+    $checkBracketedIp = function (): void {
+        Network::isPrivateIp("[::1]");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $checkBracketedIp);
     assert(!Network::isPortOpen("127.0.0.1", 1, timeout: 1));
 
     # The loopback interface has 127.0.0.1, but is named differently on each system.
@@ -64,7 +84,12 @@ $smoke->run("isPrivateIp / isPortOpen / getIps", function () {
     };
 
     assert(in_array("127.0.0.1", Network::getIps($loopback), true), "{$loopback} doesn't have 127.0.0.1");
-    SmokeTest::expectException(NetworkInterfaceDoesNotExistException::class, fn() => Network::getIps("no-such-if"));
+
+    $getIpsOfMissingInterface = function (): void {
+        Network::getIps("no-such-if");
+    };
+
+    SmokeTest::expectException(NetworkInterfaceDoesNotExistException::class, $getIpsOfMissingInterface);
 });
 
 $smoke->run("sendTcpRequest", function () {
@@ -100,7 +125,12 @@ $smoke->run("getCurrentUrl() / isHttps()", function () {
         # Outside a web request (as here, from the CLI), there is no current page, so it throws rather than returning
         # half a URL with warnings.
         unset($_SERVER['REQUEST_URI'], $_SERVER['HTTPS']);
-        SmokeTest::expectException(NoWebRequestException::class, fn() => Core::getCurrentUrl("blog.programster.org"));
+
+        $getUrlOutsideWebRequest = function (): void {
+            Core::getCurrentUrl("blog.programster.org");
+        };
+
+        SmokeTest::expectException(NoWebRequestException::class, $getUrlOutsideWebRequest);
         assert(Network::isHttps() === false);
 
         # The host is what was given (tidied up), never the request's own, so a spoofed Host header has no effect.
@@ -128,7 +158,11 @@ $smoke->run("getCurrentUrl() / isHttps()", function () {
 
         foreach (["", "https://blog.programster.org", "blog.programster.org/page", "bad host", "host:abc"] as $bad)
         {
-            SmokeTest::expectException(BadArgumentException::class, fn() => Core::getCurrentUrl($bad), "isn't a valid");
+            $getUrlForBadFqdn = function () use ($bad): void {
+                Core::getCurrentUrl($bad);
+            };
+
+            SmokeTest::expectException(BadArgumentException::class, $getUrlForBadFqdn, "isn't a valid");
         }
     }
     finally

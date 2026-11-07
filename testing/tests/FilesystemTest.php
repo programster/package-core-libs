@@ -27,10 +27,14 @@ $smoke->run("directories and files", function () use ($dir) {
     Filesystem::mkdir("{$dir}/sub/deep", recursive: true);
     Filesystem::mkdir("{$dir}/sub/deep"); # already existing is fine
 
+    $mkdirWithoutParent = function () use ($dir): void {
+        Filesystem::mkdir("{$dir}/no-parent/child");
+    };
+
     # Without $recursive (the default), a missing parent directory is an error rather than being created.
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::mkdir("{$dir}/no-parent/child"),
+        $mkdirWithoutParent,
         "mkdir(): No such file or directory"
     );
 
@@ -38,11 +42,15 @@ $smoke->run("directories and files", function () use ($dir) {
     $isFile = "{$dir}/sub/deep/f.txt";
     file_put_contents($isFile, "");
 
+    $mkdirInsideFile = function () use ($isFile): void {
+        Filesystem::mkdir("{$isFile}/child");
+    };
+
     # The reason is in the message, even though SmokeTest (like many applications) has its own error handler, which
     # leaves error_get_last() empty.
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::mkdir("{$isFile}/child"),
+        $mkdirInsideFile,
         # Windows gives a different reason for the same thing.
         "Failed to create the directory {$isFile}/child: mkdir(): " .
         ((PHP_OS_FAMILY === "Windows") ? "No such file or directory" : "Not a directory")
@@ -52,44 +60,94 @@ $smoke->run("directories and files", function () use ($dir) {
     Filesystem::getDirectories($dir, true);
     Filesystem::getDirContents($dir);
 
-    SmokeTest::expectException(
-        DirectoryDoesNotExistException::class,
-        fn() => Filesystem::getDirectories("{$dir}/nope")
-    );
+    $getDirectoriesOfMissing = function () use ($dir): void {
+        Filesystem::getDirectories("{$dir}/nope");
+    };
 
     SmokeTest::expectException(
         DirectoryDoesNotExistException::class,
-        fn() => Filesystem::getDirContents("{$dir}/nope")
+        $getDirectoriesOfMissing
     );
+
+    $getContentsOfMissing = function () use ($dir): void {
+        Filesystem::getDirContents("{$dir}/nope");
+    };
+
+    SmokeTest::expectException(
+        DirectoryDoesNotExistException::class,
+        $getContentsOfMissing
+    );
+
+    $getContentsOfFile = function () use ($dir): void {
+        Filesystem::getDirContents("{$dir}/sub/deep/f.txt");
+    };
 
     # A file isn't a directory either.
     SmokeTest::expectException(
         DirectoryDoesNotExistException::class,
-        fn() => Filesystem::getDirContents("{$dir}/sub/deep/f.txt")
+        $getContentsOfFile
     );
 
     assert(Filesystem::getDirSize("{$dir}/sub") > 0);
     assert(Filesystem::getFileSize("{$dir}/sub/deep/f.txt") === 8.0);
-    Filesystem::fileWalk("{$dir}/sub/deep/f.txt", fn(string $line) => null);
-    Filesystem::fileFilter("{$dir}/sub/deep/f.txt", fn(string $line) => !str_contains($line, "x"));
+
+    $ignoreLine = function (string $line): void {
+        # Nothing is done with each line, as only the reading is being tested.
+    };
+
+    Filesystem::fileWalk("{$dir}/sub/deep/f.txt", $ignoreLine);
+
+    $keepNonX = function (string $line): bool {
+        return !str_contains($line, "x");
+    };
+
+    Filesystem::fileFilter("{$dir}/sub/deep/f.txt", $keepNonX);
     assert(file_get_contents("{$dir}/sub/deep/f.txt") === "abc\n");
     Filesystem::fileperms("{$dir}/sub/deep/f.txt");
     assert(Filesystem::getFileExtension("a.tar.gz") === "gz");
-    SmokeTest::expectException(NoFileExtensionException::class, fn() => Filesystem::getFileExtension("README"));
+
+    $getExtensionWithoutDot = function (): void {
+        Filesystem::getFileExtension("README");
+    };
+
+    SmokeTest::expectException(NoFileExtensionException::class, $getExtensionWithoutDot);
+
+    $getExtensionOfDottedDirectory = function (): void {
+        Filesystem::getFileExtension("/var/v1.2/README");
+    };
 
     SmokeTest::expectException(
         NoFileExtensionException::class,
-        fn() => Filesystem::getFileExtension("/var/v1.2/README")
+        $getExtensionOfDottedDirectory
     );
 
-    SmokeTest::expectException(NoFileExtensionException::class, fn() => Filesystem::getFileExtension("file."));
+    $getEmptyExtension = function (): void {
+        Filesystem::getFileExtension("file.");
+    };
+
+    SmokeTest::expectException(NoFileExtensionException::class, $getEmptyExtension);
     Filesystem::deleteDir(Filesystem::tmpDir());
     Filesystem::mkdir("{$dir}/perms", "0o750");
     SmokeTest::assertPermissions("{$dir}/perms", (0750 & ~umask()));
-    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::mkdir("{$dir}/bad", "493"));
-    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::mkdir("{$dir}/bad", "0758"));
+
+    $mkdirWithDecimalPermissions = function () use ($dir): void {
+        Filesystem::mkdir("{$dir}/bad", "493");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $mkdirWithDecimalPermissions);
+
+    $mkdirWithBadOctal = function () use ($dir): void {
+        Filesystem::mkdir("{$dir}/bad", "0758");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $mkdirWithBadOctal);
     assert(!file_exists("{$dir}/bad"));
-    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::tmpDir("rwx"));
+
+    $tmpDirWithBadPermissions = function (): void {
+        Filesystem::tmpDir("rwx");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $tmpDirWithBadPermissions);
 
     # mkdir()'s $overrideUmask gives every directory it creates (including parents) exactly the given permissions,
     # rather than reduced by the umask, and never changes a directory that already existed.
@@ -120,7 +178,12 @@ $smoke->run("directories and files", function () use ($dir) {
     SmokeTest::assertPermissions("{$dir}/umask-group-default", 0775);
     assert(Filesystem::permissionsStringToInt("755") === 0755);
     assert(Filesystem::permissionsStringToInt("0o1777") === 01777);
-    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::permissionsStringToInt("0x755"));
+
+    $convertHexPermissions = function (): void {
+        Filesystem::permissionsStringToInt("0x755");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $convertHexPermissions);
     assert(Filesystem::lockFile("{$dir}/lock", true, false));
     Filesystem::unlockFile("{$dir}/lock");
 });
@@ -162,9 +225,13 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
 
     if (!is_writable("{$dir}/utf8-dir/read-only.txt"))
     {
+        $convertReadOnlyFile = function () use ($dir): void {
+            Filesystem::convertFileToUtf8("{$dir}/utf8-dir/read-only.txt");
+        };
+
         SmokeTest::expectException(
             BadFilePermissionsException::class,
-            fn() => Filesystem::convertFileToUtf8("{$dir}/utf8-dir/read-only.txt")
+            $convertReadOnlyFile
         );
 
         assert(file_get_contents("{$dir}/utf8-dir/read-only.txt") === "\xE6");
@@ -199,10 +266,14 @@ $smoke->run("replacing file contents in place", function () use ($dir) {
         SmokeTest::assertOwnedByOtherUser("{$dir}/replace.txt", "replaceWithFile()");
     }
 
+    $checkMissingFile = function () use ($dir): void {
+        Filesystem::checkCanChangeFile("{$dir}/nope.txt");
+    };
+
     # checkCanChangeFile() rejects a missing file, and (when not running as root) one that can't be written.
     SmokeTest::expectException(
         FileDoesNotExistException::class,
-        fn() => Filesystem::checkCanChangeFile("{$dir}/nope.txt")
+        $checkMissingFile
     );
 
     Filesystem::checkCanChangeFile("{$dir}/replace.txt");
@@ -210,9 +281,13 @@ $smoke->run("replacing file contents in place", function () use ($dir) {
 
     if (!is_writable("{$dir}/replace.txt"))
     {
+        $checkUnwritableFile = function () use ($dir): void {
+            Filesystem::checkCanChangeFile("{$dir}/replace.txt");
+        };
+
         SmokeTest::expectException(
             BadFilePermissionsException::class,
-            fn() => Filesystem::checkCanChangeFile("{$dir}/replace.txt")
+            $checkUnwritableFile
         );
     }
 
@@ -226,9 +301,13 @@ $smoke->run("downloadFile", function () use ($dir) {
 
     foreach ($localUrls as $url)
     {
+        $downloadLocalUrl = function () use ($url): void {
+            Filesystem::downloadFile($url);
+        };
+
         SmokeTest::expectException(
             BadArgumentException::class,
-            fn() => Filesystem::downloadFile($url),
+            $downloadLocalUrl,
             "isn't an http"
         );
     }
@@ -259,22 +338,34 @@ $smoke->run("downloadFile", function () use ($dir) {
         $tempFilesBefore = glob(sys_get_temp_dir() . "/*");
         assert(file_get_contents(Filesystem::downloadFile("http://127.0.0.1:{$port}/ok.txt")) === "downloaded content");
 
+        $downloadRedirectToFile = function () use ($port): void {
+            Filesystem::downloadFile("http://127.0.0.1:{$port}/to-local-file.php");
+        };
+
         # Nor can a redirect point it at a local file.
         SmokeTest::expectException(
             FilesystemException::class,
-            fn() => Filesystem::downloadFile("http://127.0.0.1:{$port}/to-local-file.php")
+            $downloadRedirectToFile
         );
+
+        $downloadMissingPage = function () use ($port): void {
+            Filesystem::downloadFile("http://127.0.0.1:{$port}/does-not-exist.txt");
+        };
 
         # An HTTP error must fail, rather than "downloading" the error page.
         SmokeTest::expectException(
             FilesystemException::class,
-            fn() => Filesystem::downloadFile("http://127.0.0.1:{$port}/does-not-exist.txt")
+            $downloadMissingPage
         );
+
+        $downloadFromUnreachable = function (): void {
+            Filesystem::downloadFile("http://127.0.0.1:1/x");
+        };
 
         # As must a server that can't be reached, which also checks that the temporary files are cleaned up.
         SmokeTest::expectException(
             FilesystemException::class,
-            fn() => Filesystem::downloadFile("http://127.0.0.1:1/x")
+            $downloadFromUnreachable
         );
 
         $newTempFiles = array_diff(glob(sys_get_temp_dir() . "/*"), $tempFilesBefore);
@@ -292,7 +383,8 @@ $smoke->run("downloadFile without curl", function () {
     # The test runner has its own error handler (as many applications do), so this also checks that the reason is in
     # the message, rather than "unknown error".
     $code = 'require ' . var_export(__DIR__ . '/../../vendor/autoload.php', true) . '; ' .
-        'set_error_handler(fn(int $number, string $message) => true); ' .
+        '$ignoreErrors = function (int $number, string $message): bool { return true; }; ' .
+        'set_error_handler($ignoreErrors); ' .
         'try { Programster\\CoreLibs\\Filesystem::downloadFile("http://127.0.0.1:1/x"); echo "downloaded"; } ' .
         'catch (Exception $e) { echo get_class($e), ": ", $e->getMessage(); }';
 
@@ -337,9 +429,13 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
     # ZipArchive::open() returns an error code (which is truthy) rather than false on failure, so check it's caught.
     file_put_contents("{$dir}/bad.zip", "this is not a zip file");
 
+    $unzipBadZip = function () use ($dir): void {
+        Filesystem::unzip("{$dir}/bad.zip", "{$dir}/bad", false);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::unzip("{$dir}/bad.zip", "{$dir}/bad", false)
+        $unzipBadZip
     );
 
     # The destination is only created once the zip has opened, so an invalid zip doesn't leave it behind.
@@ -350,8 +446,18 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
     {
         # deleteDir() through a symlink used to empty the folder it points to, so it must now refuse, and touch nothing.
         symlink("{$dir}/ziptest", "{$dir}/ziplink");
-        SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink"));
-        SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink/"));
+
+        $deleteThroughLink = function () use ($dir): void {
+            Filesystem::deleteDir("{$dir}/ziplink");
+        };
+
+        SmokeTest::expectException(BadArgumentException::class, $deleteThroughLink);
+
+        $deleteThroughLinkWithSlash = function () use ($dir): void {
+            Filesystem::deleteDir("{$dir}/ziplink/");
+        };
+
+        SmokeTest::expectException(BadArgumentException::class, $deleteThroughLinkWithSlash);
         assert(file_exists("{$dir}/ziptest/sub/a.txt") && is_link("{$dir}/ziplink"));
 
         # zipDir() with $deleteOnComplete on a symlink zips the folder, then removes only the link, keeping the folder.
@@ -363,10 +469,14 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
         $linkZip->close();
     }
 
+    $zipToMissingDirectory = function () use ($dir): void {
+        Filesystem::zipDir("{$dir}/ziptest", "/nonexistent-dir/test.zip", false);
+    };
+
     # The zip is only written when it is closed, so this checks that a failed close() is caught.
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::zipDir("{$dir}/ziptest", "/nonexistent-dir/test.zip", false)
+        $zipToMissingDirectory
     );
 });
 
@@ -385,7 +495,12 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
     assert(file_get_contents("{$dir}/delete-outside/x.txt") === "x");
     Filesystem::deleteDir($base);
     assert(!file_exists($base));
-    SmokeTest::expectException(DirectoryDoesNotExistException::class, fn() => Filesystem::deleteDir($base));
+
+    $deleteDeleted = function () use ($base): void {
+        Filesystem::deleteDir($base);
+    };
+
+    SmokeTest::expectException(DirectoryDoesNotExistException::class, $deleteDeleted);
 
     # Symlinks inside are deleted without following them, whether they point to a file, a directory, a read-only
     # directory (which mustn't block the delete), or nothing.
@@ -412,9 +527,13 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
 
     foreach (["{$dir}/delete-top-link", "{$dir}/delete-top-link/"] as $linkPath)
     {
+        $deleteTopLink = function () use ($linkPath): void {
+            Filesystem::deleteDir($linkPath);
+        };
+
         SmokeTest::expectException(
             BadArgumentException::class,
-            fn() => Filesystem::deleteDir($linkPath),
+            $deleteTopLink,
             "as it is a symlink"
         );
     }
@@ -437,7 +556,12 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
     Filesystem::emptyDir("{$dir}/empty-link/", followSymlinks: true);
     assert(is_link("{$dir}/empty-link") && scandir("{$dir}/empty-target") === [".", ".."]);
     assert(!file_exists("{$dir}/empty-elsewhere"));
-    SmokeTest::expectException(DirectoryDoesNotExistException::class, fn() => Filesystem::emptyDir($base));
+
+    $emptyDeleted = function () use ($base): void {
+        Filesystem::emptyDir($base);
+    };
+
+    SmokeTest::expectException(DirectoryDoesNotExistException::class, $emptyDeleted);
 
     if (SmokeTest::canTestPermissions("deleteDir() / emptyDir() refusing to partly delete"))
     {
@@ -497,8 +621,12 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
 
         unlink("{$dir}/delete-locked-link");
 
+        $deleteLocked = function () use ($base): void {
+            Filesystem::deleteDir($base);
+        };
+
         # It still extends BadFilePermissionsException, so existing catch blocks still work.
-        SmokeTest::expectException(BadFilePermissionsException::class, fn() => Filesystem::deleteDir($base));
+        SmokeTest::expectException(BadFilePermissionsException::class, $deleteLocked);
 
         chmod("{$base}/sub/unreadable", 0755);
         assert(file_get_contents("{$base}/first.txt") === "1" && file_get_contents("{$base}/sub/second.txt") === "2");
@@ -566,9 +694,13 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
         file_put_contents("{$dir}/delete-parent/child/file.txt", "f");
         chmod("{$dir}/delete-parent", 0555);
 
+        $deleteFromLockedParent = function () use ($dir): void {
+            Filesystem::deleteDir("{$dir}/delete-parent/child");
+        };
+
         SmokeTest::expectException(
             DirectoryNotDeletableException::class,
-            fn() => Filesystem::deleteDir("{$dir}/delete-parent/child"),
+            $deleteFromLockedParent,
             "(e.g. {$dir}/delete-parent/child, as {$dir}/delete-parent can't be written to)"
         );
 
@@ -629,18 +761,26 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
     mkdir("{$base}/container/inner", 0777, true);
     symlink("{$base}/container", "{$base}/container/inner/up");
 
+    $deleteLinkUpwards = function () use ($base): void {
+        Filesystem::deleteDir("{$base}/container/inner/up", followSymlinks: true);
+    };
+
     SmokeTest::expectException(
         BadArgumentException::class,
-        fn() => Filesystem::deleteDir("{$base}/container/inner/up", followSymlinks: true),
+        $deleteLinkUpwards,
         "which contains the link itself"
     );
 
     assert(is_link("{$base}/container/inner/up") && is_dir("{$base}/container/inner"));
 
+    $deleteLinkWithoutFollowing = function () use ($base): void {
+        Filesystem::deleteDir("{$base}/container/inner/up");
+    };
+
     # Without followSymlinks, a symlink is still refused, and the message mentions the option.
     SmokeTest::expectException(
         BadArgumentException::class,
-        fn() => Filesystem::deleteDir("{$base}/container/inner/up"),
+        $deleteLinkWithoutFollowing,
         'set $followSymlinks to true to delete both'
     );
 
@@ -654,9 +794,13 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
         symlink("{$base}/locked-parent/target", "{$base}/start2/link");
         chmod("{$base}/locked-parent", 0555);
 
+        $deleteThroughLockedLink = function () use ($base): void {
+            Filesystem::deleteDir("{$base}/start2", followSymlinks: true);
+        };
+
         SmokeTest::expectException(
             DirectoryNotDeletableException::class,
-            fn() => Filesystem::deleteDir("{$base}/start2", followSymlinks: true),
+            $deleteThroughLockedLink,
             # What is reached by following a link is given by its real path (e.g. macOS's /private/var/... for /var/...).
             "(e.g. " . realpath($base) . "/locked-parent/target, as " . realpath($base) . "/locked-parent can't be " .
             "written to)"
@@ -671,7 +815,11 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
 $smoke->run("fileFilter", function () use ($dir) {
     $base = "{$dir}/filter";
     mkdir($base);
-    $keepNonX = fn(string $line) => !str_contains($line, "x");
+
+    $keepNonX = function (string $line): bool {
+        return !str_contains($line, "x");
+    };
+
     $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
 
     # In place: the file is changed in place, keeping its permissions, owner and links.
@@ -695,9 +843,13 @@ $smoke->run("fileFilter", function () use ($dir) {
         # The same file under another path (here a symlink) counts as in place.
         symlink("{$base}/in-place.txt", "{$base}/in-place-symlink.txt");
 
+        $dropDefLine = function (string $line): bool {
+            return $line !== "def\n";
+        };
+
         Filesystem::fileFilter(
             "{$base}/in-place.txt",
-            fn(string $line) => $line !== "def\n",
+            $dropDefLine,
             "{$base}/in-place-symlink.txt"
         );
 
@@ -707,10 +859,18 @@ $smoke->run("fileFilter", function () use ($dir) {
     # The callback throwing part way through leaves the file untouched.
     file_put_contents("{$base}/throws.txt", "one\ntwo\nthree\n");
 
-    SmokeTest::expectException(\RuntimeException::class, fn() => Filesystem::fileFilter(
-        "{$base}/throws.txt",
-        fn(string $line) => ($line === "three\n") ? throw new \RuntimeException("stop") : true
-    ));
+    $throwOnThirdLine = function (string $line): bool {
+        return ($line === "three\n") ? throw new \RuntimeException("stop") : true;
+    };
+
+    $filterWithThrowingCallback = function () use ($base, $throwOnThirdLine): void {
+        Filesystem::fileFilter(
+            "{$base}/throws.txt",
+            $throwOnThirdLine
+        );
+    };
+
+    SmokeTest::expectException(\RuntimeException::class, $filterWithThrowingCallback);
 
     assert(file_get_contents("{$base}/throws.txt") === "one\ntwo\nthree\n");
 
@@ -734,9 +894,13 @@ $smoke->run("fileFilter", function () use ($dir) {
     # Nothing is left in the temporary directory, whether it worked or not.
     assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
 
+    $filterMissingFile = function () use ($base, $keepNonX): void {
+        Filesystem::fileFilter("{$base}/nope.txt", $keepNonX);
+    };
+
     SmokeTest::expectException(
         FileDoesNotExistException::class,
-        fn() => Filesystem::fileFilter("{$base}/nope.txt", $keepNonX)
+        $filterMissingFile
     );
 
     if (SmokeTest::canTestPermissions("fileFilter() checking permissions before filtering"))
@@ -748,17 +912,25 @@ $smoke->run("fileFilter", function () use ($dir) {
         file_put_contents("{$base}/read-only.txt", "abc\n");
         chmod("{$base}/read-only.txt", 0444);
 
+        $filterReadOnlyFile = function () use ($base, $recordingCallback): void {
+            Filesystem::fileFilter("{$base}/read-only.txt", $recordingCallback);
+        };
+
         SmokeTest::expectException(
             BadFilePermissionsException::class,
-            fn() => Filesystem::fileFilter("{$base}/read-only.txt", $recordingCallback)
+            $filterReadOnlyFile
         );
 
         mkdir("{$base}/read-only-dir");
         chmod("{$base}/read-only-dir", 0555);
 
+        $filterIntoReadOnlyDirectory = function () use ($base, $recordingCallback): void {
+            Filesystem::fileFilter("{$base}/source.txt", $recordingCallback, "{$base}/read-only-dir/out.txt");
+        };
+
         SmokeTest::expectException(
             BadFilePermissionsException::class,
-            fn() => Filesystem::fileFilter("{$base}/source.txt", $recordingCallback, "{$base}/read-only-dir/out.txt"),
+            $filterIntoReadOnlyDirectory,
             "can't be created"
         );
 
@@ -827,9 +999,13 @@ $smoke->run("zipDir error messages", function () use ($dir) {
         file_put_contents("{$dir}/zip-unreadable/secret.txt", "secret");
         chmod("{$dir}/zip-unreadable/secret.txt", 0000);
 
+        $zipUnreadable = function () use ($dir): void {
+            Filesystem::zipDir("{$dir}/zip-unreadable", "{$dir}/unreadable.zip");
+        };
+
         SmokeTest::expectException(
             FilesystemException::class,
-            fn() => Filesystem::zipDir("{$dir}/zip-unreadable", "{$dir}/unreadable.zip"),
+            $zipUnreadable,
             "Failed to write the zip file {$dir}/unreadable.zip: ZipArchive::close(): Can't open file"
         );
 
@@ -919,17 +1095,25 @@ $smoke->run("unzip", function () use ($dir) {
     assert(file_get_contents("{$base}/new/nested/destination/source/inner/a.txt") === "a");
     assert(!file_exists("{$base}/delete-me.zip"));
 
+    $unzipMissingZip = function () use ($base): void {
+        Filesystem::unzip("{$base}/nope.zip", "{$base}/out");
+    };
+
     # A missing zip, and a destination that is a file, are reported clearly.
     SmokeTest::expectException(
         FileDoesNotExistException::class,
-        fn() => Filesystem::unzip("{$base}/nope.zip", "{$base}/out")
+        $unzipMissingZip
     );
 
     file_put_contents("{$base}/a-file", "not a directory");
 
+    $unzipOntoFile = function () use ($base): void {
+        Filesystem::unzip("{$base}/keep.zip", "{$base}/a-file", false);
+    };
+
     SmokeTest::expectException(
         BadArgumentException::class,
-        fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/a-file", false),
+        $unzipOntoFile,
         "as it isn't a directory"
     );
 
@@ -980,9 +1164,13 @@ $smoke->run("unzip", function () use ($dir) {
     mkdir("{$base}/blocked");
     file_put_contents("{$base}/blocked/source", "a file in the way");
 
+    $unzipIntoBlocked = function () use ($base): void {
+        Filesystem::unzip("{$base}/keep.zip", "{$base}/blocked", false);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/blocked", false),
+        $unzipIntoBlocked,
         "the zip has a directory at {$base}/blocked/source, where there is already a file."
     );
 
@@ -998,9 +1186,13 @@ $smoke->run("unzip", function () use ($dir) {
     $clashZip->addFromString("clash/inside.txt", "inside a directory");
     $clashZip->close();
 
+    $unzipClashIntoNew = function () use ($base): void {
+        Filesystem::unzip("{$base}/clash.zip", "{$base}/new-for-clash/deeper", false);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::unzip("{$base}/clash.zip", "{$base}/new-for-clash/deeper", false),
+        $unzipClashIntoNew,
         "Unable to unzip {$base}/clash.zip"
     );
 
@@ -1008,9 +1200,13 @@ $smoke->run("unzip", function () use ($dir) {
 
     mkdir("{$base}/existing-for-clash");
 
+    $unzipClashIntoExisting = function () use ($base): void {
+        Filesystem::unzip("{$base}/clash.zip", "{$base}/existing-for-clash", false);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::unzip("{$base}/clash.zip", "{$base}/existing-for-clash", false)
+        $unzipClashIntoExisting
     );
 
     assert(scandir("{$base}/existing-for-clash") === [".", ".."]);
@@ -1022,9 +1218,13 @@ $smoke->run("unzip", function () use ($dir) {
         mkdir("{$base}/read-only");
         chmod("{$base}/read-only", 0555);
 
+        $unzipIntoReadOnly = function () use ($base): void {
+            Filesystem::unzip("{$base}/keep.zip", "{$base}/read-only/out", false);
+        };
+
         SmokeTest::expectException(
             FilesystemException::class,
-            fn() => Filesystem::unzip("{$base}/keep.zip", "{$base}/read-only/out", false),
+            $unzipIntoReadOnly,
             "Permission denied"
         );
 
@@ -1033,9 +1233,13 @@ $smoke->run("unzip", function () use ($dir) {
         copy("{$base}/keep.zip", "{$base}/locked-zip/locked.zip");
         chmod("{$base}/locked-zip", 0555);
 
+        $unzipLockedZip = function () use ($base): void {
+            Filesystem::unzip("{$base}/locked-zip/locked.zip", "{$base}/from-locked");
+        };
+
         SmokeTest::expectException(
             FilesystemException::class,
-            fn() => Filesystem::unzip("{$base}/locked-zip/locked.zip", "{$base}/from-locked"),
+            $unzipLockedZip,
             "but failed to delete the zip: unlink("
         );
 
@@ -1060,9 +1264,13 @@ $smoke->run("isOnSameFilesystem", function () use ($dir) {
         assert(!Filesystem::isOnSameFilesystem("/dev/shm/not/created/yet", "{$dir}/not/created/yet"));
     }
 
+    $compareRelativePath = function () use ($dir): void {
+        Filesystem::isOnSameFilesystem("relative/path", $dir);
+    };
+
     SmokeTest::expectException(
         BadArgumentException::class,
-        fn() => Filesystem::isOnSameFilesystem("relative/path", $dir),
+        $compareRelativePath,
         "must be an absolute path"
     );
 });
@@ -1101,9 +1309,13 @@ $smoke->run("fileperms", function () use ($dir) {
         assert(Filesystem::fileperms("{$base}/pipe") === "prw-------");
     }
 
+    $getPermsOfMissing = function () use ($base): void {
+        Filesystem::fileperms("{$base}/missing");
+    };
+
     SmokeTest::expectException(
         FileDoesNotExistException::class,
-        fn() => Filesystem::fileperms("{$base}/missing"),
+        $getPermsOfMissing,
         "There is nothing at {$base}/missing"
     );
 }, needsSymlinks: true);
@@ -1146,9 +1358,13 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     # A broken symlink stops the zip being made, and no zip file is left behind.
     symlink("{$base}/project/missing", "{$base}/project/broken");
 
+    $zipBrokenLink = function () use ($base): void {
+        Filesystem::zipDir("{$base}/project", "{$base}/broken.zip", false);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::zipDir("{$base}/project", "{$base}/broken.zip", false),
+        $zipBrokenLink,
         "{$base}/project/broken (pointing at {$base}/project/missing)"
     );
 
@@ -1180,9 +1396,13 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     assert($links["project/outside-dir"] === "{$base}/outside");
     assert($links["project/outside-file"] === "../outside/o.txt");
 
+    $unzipLinkOutside = function () use ($base): void {
+        Filesystem::unzip("{$base}/outside.zip", "{$base}/out-untrusted", false);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::unzip("{$base}/outside.zip", "{$base}/out-untrusted", false),
+        $unzipLinkOutside,
         "pointing to {$base}/outside, which is outside {$base}/out-untrusted"
     );
 
@@ -1196,9 +1416,13 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     $escapingZip->close();
     mkdir("{$base}/out-escaping");
 
+    $unzipClimbingOut = function () use ($base): void {
+        Filesystem::unzip("{$base}/escaping.zip", "{$base}/out-escaping", false);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::unzip("{$base}/escaping.zip", "{$base}/out-escaping", false),
+        $unzipClimbingOut,
         "pointing to ../../../etc/passwd, which is outside"
     );
 
@@ -1213,9 +1437,13 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     $throughZip->setExternalAttributesName("escape", ZipArchive::OPSYS_UNIX, 0120777 << 16);
     $throughZip->close();
 
+    $unzipThroughLink = function () use ($base): void {
+        Filesystem::unzip("{$base}/through.zip", "{$base}/out-through-link", false);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::unzip("{$base}/through.zip", "{$base}/out-through-link", false),
+        $unzipThroughLink,
         "pointing to existing-link/o.txt, which is outside"
     );
 
@@ -1243,9 +1471,13 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     # Following a symlink that leads back to a folder above it would go round in circles, so it is refused.
     symlink("{$base}/outside", "{$base}/outside/deeper/loop");
 
+    $zipLinkLoop = function () use ($base): void {
+        Filesystem::zipDir("{$base}/project", "{$base}/loop.zip", false, followSymlinks: true);
+    };
+
     SmokeTest::expectException(
         FilesystemException::class,
-        fn() => Filesystem::zipDir("{$base}/project", "{$base}/loop.zip", false, followSymlinks: true),
+        $zipLinkLoop,
         "would go round in circles"
     );
 
@@ -1292,7 +1524,12 @@ $smoke->run("zipDir including hidden files", function () use ($dir) {
         $zip->close();
         sort($names);
         $prefix = $includeFolder ? "project/" : "";
-        $expectedNames = array_map(fn(string $entry) => $prefix . $entry, $expected);
+
+        $addPrefix = function (string $entry) use ($prefix): string {
+            return $prefix . $entry;
+        };
+
+        $expectedNames = array_map($addPrefix, $expected);
         $expectedNames = $includeFolder ? array_merge(["project/"], $expectedNames) : $expectedNames;
         sort($expectedNames);
         assert($names === $expectedNames, "{$name} the folder, the zip had: " . implode(", ", $names));
@@ -1322,9 +1559,13 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
         unlink($otherFs);
     }
 
+    $replaceInMissingDirectory = function () use ($base): void {
+        Filesystem::createReplacementFile("{$base}/missing/a.txt");
+    };
+
     SmokeTest::expectException(
         DirectoryDoesNotExistException::class,
-        fn() => Filesystem::createReplacementFile("{$base}/missing/a.txt")
+        $replaceInMissingDirectory
     );
 
     # AUTO uses the system's temporary directory when it is on the same filesystem, and the file could be renamed
@@ -1389,7 +1630,11 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
         assert(Filesystem::isTmpfs("{$base}/on-disk.txt") === false);
     }
 
-    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::isTmpfs("{$base}/missing"));
+    $checkTmpfsOfMissing = function () use ($base): void {
+        Filesystem::isTmpfs("{$base}/missing");
+    };
+
+    SmokeTest::expectException(FileDoesNotExistException::class, $checkTmpfsOfMissing);
 
     assert($hasFreeMemory->invoke(null, 0) === true);
 
@@ -1541,15 +1786,23 @@ $smoke->run("path helpers", function () use ($dir) {
     assert(Filesystem::relativePathBetween("project/a", "project/b.txt") === "../b.txt");
     assert(Filesystem::relativePathBetween(".", "real/f.txt") === "real/f.txt");
 
-    SmokeTest::expectException(
-        BadArgumentException::class,
-        fn() => Filesystem::relativePathBetween("/srv/a", "b.txt"),
-        "must both be absolute, or both be relative"
-    );
+    $relativeFromRelativeTarget = function (): void {
+        Filesystem::relativePathBetween("/srv/a", "b.txt");
+    };
 
     SmokeTest::expectException(
         BadArgumentException::class,
-        fn() => Filesystem::relativePathBetween("../a", "b.txt"),
+        $relativeFromRelativeTarget,
+        "must both be absolute, or both be relative"
+    );
+
+    $relativeFromRelativeStart = function (): void {
+        Filesystem::relativePathBetween("../a", "b.txt");
+    };
+
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        $relativeFromRelativeStart,
         "goes above where it starts"
     );
 
@@ -1585,9 +1838,13 @@ $smoke->run("path helpers", function () use ($dir) {
         assert(!is_link("{$real}/dir-link") && is_dir("{$real}/sub"));
         file_put_contents("{$real}/real.txt", "x");
 
+        $removeRealFile = function () use ($real): void {
+            Filesystem::removeSymlink("{$real}/real.txt");
+        };
+
         SmokeTest::expectException(
             BadArgumentException::class,
-            fn() => Filesystem::removeSymlink("{$real}/real.txt"),
+            $removeRealFile,
             "isn't a symlink"
         );
 
@@ -1618,7 +1875,12 @@ $smoke->run("getDirSize", function () use ($dir) {
     # A file on its own is just its size, and a missing path is an error.
     assert(Filesystem::getDirSize("{$base}/sub/b.txt") === 300.0);
     assert(Filesystem::getDirSize("{$base}/a.txt", DataSizeUnitEnum::KIB) === 1000 / 1024);
-    SmokeTest::expectException(FileDoesNotExistException::class, fn() => Filesystem::getDirSize("{$base}/missing"));
+
+    $getSizeOfMissing = function () use ($base): void {
+        Filesystem::getDirSize("{$base}/missing");
+    };
+
+    SmokeTest::expectException(FileDoesNotExistException::class, $getSizeOfMissing);
 });
 
 $smoke->run("unzip symlinks on Windows", function () use ($dir) {
@@ -1707,17 +1969,25 @@ $smoke->run("replaceFileContents", function () use ($dir) {
     Filesystem::replaceFileContents("{$base}/a.txt", "");
     assert(file_get_contents("{$base}/a.txt") === "");
 
+    $replaceMistypedFile = function () use ($base): void {
+        Filesystem::replaceFileContents("{$base}/mistyped.txt", "x");
+    };
+
     # Unlike file_put_contents(), a missing file isn't created, and an array must only hold strings.
     SmokeTest::expectException(
         FileDoesNotExistException::class,
-        fn() => Filesystem::replaceFileContents("{$base}/mistyped.txt", "x")
+        $replaceMistypedFile
     );
 
     assert(!file_exists("{$base}/mistyped.txt"));
 
+    $replaceWithBadLines = function () use ($base): void {
+        Filesystem::replaceFileContents("{$base}/a.txt", ["one\n", 2]);
+    };
+
     SmokeTest::expectException(
         BadArgumentException::class,
-        fn() => Filesystem::replaceFileContents("{$base}/a.txt", ["one\n", 2]),
+        $replaceWithBadLines,
         "must be a string"
     );
 

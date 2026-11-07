@@ -301,16 +301,24 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                     "other-group" => "other-group.txt belongs to group 12345, which the current user isn't in",
                 ];
 
+                $moveRootOwnedFile = function () use ($fixtures, $otherFilesystem): void {
+                    (new File("{$fixtures}/other-owner/root-owned.txt"))->move($otherFilesystem);
+                };
+
                 # Moving one of the files on its own is refused too, and both say how to get round it.
                 SmokeTest::expectException(
                     \Programster\CoreLibs\Exceptions\BadFilePermissionsException::class,
-                    fn() => (new File("{$fixtures}/other-owner/root-owned.txt"))->move($otherFilesystem),
+                    $moveRootOwnedFile,
                     "Run this as root (e.g. with sudo) to keep its owner"
                 );
 
+                $moveRootOwnedDirectory = function () use ($fixtures, $otherFilesystem): void {
+                    (new Directory("{$fixtures}/other-owner"))->move($otherFilesystem);
+                };
+
                 SmokeTest::expectException(
                     \Programster\CoreLibs\Exceptions\BadFilePermissionsException::class,
-                    fn() => (new Directory("{$fixtures}/other-owner"))->move($otherFilesystem),
+                    $moveRootOwnedDirectory,
                     "run this as root (e.g. with sudo), or pass PreserveOwnershipEnum::PREFERRED or NO"
                 );
 
@@ -402,6 +410,7 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
             file_put_contents("{$base}/with-read-only/locked/r.txt", "r");
             chmod("{$base}/with-read-only/locked", 0555);
             $withReadOnly = new Directory("{$base}/with-read-only");
+
             $moveWithReadOnly = function () use ($withReadOnly, $otherFilesystem) {
                 $withReadOnly->move($otherFilesystem);
             };
@@ -483,9 +492,13 @@ $smoke->run("moves to another drive on Windows keeping ownership", function () u
         {
             $file = new File("{$base}/file.txt");
 
+            $moveToOtherDrive = function () use ($file, $otherDrive): void {
+                $file->move($otherDrive);
+            };
+
             SmokeTest::expectException(
                 BadFilePermissionsException::class,
-                fn() => $file->move($otherDrive),
+                $moveToOtherDrive,
                 "Windows can't keep a file's owner and ACLs"
             );
 

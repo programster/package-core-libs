@@ -37,9 +37,13 @@ $smoke->run("getMemory", function () {
     }
     else
     {
+        $getHugePages = function (): void {
+            Core::getMemory(MemoryTypeEnum::HUGE_PAGES_TOTAL);
+        };
+
         SmokeTest::expectException(
             UnsupportedPlatformException::class,
-            fn() => Core::getMemory(MemoryTypeEnum::HUGE_PAGES_TOTAL),
+            $getHugePages,
             "only available on Linux"
         );
     }
@@ -71,7 +75,11 @@ $smoke->run("getMemory reading macOS and Windows output", function () {
     $values = $windows->invoke(null, $windowsOutput);
     assert($values['TotalVisibleMemorySize'] === 16777216.0 && $values['PageFileUsed'] === 100.0);
 
-    SmokeTest::expectException(UnexpectedOutputException::class, fn() => $vmStat->invoke(null, "nonsense"));
+    $parseNonsense = function () use ($vmStat): void {
+        $vmStat->invoke(null, "nonsense");
+    };
+
+    SmokeTest::expectException(UnexpectedOutputException::class, $parseNonsense);
 });
 
 $smoke->run("signatures", function () {
@@ -82,7 +90,12 @@ $smoke->run("signatures", function () {
 
 $smoke->run("versionGuard", function () {
     Core::versionGuard("8.0");
-    SmokeTest::expectException(PhpVersionTooLowException::class, fn() => Core::versionGuard("99.0"));
+
+    $requireFutureVersion = function (): void {
+        Core::versionGuard("99.0");
+    };
+
+    SmokeTest::expectException(PhpVersionTooLowException::class, $requireFutureVersion);
 });
 
 $smoke->run("runCommand / processes", function () {
@@ -118,27 +131,62 @@ $smoke->run("other Core methods", function () {
     # A null value counts as provided, but a null argument name is not allowed.
     assert(Core::fetchReqArgsFromArray(["a"], ["a" => null]) === ["a" => null]);
     assert(Core::fetchOptionalArgsFromArray(["a", "z"], ["a" => null]) === ["a" => null]);
-    SmokeTest::expectException(BadArgumentException::class, fn() => Core::fetchReqArgsFromArray(["a"], ["b" => 1]));
-    SmokeTest::expectException(BadArgumentException::class, fn() => Core::fetchReqArgsFromArray([null], ["" => 1]));
-    SmokeTest::expectException(BadArgumentException::class, fn() => Core::fetchOptionalArgsFromArray([null], []));
+
+    $fetchMissingArg = function (): void {
+        Core::fetchReqArgsFromArray(["a"], ["b" => 1]);
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $fetchMissingArg);
+
+    $fetchNullRequiredArg = function (): void {
+        Core::fetchReqArgsFromArray([null], ["" => 1]);
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $fetchNullRequiredArg);
+
+    $fetchNullOptionalArg = function (): void {
+        Core::fetchOptionalArgsFromArray([null], []);
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $fetchNullOptionalArg);
     assert(str_contains(Core::var_dump(1), "int(1)"));
 });
 
 $smoke->run("runCapturingWarning", function () {
+    $readMissingFile = function (): string|false {
+        return file_get_contents("/nonexistent/file");
+    };
+
     # It returns what the callback returns, and gives the warning's message, without letting it through (the test
     # runner would report a warning that got through as a failure).
-    $result = Core::runCapturingWarning(fn() => file_get_contents("/nonexistent/file"), $warning);
+    $result = Core::runCapturingWarning($readMissingFile, $warning);
     assert($result === false && str_contains((string)$warning, "No such file or directory"));
 
+    $returnOk = function (): string {
+        return "ok";
+    };
+
     # With no warning, it gives null.
-    assert(Core::runCapturingWarning(fn() => "ok", $warning) === "ok" && $warning === null);
+    assert(Core::runCapturingWarning($returnOk, $warning) === "ok" && $warning === null);
+
+    $ignoreError = function (): bool {
+        return true;
+    };
 
     # The previous error handler is put back afterwards, even if the callback throws.
-    $handlerBefore = set_error_handler(fn() => true);
+    $handlerBefore = set_error_handler($ignoreError);
     restore_error_handler();
-    $throwingCallback = fn() => throw new \RuntimeException("stop");
-    SmokeTest::expectException(\RuntimeException::class, fn() => Core::runCapturingWarning($throwingCallback));
-    $handlerAfter = set_error_handler(fn() => true);
+
+    $throwingCallback = function (): never {
+        throw new \RuntimeException("stop");
+    };
+
+    $captureThrowingCallback = function () use ($throwingCallback): void {
+        Core::runCapturingWarning($throwingCallback);
+    };
+
+    SmokeTest::expectException(\RuntimeException::class, $captureThrowingCallback);
+    $handlerAfter = set_error_handler($ignoreError);
     restore_error_handler();
     assert($handlerAfter === $handlerBefore, "runCapturingWarning() didn't restore the previous error handler");
 });
@@ -149,9 +197,13 @@ $smoke->run("redirectUser", function () use ($dir) {
 
     foreach ($otherSites as $location)
     {
+        $redirectElsewhere = function () use ($location): void {
+            Core::redirectUser($location);
+        };
+
         SmokeTest::expectException(
             BadArgumentException::class,
-            fn() => Core::redirectUser($location),
+            $redirectElsewhere,
             "isn't a path on this site"
         );
     }
