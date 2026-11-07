@@ -435,9 +435,10 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
         chmod("{$base}/sub/locked", 0555);
         chmod("{$base}/sub/unreadable", 0000);
         # getProblems() says what can't be deleted, which directory causes it, and why. The message is kept short.
+        $realBase = Filesystem::resolvePath($base);
         $expectedProblems = [
-            ["{$base}/sub/locked/inner.txt", "{$base}/sub/locked", FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE],
-            ["{$base}/sub/unreadable", "{$base}/sub/unreadable", FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE],
+            ["{$realBase}/sub/locked/inner.txt", "{$realBase}/sub/locked", FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE],
+            ["{$realBase}/sub/unreadable", "{$realBase}/sub/unreadable", FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE],
         ];
 
         foreach (["deleteDir", "emptyDir"] as $method)
@@ -450,11 +451,18 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
             }
             catch (DirectoryNotDeletableException $e)
             {
+                # Compare the paths resolved, as emptyDir() gives real paths (e.g. macOS's /private/var/... for
+                # /var/...), and deleteDir() the paths as given.
                 $problems = array_map(
-                    fn(FileDeletionProblem $problem) => [$problem->path, $problem->directory, $problem->reason],
+                    fn(FileDeletionProblem $problem) => [
+                        Filesystem::resolvePath($problem->path),
+                        Filesystem::resolvePath($problem->directory),
+                        $problem->reason,
+                    ],
                     $e->getProblems()
                 );
-                assert(str_contains($e->getMessage(), "as 2 thing(s) in it can't be deleted (e.g. {$base}/sub/"));
+                # Which problem is given as the example depends on the order the directory lists them in.
+                assert(str_contains($e->getMessage(), "as 2 thing(s) in it can't be deleted (e.g. "));
                 assert(str_contains($e->getMessage(), "Call getProblems() on this exception for the full list."));
             }
 
@@ -618,7 +626,9 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
         SmokeTest::expectException(
             DirectoryNotDeletableException::class,
             fn() => Filesystem::deleteDir("{$base}/start2", followSymlinks: true),
-            "(e.g. {$base}/locked-parent/target, as {$base}/locked-parent can't be written to)"
+            # What is reached by following a link is given by its real path (e.g. macOS's /private/var/... for /var/...).
+            "(e.g. " . realpath($base) . "/locked-parent/target, as " . realpath($base) . "/locked-parent can't be " .
+            "written to)"
         );
         assert(file_get_contents("{$base}/start2/keep.txt") === "keep");
         assert(file_get_contents("{$base}/locked-parent/target/t.txt") === "t");
@@ -1014,9 +1024,10 @@ $smoke->run("fileperms", function () use ($dir) {
 
     # A symlink is reported as the link itself, even when it is broken.
     symlink("{$base}/file.txt", "{$base}/link");
-    assert(Filesystem::fileperms("{$base}/link") === "lrwxrwxrwx");
+    # A symlink's own permissions are ignored, and Linux always shows them as rwxrwxrwx, but macOS shows the umask's.
+    assert(preg_match('/^l[rwx-]{9}$/', Filesystem::fileperms("{$base}/link")) === 1);
     symlink("{$base}/missing", "{$base}/broken-link");
-    assert(Filesystem::fileperms("{$base}/broken-link") === "lrwxrwxrwx");
+    assert(preg_match('/^l[rwx-]{9}$/', Filesystem::fileperms("{$base}/broken-link")) === 1);
 
     if (function_exists("posix_mkfifo"))
     {

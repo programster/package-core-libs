@@ -126,10 +126,14 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
         chmod("{$base}/locked/unreadable", 0000);
         chmod("{$base}/locked/read-only", 0555);
         $lockedDirectory = new Directory("{$base}/locked");
+
+        # The messages give real paths (e.g. macOS's /private/var/... for /var/...).
+        $realBase = realpath($base);
+
         $expectedMessages = [
             "2 problem(s) were found, so nothing was moved",
-            "{$base}/locked/unreadable can't be listed",
-            "{$base}/locked/read-only/abs-self needs updating, but {$base}/locked/read-only can't be written to",
+            "{$realBase}/locked/unreadable can't be listed",
+            "{$realBase}/locked/read-only/abs-self needs updating, but {$realBase}/locked/read-only can't be written to",
         ];
 
         foreach ($expectedMessages as $expectedMessage)
