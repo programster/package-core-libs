@@ -7,6 +7,7 @@
 use Programster\CoreLibs\Core;
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 use Programster\CoreLibs\Enums\MemoryTypeEnum;
+use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
@@ -17,17 +18,57 @@ use Programster\CoreLibs\Testing\SmokeTest;
 /** @var string $dir - a temporary directory for the tests to use, which is deleted afterwards. */
 
 $smoke->run("getMemory", function () {
-    # It reads /proc/meminfo, so only works on Linux, and says so elsewhere.
+    # The main figures work on every supported system, and make sense together.
+    $total = Core::getMemory(MemoryTypeEnum::TOTAL, DataSizeUnitEnum::BYTES);
+    $available = Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::BYTES);
+    $used = Core::getMemory(MemoryTypeEnum::USED, DataSizeUnitEnum::BYTES);
+    assert($total > 0 && $available > 0 && $available <= $total, "total {$total}, available {$available}");
+    assert(abs(($used + $available) - $total) < 1024 * 1024, "used and available don't add up to the total");
+    assert(Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::GIB) > 0);
+    assert(Core::getMemory(MemoryTypeEnum::SWAP_TOTAL, DataSizeUnitEnum::BYTES) >= 0);
+
+    # The other measurements are only on Linux, and say so elsewhere.
     if (PHP_OS_FAMILY === "Linux")
     {
-        assert(Core::getMemory() > 0);
-        assert(Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::GIB) > 0);
         Core::getMemory(MemoryTypeEnum::HUGE_PAGES_TOTAL);
     }
     else
     {
-        SmokeTest::expectException(UnsupportedPlatformException::class, fn() => Core::getMemory());
+        SmokeTest::expectException(
+            UnsupportedPlatformException::class,
+            fn() => Core::getMemory(MemoryTypeEnum::HUGE_PAGES_TOTAL),
+            "only available on Linux"
+        );
     }
+});
+
+$smoke->run("getMemory reading macOS and Windows output", function () {
+    # These only run on macOS and Windows, so check them here with sample output.
+    $vmStat = new ReflectionMethod(Core::class, "parseVmStat");
+    $swap = new ReflectionMethod(Core::class, "parseSwapUsage");
+    $windows = new ReflectionMethod(Core::class, "parseWindowsMemory");
+
+    $vmStatOutput = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n" .
+        "Pages free:                                5000.\n" .
+        "Pages active:                             90000.\n" .
+        "Pages inactive:                           80000.\n" .
+        "Pages speculative:                         2000.\n";
+
+    $expected = ['size' => 16384, 'free' => 5000, 'inactive' => 80000, 'speculative' => 2000];
+    assert($vmStat->invoke(null, $vmStatOutput) === $expected);
+
+    $sizes = $swap->invoke(null, "total = 2048.00M  used = 1024.50M  free = 1023.50M  (encrypted)");
+    assert($sizes['total'] === 2048.0 * 1024 ** 2 && $sizes['used'] === 1024.5 * 1024 ** 2);
+    $sizes = $swap->invoke(null, "total = 0.00M  used = 0.00M  free = 0.00M");
+    assert($sizes['total'] === 0.0);
+
+    $windowsOutput = "TotalVisibleMemorySize=16777216\r\nFreePhysicalMemory=8388608\r\n" .
+        "PageFileSize=4096\r\nPageFileUsed=100\r\n";
+
+    $values = $windows->invoke(null, $windowsOutput);
+    assert($values['TotalVisibleMemorySize'] === 16777216.0 && $values['PageFileUsed'] === 100.0);
+
+    SmokeTest::expectException(UnexpectedOutputException::class, fn() => $vmStat->invoke(null, "nonsense"));
 });
 
 $smoke->run("signatures", function () {

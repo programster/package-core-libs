@@ -21,6 +21,17 @@ use Programster\CoreLibs\Exceptions\NoWebRequestException;
 
 final class Core
 {
+    # Prints the memory details getMemory() needs on Windows, as "name=value" lines: the total and free memory (in
+    # KiB), and the page file's size and use (in MiB, added up, as there can be several).
+    private const string WINDOWS_MEMORY_COMMAND = 'powershell -NoProfile -NonInteractive -Command "'
+        . '$os = Get-CimInstance Win32_OperatingSystem; '
+        . '$pages = @(Get-CimInstance Win32_PageFileUsage); '
+        . '\'TotalVisibleMemorySize=\' + $os.TotalVisibleMemorySize; '
+        . '\'FreePhysicalMemory=\' + $os.FreePhysicalMemory; '
+        . '\'PageFileSize=\' + [int]($pages | Measure-Object AllocatedBaseSize -Sum).Sum; '
+        . '\'PageFileUsed=\' + [int]($pages | Measure-Object CurrentUsage -Sum).Sum"';
+
+
     # The values that generateYesNoString() and generateTrueFalseString() consider to be 'false'. These are compared
     # strictly, so e.g. the string "0.0" or "false" are not in this list.
     private const FALSE_VALUES = [false, null, "", "0", 0, 0.0, []];
@@ -494,85 +505,39 @@ final class Core
 
 
     /**
-     * Linux specific function that fetches information about the system's memory (RAM and swap)
-     * from /proc/meminfo. Based on:
+     * Fetch information about the system's memory (RAM and swap).
+     * On Linux, every MemoryTypeEnum measurement is available, from /proc/meminfo. Based on:
      * http://stackoverflow.com/questions/1455379/get-server-ram-with-php
+     * On macOS and Windows, only the main figures are: TOTAL, AVAILABLE, FREE, USED, SWAP_TOTAL,
+     * SWAP_USED and SWAP_FREE. On macOS, these come from sysctl and vm_stat, and AVAILABLE is
+     * worked out as the free, inactive and speculative memory. On Windows, they come from
+     * PowerShell, and FREE is the same as AVAILABLE, as Windows doesn't report them separately.
      * @param MemoryTypeEnum $type - optionally specify which measurement of memory you want, such
      * as how much is available, rather than the total amount of RAM in the system. Please refer to
      * the MemoryTypeEnum for what each one means.
      * @param DataSizeUnitEnum $unit - optionally specify the unit to return the amount of memory
      * in. Defaults to MiB.
      * @return float - the amount of memory in the specified unit. E.g. 1.5 for 1536 KiB in MiB.
-     * @throws UnsupportedPlatformException - if there is no /proc/meminfo, as this isn't Linux.
+     * @throws UnsupportedPlatformException - on a system other than Linux, macOS or Windows, on
+     * Linux without /proc/meminfo, or for a measurement that is only available on Linux.
      * @throws FilesystemException - if /proc/meminfo could not be read.
-     * @throws UnexpectedOutputException - if /proc/meminfo does not contain a field needed for the
-     * requested measurement. Not every field exists on every system.
+     * @throws CommandFailedException - if a command it needs on macOS or Windows failed.
+     * @throws UnexpectedOutputException - if the memory details don't contain what the requested
+     * measurement needs. Not every field exists on every system.
      */
     public static function getMemory(
         MemoryTypeEnum $type = MemoryTypeEnum::TOTAL,
         DataSizeUnitEnum $unit = DataSizeUnitEnum::MIB,
     ): float
     {
-        if (!file_exists("/proc/meminfo"))
-        {
-            throw new UnsupportedPlatformException("getMemory: this needs /proc/meminfo, so only works on Linux.");
-        }
-
-        $meminfoContents = file_get_contents("/proc/meminfo");
-
-        if ($meminfoContents === false)
-        {
-            throw new FilesystemException("Failed to read /proc/meminfo.");
-        }
-
-        $data = explode("\n", $meminfoContents);
-        $meminfo = [];
-
-        foreach ($data as $line)
-        {
-            # remove the kB identifier at the end.
-            $line = str_replace(' kB', '', $line);
-
-            $parts = explode(":", $line);
-
-            if (count($parts) == 2)
-            {
-                $meminfo[$parts[0]] = trim($parts[1]);
-            }
-        }
-
-        $getKib = function (string $field) use ($meminfo): int {
-            if (!array_key_exists($field, $meminfo))
-            {
-                throw new UnexpectedOutputException("/proc/meminfo does not contain the {$field} field.");
-            }
-
-            return (int) $meminfo[$field];
+        $bytes = match (PHP_OS_FAMILY) {
+            "Linux" => self::getLinuxMemory($type),
+            "Darwin" => self::getMacMemory($type),
+            "Windows" => self::getWindowsMemory($type),
+            default => throw new UnsupportedPlatformException("getMemory: unsupported OS " . PHP_OS_FAMILY),
         };
 
-        # The huge page fields are a number of pages rather than an amount of memory, so convert them.
-        $hugePagesKib = function () use ($getKib, $type): float {
-            return $getKib($type->value) * $getKib('Hugepagesize');
-        };
-
-        $memoryKib = match ($type) {
-            # Calculated from multiple fields, in the same way as the "free" command.
-            MemoryTypeEnum::USED => $getKib('MemTotal') - $getKib('MemAvailable'),
-            MemoryTypeEnum::BUFF_CACHE => $getKib('Buffers') + $getKib('Cached') + $getKib('SReclaimable'),
-            MemoryTypeEnum::SWAP_USED => $getKib('SwapTotal') - $getKib('SwapFree'),
-            MemoryTypeEnum::HUGE_PAGES_TOTAL => $hugePagesKib(),
-            MemoryTypeEnum::HUGE_PAGES_FREE => $hugePagesKib(),
-            MemoryTypeEnum::HUGE_PAGES_RESERVED => $hugePagesKib(),
-            MemoryTypeEnum::HUGE_PAGES_SURPLUS => $hugePagesKib(),
-
-            # Everything else is a single field in KiB, and the enum's value is that field's name.
-            default => $getKib($type->value),
-        };
-
-        # /proc/meminfo reports in KiB (despite labelling it "kB"), so convert to bytes and then to the requested unit.
-        $memory = $unit->convertFromBytes($memoryKib * 1024);
-
-        return $memory;
+        return $unit->convertFromBytes((int)round($bytes));
     }
 
 
@@ -786,6 +751,263 @@ final class Core
         }
 
         return $result;
+    }
+
+
+    /**
+     * Get an amount of memory on Linux, for getMemory(), from /proc/meminfo.
+     * @param MemoryTypeEnum $type - which measurement of memory.
+     * @return float - the amount, in bytes.
+     * @throws UnsupportedPlatformException - if there is no /proc/meminfo.
+     * @throws FilesystemException - if /proc/meminfo could not be read.
+     * @throws UnexpectedOutputException - if /proc/meminfo doesn't have a field the measurement needs.
+     */
+    private static function getLinuxMemory(MemoryTypeEnum $type): float
+    {
+        if (!file_exists("/proc/meminfo"))
+        {
+            throw new UnsupportedPlatformException("getMemory: this needs /proc/meminfo on Linux.");
+        }
+
+        $meminfoContents = file_get_contents("/proc/meminfo");
+
+        if ($meminfoContents === false)
+        {
+            throw new FilesystemException("Failed to read /proc/meminfo.");
+        }
+
+        $data = explode("\n", $meminfoContents);
+        $meminfo = [];
+
+        foreach ($data as $line)
+        {
+            # remove the kB identifier at the end.
+            $line = str_replace(' kB', '', $line);
+
+            $parts = explode(":", $line);
+
+            if (count($parts) == 2)
+            {
+                $meminfo[$parts[0]] = trim($parts[1]);
+            }
+        }
+
+        $getKib = function (string $field) use ($meminfo): int {
+            if (!array_key_exists($field, $meminfo))
+            {
+                throw new UnexpectedOutputException("/proc/meminfo does not contain the {$field} field.");
+            }
+
+            return (int) $meminfo[$field];
+        };
+
+        # The huge page fields are a number of pages rather than an amount of memory, so convert them.
+        $hugePagesKib = function () use ($getKib, $type): float {
+            return $getKib($type->value) * $getKib('Hugepagesize');
+        };
+
+        $memoryKib = match ($type) {
+            # Calculated from multiple fields, in the same way as the "free" command.
+            MemoryTypeEnum::USED => $getKib('MemTotal') - $getKib('MemAvailable'),
+            MemoryTypeEnum::BUFF_CACHE => $getKib('Buffers') + $getKib('Cached') + $getKib('SReclaimable'),
+            MemoryTypeEnum::SWAP_USED => $getKib('SwapTotal') - $getKib('SwapFree'),
+            MemoryTypeEnum::HUGE_PAGES_TOTAL => $hugePagesKib(),
+            MemoryTypeEnum::HUGE_PAGES_FREE => $hugePagesKib(),
+            MemoryTypeEnum::HUGE_PAGES_RESERVED => $hugePagesKib(),
+            MemoryTypeEnum::HUGE_PAGES_SURPLUS => $hugePagesKib(),
+
+            # Everything else is a single field in KiB, and the enum's value is that field's name.
+            default => $getKib($type->value),
+        };
+
+        # /proc/meminfo reports in KiB (despite labelling it "kB").
+        return $memoryKib * 1024;
+    }
+
+
+    /**
+     * Get an amount of memory on macOS, for getMemory(): the total from sysctl hw.memsize, how much
+     * is free and available from vm_stat (available being the free, inactive and speculative pages,
+     * which macOS can hand to applications), and the swap from sysctl vm.swapusage.
+     * @param MemoryTypeEnum $type - which measurement of memory.
+     * @return float - the amount, in bytes.
+     * @throws UnsupportedPlatformException - if $type is only available on Linux.
+     * @throws CommandFailedException - if sysctl or vm_stat failed.
+     * @throws UnexpectedOutputException - if their output wasn't in the expected format.
+     */
+    private static function getMacMemory(MemoryTypeEnum $type): float
+    {
+        self::checkMemoryTypeIsPortable($type);
+        $total = trim(self::runCommand("sysctl -n hw.memsize"));
+
+        if (!ctype_digit($total))
+        {
+            throw new UnexpectedOutputException("Expected sysctl hw.memsize to give a number, but got: {$total}");
+        }
+
+        $pages = self::parseVmStat(self::runCommand("vm_stat"));
+        $swap = self::parseSwapUsage(self::runCommand("sysctl -n vm.swapusage"));
+        $available = ($pages['free'] + $pages['inactive'] + $pages['speculative']) * $pages['size'];
+
+        $figures = [
+            MemoryTypeEnum::TOTAL->name => (float)$total,
+            MemoryTypeEnum::AVAILABLE->name => (float)$available,
+            MemoryTypeEnum::FREE->name => (float)($pages['free'] * $pages['size']),
+            MemoryTypeEnum::USED->name => (float)$total - $available,
+            MemoryTypeEnum::SWAP_TOTAL->name => $swap['total'],
+            MemoryTypeEnum::SWAP_USED->name => $swap['used'],
+            MemoryTypeEnum::SWAP_FREE->name => $swap['free'],
+        ];
+
+        return $figures[$type->name];
+    }
+
+
+    /**
+     * Get an amount of memory on Windows, for getMemory(), with one PowerShell command: the total and
+     * available memory from Win32_OperatingSystem (Windows' "free physical memory" is what it can
+     * hand to applications, so it is used for both FREE and AVAILABLE), and the swap from the page
+     * file's size and use.
+     * @param MemoryTypeEnum $type - which measurement of memory.
+     * @return float - the amount, in bytes.
+     * @throws UnsupportedPlatformException - if $type is only available on Linux.
+     * @throws CommandFailedException - if PowerShell failed.
+     * @throws UnexpectedOutputException - if its output wasn't in the expected format.
+     */
+    private static function getWindowsMemory(MemoryTypeEnum $type): float
+    {
+        self::checkMemoryTypeIsPortable($type);
+        $values = self::parseWindowsMemory(self::runCommand(self::WINDOWS_MEMORY_COMMAND));
+        $total = $values['TotalVisibleMemorySize'] * 1024;
+        $available = $values['FreePhysicalMemory'] * 1024;
+        $swapTotal = $values['PageFileSize'] * 1024 * 1024;
+        $swapUsed = $values['PageFileUsed'] * 1024 * 1024;
+
+        $figures = [
+            MemoryTypeEnum::TOTAL->name => $total,
+            MemoryTypeEnum::AVAILABLE->name => $available,
+            MemoryTypeEnum::FREE->name => $available,
+            MemoryTypeEnum::USED->name => $total - $available,
+            MemoryTypeEnum::SWAP_TOTAL->name => $swapTotal,
+            MemoryTypeEnum::SWAP_USED->name => $swapUsed,
+            MemoryTypeEnum::SWAP_FREE->name => $swapTotal - $swapUsed,
+        ];
+
+        return $figures[$type->name];
+    }
+
+
+    /**
+     * Check that a memory measurement can be got off Linux, for getMemory() on macOS and Windows,
+     * which only report the main figures.
+     * @param MemoryTypeEnum $type - which measurement of memory.
+     * @return void
+     * @throws UnsupportedPlatformException - if it is only available on Linux.
+     */
+    private static function checkMemoryTypeIsPortable(MemoryTypeEnum $type): void
+    {
+        $portable = [
+            MemoryTypeEnum::TOTAL,
+            MemoryTypeEnum::AVAILABLE,
+            MemoryTypeEnum::FREE,
+            MemoryTypeEnum::USED,
+            MemoryTypeEnum::SWAP_TOTAL,
+            MemoryTypeEnum::SWAP_USED,
+            MemoryTypeEnum::SWAP_FREE,
+        ];
+
+        if (!in_array($type, $portable, true))
+        {
+            throw new UnsupportedPlatformException(
+                "getMemory: MemoryTypeEnum::{$type->name} is only available on Linux. On " . PHP_OS_FAMILY .
+                ", only TOTAL, AVAILABLE, FREE, USED, SWAP_TOTAL, SWAP_USED and SWAP_FREE are."
+            );
+        }
+    }
+
+
+    /**
+     * Read the page size and page counts from the output of macOS's vm_stat, for getMacMemory().
+     * It starts "Mach Virtual Memory Statistics: (page size of 16384 bytes)", then has lines such
+     * as "Pages free:                               12345.".
+     * @param string $output - what vm_stat printed.
+     * @return array{size: int, free: int, inactive: int, speculative: int} - the page size in bytes,
+     * and the numbers of free, inactive and speculative pages.
+     * @throws UnexpectedOutputException - if any of those are missing.
+     */
+    private static function parseVmStat(string $output): array
+    {
+        $patterns = [
+            'size' => '/page size of ([0-9]+) bytes/',
+            'free' => '/^Pages free:\s+([0-9]+)/m',
+            'inactive' => '/^Pages inactive:\s+([0-9]+)/m',
+            'speculative' => '/^Pages speculative:\s+([0-9]+)/m',
+        ];
+
+        $values = [];
+
+        foreach ($patterns as $name => $pattern)
+        {
+            if (preg_match($pattern, $output, $match) !== 1)
+            {
+                throw new UnexpectedOutputException("vm_stat didn't give the {$name} of the pages: {$output}");
+            }
+
+            $values[$name] = (int)$match[1];
+        }
+
+        return $values;
+    }
+
+
+    /**
+     * Read the swap sizes from the output of macOS's sysctl vm.swapusage, for getMacMemory(), e.g.
+     * "total = 2048.00M  used = 1024.50M  free = 1023.50M  (encrypted)".
+     * @param string $output - what sysctl printed.
+     * @return array{total: float, used: float, free: float} - the sizes, in bytes.
+     * @throws UnexpectedOutputException - if any of them are missing.
+     */
+    private static function parseSwapUsage(string $output): array
+    {
+        $multipliers = ["K" => 1024, "M" => 1024 ** 2, "G" => 1024 ** 3, "T" => 1024 ** 4];
+        $sizes = [];
+
+        foreach (["total", "used", "free"] as $name)
+        {
+            if (preg_match("/{$name} = ([0-9.]+)([KMGT])/", $output, $match) !== 1)
+            {
+                throw new UnexpectedOutputException("sysctl vm.swapusage didn't give the {$name} swap: {$output}");
+            }
+
+            $sizes[$name] = (float)$match[1] * $multipliers[$match[2]];
+        }
+
+        return $sizes;
+    }
+
+
+    /**
+     * Read the "name=value" lines that WINDOWS_MEMORY_COMMAND prints, for getWindowsMemory().
+     * @param string $output - what the command printed.
+     * @return array<string, float> - TotalVisibleMemorySize and FreePhysicalMemory (in KiB), and
+     * PageFileSize and PageFileUsed (in MiB).
+     * @throws UnexpectedOutputException - if any of them are missing.
+     */
+    private static function parseWindowsMemory(string $output): array
+    {
+        $values = [];
+
+        foreach (["TotalVisibleMemorySize", "FreePhysicalMemory", "PageFileSize", "PageFileUsed"] as $name)
+        {
+            if (preg_match("/^{$name}=([0-9]+)\s*$/m", $output, $match) !== 1)
+            {
+                throw new UnexpectedOutputException("PowerShell didn't give {$name}: {$output}");
+            }
+
+            $values[$name] = (float)$match[1];
+        }
+
+        return $values;
     }
 
 
