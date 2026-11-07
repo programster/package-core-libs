@@ -1841,20 +1841,24 @@ final class Filesystem
     /**
      * Fetch the file extension of a specified filename or file path. E.g. "csv" or "txt" This only
      * looks at the last part of a path, so dots in directory names are ignored (e.g.
-     * "/var/v1.2/README" has no extension). The extension's case is kept as it is (e.g. "JPG"). As
-     * with PHP's pathinfo(), a name that starts with a dot and has no other dots, such as
-     * ".bashrc", is treated as having that extension ("bashrc").
+     * "/var/v1.2/README" has no extension). The extension's case is kept as it is (e.g. "JPG"). A
+     * dot at the start of a name only makes the file hidden, so a name like ".bashrc" has no
+     * extension (unlike with PHP's pathinfo()), while ".myhiddenfile.txt" has the extension "txt".
      *
      * @param string $filename - the name of the file or the full file path
      *
      * @return string - the file extension, without the dot.
      *
-     * @throws NoFileExtensionException - if there is no file extension, such as "README", "file."
-     * or "dir/".
+     * @throws NoFileExtensionException - if there is no file extension, such as "README", "file.",
+     * ".bashrc" or "dir/".
      */
     public static function getFileExtension(string $filename): string
     {
-        $extension = pathinfo($filename, PATHINFO_EXTENSION);
+        # pathinfo() treats the dot that makes a file hidden as the start of an extension, so ".bashrc" would have the
+        # extension "bashrc".
+        $name = pathinfo($filename, PATHINFO_BASENAME);
+        $isOnlyHidden = str_starts_with($name, ".") && substr_count($name, ".") === 1;
+        $extension = $isOnlyHidden ? "" : pathinfo($filename, PATHINFO_EXTENSION);
 
         if ($extension === '')
         {

@@ -107,6 +107,16 @@ $smoke->run("directories and files", function () use ($dir) {
     Filesystem::fileperms("{$dir}/sub/deep/f.txt");
     assert(Filesystem::getFileExtension("a.tar.gz") === "gz");
 
+    # The dot that makes a file hidden doesn't start an extension, but a later one does.
+    assert(Filesystem::getFileExtension(".myhiddenfile.txt") === "txt");
+    assert(Filesystem::getFileExtension("/home/me/.config.json.bak") === "bak");
+
+    $getExtensionOfDotfile = function (): void {
+        Filesystem::getFileExtension("/home/me/.bashrc");
+    };
+
+    SmokeTest::expectException(NoFileExtensionException::class, $getExtensionOfDotfile);
+
     $getExtensionWithoutDot = function (): void {
         Filesystem::getFileExtension("README");
     };
@@ -2138,7 +2148,7 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
     $kept = Filesystem::getDirContents("{$base}/link", followSymlinks: true);
     sort($kept);
     assert($kept === $tidy(["{$base}/link/sub/f.txt", "{$base}/link/sub/to-elsewhere/beside-target.txt"]));
-    unlink("{$base}/real/sub/to-elsewhere");
+    Filesystem::removeSymlink("{$base}/real/sub/to-elsewhere");
 
     # A relative path is made absolute, from the current directory.
     $previousDirectory = getcwd();
