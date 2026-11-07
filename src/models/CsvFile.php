@@ -95,6 +95,8 @@ final class CsvFile extends File
      * @throws FilesystemException - if the file could not be opened for reading.
      * @throws InvalidCsvException - if a row doesn't have the same number of values as there are
      * keys.
+     * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
+     * this CsvFile was created).
      */
     public function toArray(?array $keys = null): array
     {
@@ -128,6 +130,10 @@ final class CsvFile extends File
      * @throws FilesystemException - if the CSV file could not be read, or the JSON file could not
      * be written.
      * @throws \JsonException
+     * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
+     * this CsvFile was created).
+     * @throws InvalidCsvException - if the file is no longer valid, e.g. because it was changed by
+     * something else since this CsvFile was created.
      */
     public function toJson(
         string $jsonFilepath,
@@ -166,6 +172,8 @@ final class CsvFile extends File
      * @throws FilesystemException - if the file could not be opened for reading.
      * @throws InvalidCsvException - if a row doesn't have the same number of values as there are
      * headers.
+     * @throws FileDoesNotExistException - if the file no longer exists (e.g. it was deleted since
+     * this CsvFile was created).
      */
     public function walk(callable $callback, ?array $headers = null): void
     {

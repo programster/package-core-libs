@@ -112,6 +112,8 @@ final class Core
      * @throws CliTitleNotSetException - if the title could not be set, such as when not running
      * from the CLI, where cli_set_process_title() doesn't exist.
      * @throws CommandFailedException - if we failed to get the list of processes.
+     * @throws UnsupportedPlatformException - on a system where the processes can't be listed (see
+     * getNumProcRunning()).
      */
     public static function setCliTitle(string $namingPrefix): void
     {

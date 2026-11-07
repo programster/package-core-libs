@@ -219,6 +219,7 @@ class File
      * copied to another filesystem, and its owner or group can't be kept. Nothing is changed if
      * this happens.
      * @throws FilesystemException - if the file could not be moved.
+     * @throws BadArgumentException - only if given relative paths, which this never passes on.
      */
     private function moveTo(
         string $targetPath,
@@ -304,6 +305,7 @@ class File
      * after it was checked, without $replaceExisting.
      * @throws FilesystemException - if the new symlink could not be created, or the old one could
      * not be removed (in which case the new one is removed again, so nothing has changed).
+     * @throws BadArgumentException - only if given relative paths, which the callers never do.
      */
     private static function moveRelativeSymlink(
         string $currentPath,
@@ -367,6 +369,7 @@ class File
      * This is checked before anything is copied.
      * @throws FilesystemException - if the file couldn't be moved. The original is left where it was
      * if this happens, and any copy is removed.
+     * @throws BadArgumentException - only if given relative paths, which the callers never do.
      */
     private static function moveFile(
         string $currentPath,

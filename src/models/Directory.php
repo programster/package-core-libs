@@ -245,6 +245,8 @@ class Directory
      * updates.
      * @throws FilesystemException - if the move or copy failed, a symlink couldn't be updated, or
      * the original couldn't be deleted after a copy.
+     * @throws DirectoryDoesNotExistException - if a directory inside disappears while the move is
+     * being checked or done.
      */
     private function moveTo(
         string $targetPath,
@@ -390,6 +392,9 @@ class Directory
      * @param array $symlinkUpdates - [symlink path, new target] pairs, which this adds to.
      * @param array $problems - descriptions of anything that would stop it, which this adds to.
      * @return void
+     * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
+     * @throws FilesystemException - if a directory that could be listed can't be opened after all.
+     * @throws BadArgumentException - only if given relative paths, which the callers never do.
      */
     private static function planSymlinkUpdates(
         string $directory,
@@ -474,6 +479,8 @@ class Directory
      * absolute target.
      * @return string - the target it should have, which is $linkTarget if it doesn't need to
      * change.
+     * @throws BadArgumentException - only if given a relative path for a directory, which the
+     * callers never do.
      */
     private static function newSymlinkTarget(
         string $linkDirectory,
@@ -574,6 +581,8 @@ class Directory
      * @param PreserveOwnershipEnum $preserveOwnership - with YES, owners and groups are checked too.
      * @param array $problems - descriptions of the problems found, which this adds to.
      * @return void
+     * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
+     * @throws FilesystemException - if a directory that could be listed can't be opened after all.
      */
     private static function planCopy(
         string $oldRoot,
@@ -640,6 +649,8 @@ class Directory
      * @param array $problems - descriptions of the problems found, which this adds to.
      * @param int $totalBytes - the total size of the files found, which this adds to.
      * @return void
+     * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
+     * @throws FilesystemException - if a directory that could be listed can't be opened after all.
      */
     private static function planCopyEntry(
         string $path,
@@ -851,6 +862,8 @@ class Directory
      * before it can be created (see createCopiedSymlinks()).
      * @return void
      * @throws FilesystemException - if anything couldn't be copied.
+     * @throws DirectoryDoesNotExistException - if a directory disappears while it is being copied.
+     * @throws BadArgumentException - only if given relative paths, which the callers never do.
      */
     private static function copyTree(
         string $source,

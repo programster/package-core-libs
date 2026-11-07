@@ -1783,6 +1783,8 @@ final class Filesystem
      * this function.
      * @throws FilesystemException - if the file is not valid in the encoding it is being converted
      * from, or anything else goes wrong that is not covered by the other specific exceptions.
+     * @throws DirectoryDoesNotExistException - if the directory the file is in disappears while it
+     * is being converted.
      */
     public static function convertFileToUtf8(
         string $inputFilepath,
@@ -1906,6 +1908,8 @@ final class Filesystem
      * @return string - the path of the temporary file.
      * @throws DirectoryDoesNotExistException - if the directory $filepath is in doesn't exist.
      * @throws FilesystemException - if the temporary file could not be created.
+     * @throws BadArgumentException - never in practice: only if the system's temporary directory
+     * weren't an absolute path.
      */
     public static function createReplacementFile(
         string $filepath,
@@ -1978,6 +1982,8 @@ final class Filesystem
      * always keeps them, so YES never has to throw here, and behaves the same as PREFERRED.
      * @return void
      * @throws FilesystemException - if the contents could not be copied across.
+     * @throws BadArgumentException - never in practice: only if the system's temporary directory
+     * weren't an absolute path.
      */
     public static function replaceWithFile(
         string $filepath,
@@ -2021,6 +2027,7 @@ final class Filesystem
      * @throws BadFilePermissionsException - if the file can't be both read and written.
      * @throws FilesystemException - if the new contents could not be written. See replaceWithFile()
      * for what happens if this fails part way through copying them into the original.
+     * @throws DirectoryDoesNotExistException - if the directory $filepath is in doesn't exist.
      */
     public static function replaceFileContents(
         string $filepath,
@@ -2064,6 +2071,7 @@ final class Filesystem
      * @param string $currentPath - the path of the existing file or directory.
      * @param string $newPath - the path it is being renamed to.
      * @return bool - true if only the case of the name changes, and they are the same thing.
+     * @throws FilesystemException - if the directory $newPath is in can't be read.
      */
     public static function isCaseOnlyRename(string $currentPath, string $newPath): bool
     {
@@ -2335,6 +2343,8 @@ final class Filesystem
      * @return void
      * @throws FilesystemException - if a directory or symlink couldn't be read, or following a
      * symlink would go round in circles.
+     * @throws BadArgumentException - only if the paths in the zip are a mix of absolute and
+     * relative, which they never are.
      */
     private static function addDirectoryToZip(
         ZipArchive $zip,
@@ -2383,6 +2393,8 @@ final class Filesystem
      * @return void
      * @throws FilesystemException - if the symlink couldn't be read, or following it would go round
      * in circles.
+     * @throws BadArgumentException - only if the paths in the zip are a mix of absolute and
+     * relative, which they never are.
      */
     private static function addSymlinkToZip(
         ZipArchive $zip,
@@ -2907,6 +2919,8 @@ final class Filesystem
      * @param PreserveOwnershipEnum $preserveOwnership - what will be passed to replaceWithFile().
      * @return bool - true to use the system's temporary directory, or false to put it next to the
      * original.
+     * @throws BadArgumentException - never in practice: only if the system's temporary directory
+     * weren't an absolute path.
      */
     private static function shouldUseSystemTempDir(string $filepath, PreserveOwnershipEnum $preserveOwnership): bool
     {
@@ -3137,6 +3151,7 @@ final class Filesystem
      * @param string $filepath - the original file.
      * @param string $tmpFilepath - the temporary file with the new contents.
      * @return bool - true if it could be renamed, as far as can be told before trying.
+     * @throws BadArgumentException - only if given relative paths, which the callers never do.
      */
     private static function canReplaceByRenaming(string $filepath, string $tmpFilepath): bool
     {
@@ -3431,6 +3446,7 @@ final class Filesystem
      * @param array $planned - real paths => true, for everything already in the plan, which this
      * adds to.
      * @return void
+     * @throws FilesystemException - if a directory that could be listed can't be opened after all.
      */
     private static function planDirectoryContents(
         string $dir,
