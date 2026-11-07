@@ -16,10 +16,13 @@ use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
+use Programster\CoreLibs\Exceptions\MoveCancelledException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 
 class File
 {
+    use MoveCopyingTrait;
+
     # Updated when the file is renamed or moved.
     protected string $m_filepath;
 
@@ -43,69 +46,34 @@ class File
 
 
     /**
-     * Rename the file. If given just a name (e.g. "bob.txt"), the file stays in the same directory.
-     * If given a path, the file is moved there as well. A relative path (e.g. "archive/bob.txt" or
-     * "../bob.txt") is relative to the file's current directory, rather than the current working
-     * directory, so that a plain name works the same way. The directory it is moved to must already
-     * exist. To move the file without renaming it, use move(). If this file is a symlink, the link
-     * itself is renamed, not the file it points to. A symlink with a relative target that is moved
-     * into a different directory is recreated with its target adjusted, which can change its owner,
-     * and on Windows makes its target absolute (see move()).
-     * @param string $newPath - the new name or path for the file. It must not end with a "/".
+     * Rename the file, keeping it in the same directory. To put it somewhere else, use move(),
+     * which can also give it a new name there. If this file is a symlink, the link itself is
+     * renamed, not the file it points to. As it stays in the same directory (so on the same
+     * filesystem), it is renamed in one step, and nothing is copied.
+     * @param string $newName - the new name, e.g. "bob.txt". It must be just a name, not a path.
      * @param bool $overwriteExistingFile - whether to replace a file (or symlink) that already
-     * exists at $newPath. Defaults to false. A directory is never replaced.
-     * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem, where
-     * the file has to be copied: how hard to try to keep its owner and group (only root can give a
-     * copy to another user). YES (the default) checks first that they can be kept, and doesn't move
-     * it if not. PREFERRED keeps them where it can, and otherwise lets the copy belong to whoever is
-     * running this. NO doesn't try. On the same filesystem, nothing is copied, so ownership is always
-     * kept (apart from a recreated relative symlink, see move()) and this has no effect. On Windows,
-     * a copy on another drive always belongs to whoever makes it, with the ACLs of the directory it
-     * is copied into, so with YES, a move to another drive is always refused there.
+     * has the new name. Defaults to false. A directory is never replaced.
      * @return void
-     * @throws BadArgumentException - if $newPath is empty, or ends with a "/".
-     * @throws DirectoryDoesNotExistException - if the directory $newPath is in doesn't exist.
-     * @throws FileAlreadyExistsException - if there is a directory at $newPath, there is a file
-     * there and $overwriteExistingFile is false, or it is the same file as this one (see moveTo()).
-     * Nothing is changed if this happens.
-     * @throws BadFilePermissionsException - with $preserveOwnership set to YES, if the file has to be
-     * copied to another filesystem, and its owner or group can't be kept. Nothing is changed if
-     * this happens.
+     * @throws BadArgumentException - if $newName isn't just a name (e.g. it has a "/" in it).
+     * @throws FileAlreadyExistsException - if there is a directory with the new name, there is a
+     * file with it and $overwriteExistingFile is false, or it is the same file as this one (see
+     * moveTo()).
      * @throws FilesystemException - if the file could not be renamed.
      */
-    public function rename(
-        string $newPath,
-        bool $overwriteExistingFile = false,
-        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
-    ): void
+    public function rename(string $newName, bool $overwriteExistingFile = false): void
     {
-        if ($newPath === "" || str_ends_with($newPath, "/"))
-        {
-            throw new BadArgumentException(
-                "rename: \$newPath must be a name or path for the file, not \"{$newPath}\". To move the file into a " .
-                "directory, use move()."
-            );
-        }
+        self::checkIsName($newName, "rename");
+        $targetPath = dirname($this->m_filepath) . "/" . $newName;
 
-        $targetPath = $this->resolvePath($newPath);
-        $targetDirectory = dirname($targetPath);
-
-        if (!is_dir($targetDirectory))
-        {
-            throw new DirectoryDoesNotExistException(
-                "rename: Can't rename {$this->m_filepath} to {$targetPath}, as there is no directory at " .
-                "{$targetDirectory}."
-            );
-        }
-
-        $this->moveTo($targetPath, $overwriteExistingFile, $preserveOwnership);
+        # Within one directory, nothing is copied, so how hard to try to keep the owner makes no difference.
+        $this->moveTo($targetPath, $overwriteExistingFile, PreserveOwnershipEnum::YES, null);
     }
 
 
     /**
-     * Move the file into another directory, keeping its name. A relative path is relative to the
-     * file's current directory, rather than the current working directory, in the same way as
-     * rename(). If this file is a symlink, the link itself is moved, not the file it points to. A
+     * Move the file into another directory, keeping its name (or giving it $newName there). A
+     * relative path is relative to the file's current directory, rather than the current working
+     * directory. If this file is a symlink, the link itself is moved, not the file it points to. A
      * symlink's relative target (e.g. "data.txt" rather than "/srv/data.txt") is relative to where
      * the link is, so moving it as it is would leave it pointing somewhere else. So a symlink with
      * a relative target is recreated in the new directory instead, with its target worked out again
@@ -114,9 +82,10 @@ class File
      * no longer exists). On Windows, where PHP can't create a relative symlink, and readlink() gives
      * the resolved absolute path (so a relative one can't be told apart), any symlink moved into
      * another directory is recreated with an absolute target to the same place instead, and a
-     * broken one is refused, as Windows can't create a symlink to something that doesn't exist. The recreated symlink is owned by whoever
-     * runs this, and their group, rather than the original's owner and group. A symlink's owner rarely matters, as its
-     * permissions are ignored, but it does in a sticky directory (e.g. /tmp), where only its owner
+     * broken one is refused, as Windows can't create a symlink to something that doesn't exist. The
+     * recreated symlink is owned by whoever runs this, and their group, rather than the original's
+     * owner and group. A symlink's owner rarely matters, as its permissions are ignored, but it does
+     * in a sticky directory (e.g. /tmp), where only its owner
      * (or the directory's) can delete or rename it, and in a sticky, world-writable directory with
      * Linux's protected_symlinks setting (on by default), where it is only followed by its owner
      * (or the directory's).
@@ -133,9 +102,14 @@ class File
      * kept (apart from a recreated relative symlink, see move()) and this has no effect. On Windows,
      * a copy on another drive always belongs to whoever makes it, with the ACLs of the directory it
      * is copied into, so with YES, a move to another drive is always refused there.
+     * @param MoveListenerInterface|null $listener - optionally, something to tell how the move is
+     * going, which can also cancel it (see MoveListenerInterface). Defaults to null.
+     * @param string|null $newName - optionally, a new name to give it in $directory, e.g. for when
+     * something there already has its current name. It must be just a name, not a path. Defaults
+     * to null, which keeps its current name.
      * @return void
-     * @throws BadArgumentException - if $directory is empty, or is something other than a directory
-     * (e.g. a file).
+     * @throws BadArgumentException - if $newName isn't just a name, or $directory is empty, or is
+     * something other than a directory (e.g. a file).
      * @throws DirectoryDoesNotExistException - if the directory doesn't exist, and
      * $createIfNotExists is false.
      * @throws FileAlreadyExistsException - if the directory has a directory with this file's name
@@ -151,12 +125,19 @@ class File
         string $directory,
         bool $createIfNotExists = false,
         bool $overwriteExistingFile = false,
-        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES,
+        ?MoveListenerInterface $listener = null,
+        ?string $newName = null
     ): void
     {
         if ($directory === "")
         {
             throw new BadArgumentException("move: \$directory must not be empty.");
+        }
+
+        if ($newName !== null)
+        {
+            self::checkIsName($newName, "move");
         }
 
         $targetDirectory = $this->resolvePath($directory);
@@ -182,8 +163,8 @@ class File
             }
         }
 
-        $targetPath = rtrim($targetDirectory, "/") . "/" . basename($this->m_filepath);
-        $this->moveTo($targetPath, $overwriteExistingFile, $preserveOwnership);
+        $targetPath = rtrim($targetDirectory, "/") . "/" . ($newName ?? basename($this->m_filepath));
+        $this->moveTo($targetPath, $overwriteExistingFile, $preserveOwnership, $listener);
     }
 
 
@@ -215,7 +196,9 @@ class File
      * @param bool $overwriteExistingFile - whether to replace a file or symlink that already exists
      * at $targetPath.
      * @param PreserveOwnershipEnum $preserveOwnership - see move().
+     * @param MoveListenerInterface|null $listener - see move().
      * @return void
+     * @throws MoveCancelledException - if $listener cancelled the move, before anything changed.
      * @throws FileAlreadyExistsException - if there is a directory at $targetPath, something else
      * exists there and $overwriteExistingFile is false, or it is the same file as this one.
      * @throws BadFilePermissionsException - with $preserveOwnership set to YES, if the file has to be
@@ -227,7 +210,8 @@ class File
     private function moveTo(
         string $targetPath,
         bool $overwriteExistingFile,
-        PreserveOwnershipEnum $preserveOwnership
+        PreserveOwnershipEnum $preserveOwnership,
+        ?MoveListenerInterface $listener
     ): void
     {
         # Compare the real directories, so that e.g. "./bob.txt" and "../dir/bob.txt" count as where the file already
@@ -237,10 +221,17 @@ class File
 
         if ($newPath !== $currentPath)
         {
+            # A symlink counts as 0 bytes, as its target isn't moved.
+            $bytes = is_link($currentPath) ? 0 : (int)filesize($currentPath);
+            $progress = new MoveProgress(1, $bytes);
+
             # On a filesystem that ignores case, a new name that only differs by case is the same file, so just
             # rename it, rather than refusing because something "already exists" there.
             if (Filesystem::isCaseOnlyRename($currentPath, $newPath))
             {
+                $listener?->onMoveStarting($progress);
+                $listener?->onFileStarting($progress, $currentPath, $bytes);
+
                 # Suppress the warning, as we throw an exception instead.
                 if (!@rename($currentPath, $newPath))
                 {
@@ -291,7 +282,12 @@ class File
                         "created again there, and Windows can't create a symlink to something that doesn't exist."
                     );
                 }
-                elseif ($movesDirectory && ($isRelativeLink || ($isLink && $onWindows)))
+
+                # Everything has been checked, so the move can start, which the listener can still cancel.
+                $listener?->onMoveStarting($progress);
+                $listener?->onFileStarting($progress, $currentPath, $bytes);
+
+                if ($movesDirectory && ($isRelativeLink || ($isLink && $onWindows)))
                 {
                     # Moving it as it is would leave a relative target pointing somewhere else, so recreate it with its
                     # target adjusted.
@@ -299,9 +295,22 @@ class File
                 }
                 else
                 {
-                    self::moveFile($currentPath, $newPath, $overwriteExistingFile, $preserveOwnership);
+
+                    self::moveFile(
+                        $currentPath,
+                        $newPath,
+                        $overwriteExistingFile,
+                        $preserveOwnership,
+                        $listener,
+                        $progress
+                    );
+
                 }
             }
+
+            $moved = $progress->withFileMoved($bytes);
+            $listener?->onFileMoved($moved, $currentPath);
+            $listener?->onMoveFinished($moved);
         }
 
         $this->m_filepath = $newPath;
@@ -400,7 +409,12 @@ class File
      * @param bool $replace - whether to replace a file or symlink at $newPath.
      * @param PreserveOwnershipEnum $preserveOwnership - for a copy, how hard to try to keep the
      * owner and group (see move()).
+     * @param MoveListenerInterface|null $listener - for a copy, what to tell after each chunk
+     * copied (see copyFileForMove()), or null.
+     * @param MoveProgress $progress - how far the move has got before this file.
      * @return void
+     * @throws MoveCancelledException - if the listener cancelled the move part way through a copy
+     * (the partial copy is removed, and the original is left as it was).
      * @throws FileAlreadyExistsException - without $replace, if something is at $newPath.
      * @throws BadFilePermissionsException - with YES, if a copy couldn't keep the owner and group.
      * This is checked before anything is copied.
@@ -412,7 +426,9 @@ class File
         string $currentPath,
         string $newPath,
         bool $replace,
-        PreserveOwnershipEnum $preserveOwnership
+        PreserveOwnershipEnum $preserveOwnership,
+        ?MoveListenerInterface $listener,
+        MoveProgress $progress
     ): void
     {
         if (Filesystem::isOnSameFilesystem(dirname($currentPath), dirname($newPath)))
@@ -426,7 +442,18 @@ class File
                 self::checkCopyCanKeepOwnership($currentPath);
             }
 
-            $copyPath = self::copyToTemporaryFile($currentPath, dirname($newPath), $preserveOwnership);
+            # Copied to the system's temporary directory if that is on the new filesystem, and otherwise beside where it
+            # is going, so renaming it into place is instant either way (see chooseCopyDirectory()).
+            $copyDirectory = self::chooseCopyDirectory(dirname($newPath));
+
+            $copyPath = self::copyToTemporaryFile(
+                $currentPath,
+                $copyDirectory,
+                $preserveOwnership,
+                $listener,
+                $progress
+            );
+
 
             try
             {
@@ -435,8 +462,11 @@ class File
             catch (FilesystemException | FileAlreadyExistsException $e)
             {
                 @unlink($copyPath);
+                self::forgetUnfinishedCopy($copyPath);
                 throw $e;
             }
+
+            self::forgetUnfinishedCopy($copyPath);
 
             # Only now that the copy is in place is the original deleted.
             if (!@unlink($currentPath))
@@ -611,14 +641,20 @@ class File
      * @param PreserveOwnershipEnum $preserveOwnership - with NO, the copy belongs to whoever is
      * running this. Otherwise its owner and group are set to the original's where possible, and with
      * YES, it is an error if they couldn't be.
+     * @param MoveListenerInterface|null $listener - what to tell after each chunk copied, or null.
+     * @param MoveProgress $progress - how far the move has got before this file.
      * @return string - the path of the copy.
+     * @throws MoveCancelledException - if the listener cancelled part way (the partial copy is
+     * removed).
      * @throws FilesystemException - if it couldn't be copied (or, with YES, given its owner and
      * group). Any partial copy is removed.
      */
     private static function copyToTemporaryFile(
         string $path,
         string $directory,
-        PreserveOwnershipEnum $preserveOwnership
+        PreserveOwnershipEnum $preserveOwnership,
+        ?MoveListenerInterface $listener,
+        MoveProgress $progress
     ): string
     {
         try
@@ -630,6 +666,8 @@ class File
             throw new FilesystemException("Failed to make a temporary name to move {$path} with.", 0, $e);
         }
 
+        # Removed if PHP stops before the move finishes (e.g. at a timeout part way through a big file).
+        self::rememberUnfinishedCopy($copyPath, false);
         $details = lstat($path);
         $isSymlink = is_link($path);
 
@@ -641,7 +679,17 @@ class File
         }
         else
         {
-            $copied = @copy($path, $copyPath);
+            try
+            {
+                $copied = self::copyFileForMove($path, $copyPath, $listener, $progress);
+            }
+            catch (\Throwable $e)
+            {
+                # The listener cancelled (or failed) part way through, so remove the partial copy.
+                @unlink($copyPath);
+                self::forgetUnfinishedCopy($copyPath);
+                throw $e;
+            }
         }
 
         # Set the owner and group before the permissions, as changing the owner clears the setuid and setgid bits.
@@ -663,6 +711,7 @@ class File
         if (!$copied || $ownershipFailed)
         {
             @unlink($copyPath);
+            self::forgetUnfinishedCopy($copyPath);
 
             throw new FilesystemException(
                 "Failed to copy {$path} to {$directory} with its owner, group and permissions."

@@ -18,10 +18,14 @@ use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\FileAlreadyExistsException;
 use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
+use Programster\CoreLibs\Exceptions\MoveCancelledException;
+use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 
 class Directory
 {
+    use MoveCopyingTrait;
+
     # Moves stop looking for problems once they have found this many.
     private const MAX_PROBLEMS = 100;
 
@@ -58,62 +62,42 @@ class Directory
 
 
     /**
-     * Rename the directory. If given just a name (e.g. "archive"), it stays in the same parent
-     * directory. If given a path, it is moved there as well. A relative path (e.g. "../archive") is
-     * relative to the directory's current parent, rather than the current working directory, in the
-     * same way as File::rename(). The parent it is moved to must already exist. Nothing that
-     * already exists at $newPath is ever replaced. See move() for how the symlinks inside are
-     * handled.
-     * @param string $newPath - the new name or path for the directory.
-     * @param bool $overrideUmask - when moving to a different filesystem, where everything has to
-     * be copied: whether to give the copies exactly the original permissions, rather than reducing
-     * them by the umask (and stopping the move if that can't be done). On the same filesystem,
-     * nothing is copied, so permissions are always kept exactly and this has no effect. Defaults to
-     * false.
-     * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem, where
-     * everything has to be copied: how hard to try to keep everything's owner and group (only root
-     * can give a copy to another user). YES (the default) checks first that they can all be kept,
-     * and stops the move if not. PREFERRED keeps them where it can, and otherwise lets the copies
-     * belong to whoever is running this. NO doesn't try, so everything copied belongs to whoever is
-     * running this. On the same filesystem, nothing is copied, so ownership is always kept (apart
-     * from the recreated symlinks described in move()) and this has no effect.
+     * Rename the directory, keeping it in the same parent directory. To put it somewhere else, use
+     * move(), which can also give it a new name there. Nothing that already exists with the new name
+     * is ever replaced. As it stays in the same parent directory (so on the same filesystem), it is
+     * renamed in one step, and nothing is copied. Symlinks inside that pointed at it by its old path
+     * are updated, as in move().
+     * @param string $newName - the new name, e.g. "archive". It must be just a name, not a path.
      * @return void
-     * @throws BadArgumentException - if $newPath is empty, or is inside this directory.
-     * @throws DirectoryDoesNotExistException - if the directory $newPath would be in doesn't exist.
-     * @throws FileAlreadyExistsException - if something already exists at $newPath.
-     * @throws DirectoryNotMovableException - if the checks find anything that would stop the move or
-     * the symlink updates (see move()). getProblems() lists them. Nothing is moved if this happens.
-     * @throws FilesystemException - if the move failed.
+     * @throws BadArgumentException - if $newName isn't just a name (e.g. it has a "/" in it).
+     * @throws FileAlreadyExistsException - if something already exists with the new name.
+     * @throws DirectoryNotMovableException - if anything would stop the rename or the symlink
+     * updates. getProblems() lists them. Nothing is renamed if this happens.
+     * @throws FilesystemException - if the rename failed, or a symlink couldn't be updated.
+     * @throws DirectoryDoesNotExistException - if a directory inside disappears while it is being
+     * checked.
      */
-    public function rename(
-        string $newPath,
-        bool $overrideUmask = false,
-        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
-    ): void
+    public function rename(string $newName): void
     {
-        if (rtrim($newPath, "/") === "")
-        {
-            throw new BadArgumentException("rename: \$newPath must be a name or path for the directory.");
-        }
+        self::checkIsName($newName, "rename");
+        $targetPath = dirname($this->m_path) . "/" . $newName;
 
-        $targetPath = $this->resolvePath(rtrim($newPath, "/"));
+        # Within one directory, nothing is copied, so the copying settings make no difference.
+        $moveSettings = [
+            'overrideUmask' => false,
+            'preserveOwnership' => PreserveOwnershipEnum::YES,
+            'listener' => null,
+            'resumable' => false,
+        ];
 
-        if (!is_dir(dirname($targetPath)))
-        {
-            throw new DirectoryDoesNotExistException(
-                "rename: Can't rename {$this->m_path} to {$targetPath}, as there is no directory at " .
-                dirname($targetPath) . "."
-            );
-        }
-
-        $this->moveTo($targetPath, null, $overrideUmask, $preserveOwnership);
+        $this->moveTo($targetPath, null, $moveSettings);
     }
 
 
     /**
-     * Move the directory, and everything in it, into another directory, keeping its name. A
-     * relative path is relative to the directory's current parent, in the same way as rename().
-     * Nothing that already exists there with this directory's name is ever replaced. The symlinks
+     * Move the directory, and everything in it, into another directory, keeping its name (or
+     * giving it $newName there). A relative path is relative to the directory's current parent.
+     * Nothing that already exists there with that name is ever replaced. The symlinks
      * inside are updated so that they keep pointing at the same things: one that points inside this
      * directory is changed to point at the new location, and one that points outside it keeps
      * pointing at the same place. Relative symlinks stay relative, and absolute ones stay absolute.
@@ -162,9 +146,23 @@ class Directory
      * belong to whoever is running this. NO doesn't try, so everything copied belongs to whoever is
      * running this. On the same filesystem, nothing is copied, so ownership is always kept (apart
      * from the recreated symlinks described in move()) and this has no effect.
+     * @param MoveListenerInterface|null $listener - optionally, something to tell how the move is
+     * going, which can also cancel it (see MoveListenerInterface). Defaults to null.
+     * @param bool $resumable - for a move to a different filesystem: whether to keep what was copied
+     * if the copy fails, is cancelled, or PHP stops part way (e.g. at a timeout), so that making the
+     * same move again carries on from there. Files already copied are only copied again if they
+     * have changed (by their size and modification time), a file copied part way is copied again
+     * from the start, and anything since removed from the original is removed from the copy. A
+     * copy that is never resumed stays, under a hidden name beside the destination or in the
+     * system's temporary directory, until deleted. Defaults to false, which removes a partial copy.
+     * @param string|null $newName - optionally, a new name to give it in $directory, e.g. for when
+     * something there already has its current name. It must be just a name, not a path. Defaults
+     * to null, which keeps its current name.
      * @return void
-     * @throws BadArgumentException - if $directory is empty, isn't a directory (e.g. is a file), or
-     * is this directory or inside it.
+     * @throws MoveCancelledException - if $listener cancelled the move. Anything copied so far is
+     * removed, and the original is left as it was.
+     * @throws BadArgumentException - if $newName isn't just a name, or $directory is empty, isn't a
+     * directory (e.g. is a file), or is this directory or inside it.
      * @throws DirectoryDoesNotExistException - if $directory doesn't exist, and $createIfNotExists
      * is false.
      * @throws FileAlreadyExistsException - if $directory already has something with this
@@ -179,12 +177,20 @@ class Directory
         string $directory,
         bool $createIfNotExists = false,
         bool $overrideUmask = false,
-        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES,
+        ?MoveListenerInterface $listener = null,
+        bool $resumable = false,
+        ?string $newName = null
     ): void
     {
         if ($directory === "")
         {
             throw new BadArgumentException("move: \$directory must not be empty.");
+        }
+
+        if ($newName !== null)
+        {
+            self::checkIsName($newName, "move");
         }
 
         $targetDirectory = $this->resolvePath($directory);
@@ -210,8 +216,16 @@ class Directory
             $directoryToCreate = $targetDirectory;
         }
 
-        $targetPath = rtrim($targetDirectory, "/") . "/" . basename($this->m_path);
-        $this->moveTo($targetPath, $directoryToCreate, $overrideUmask, $preserveOwnership);
+        $targetPath = rtrim($targetDirectory, "/") . "/" . ($newName ?? basename($this->m_path));
+
+        $moveSettings = [
+            'overrideUmask' => $overrideUmask,
+            'preserveOwnership' => $preserveOwnership,
+            'listener' => $listener,
+            'resumable' => $resumable,
+        ];
+
+        $this->moveTo($targetPath, $directoryToCreate, $moveSettings);
     }
 
 
@@ -235,10 +249,10 @@ class Directory
      * @param string $targetPath - the absolute path the directory will have.
      * @param string|null $directoryToCreate - a directory to create first (for move()'s
      * $createIfNotExists), once everything has been checked, or null.
-     * @param bool $overrideUmask - for a copy, whether to copy permissions exactly (see move()).
-     * @param PreserveOwnershipEnum $preserveOwnership - for a copy, how hard to try to keep owners
-     * and groups (see move()).
+     * @param array $moveSettings - see copyThenDelete(). Only "listener" and "resumable" matter
+     * on the same filesystem.
      * @return void
+     * @throws MoveCancelledException - if $listener cancelled the move.
      * @throws BadArgumentException - if $targetPath is inside this directory.
      * @throws FileAlreadyExistsException - if something already exists at $targetPath.
      * @throws DirectoryNotMovableException - if anything would stop the move, copy or symlink
@@ -248,13 +262,10 @@ class Directory
      * @throws DirectoryDoesNotExistException - if a directory inside disappears while the move is
      * being checked or done.
      */
-    private function moveTo(
-        string $targetPath,
-        ?string $directoryToCreate,
-        bool $overrideUmask,
-        PreserveOwnershipEnum $preserveOwnership
-    ): void
+    private function moveTo(string $targetPath, ?string $directoryToCreate, array $moveSettings): void
     {
+        $listener = $moveSettings['listener'];
+
         $currentPath = realpath($this->m_path);
 
         # Resolve the destination's parent, following the symlinks in the part of it that exists, as the system would,
@@ -269,30 +280,41 @@ class Directory
             # rename it, rather than refusing because something "already exists" there.
             if (Filesystem::isCaseOnlyRename($currentPath, $newPath))
             {
+                # Nothing else needs checking, so the totals are only worked out for a listener.
+                $progress = ($listener === null) ? new MoveProgress(0, 0) : self::countContents($currentPath);
+                $listener?->onMoveStarting($progress);
+
                 # Suppress the warning, as we throw an exception instead.
                 if (!@rename($currentPath, $newPath))
                 {
                     throw new FilesystemException("Failed to rename {$currentPath} to {$newPath}.");
                 }
+
+                $listener?->onMoveFinished($progress->withEverythingMoved());
             }
             else
             {
-                $crossesFilesystem = $this->checkCanMoveTo($currentPath, $newPath);
+                $crossesFilesystem = $this->checkCanMoveTo($currentPath, $newPath, $moveSettings['resumable']);
 
-                # Check everything before anything is changed.
+                # Check everything before anything is changed. Both walks also count the totals for the listener.
                 $symlinkUpdates = [];
                 $problems = [];
+                $totals = ['files' => 0, 'bytes' => 0];
 
                 if ($crossesFilesystem)
                 {
-                    self::planCopy($currentPath, $newPath, $overrideUmask, $preserveOwnership, $problems);
+                    $overrideUmask = $moveSettings['overrideUmask'];
+                    $preserveOwnership = $moveSettings['preserveOwnership'];
+                    $progress = self::planCopy($currentPath, $newPath, $overrideUmask, $preserveOwnership, $problems);
                 }
                 else
                 {
-                    self::planSymlinkUpdates($currentPath, $currentPath, $newPath, $symlinkUpdates, $problems);
+                    self::planSymlinkUpdates($currentPath, $currentPath, $newPath, $symlinkUpdates, $problems, $totals);
+                    $progress = new MoveProgress($totals['files'], $totals['bytes']);
                 }
 
                 self::throwIfProblems($currentPath, $problems);
+                $listener?->onMoveStarting($progress);
 
                 if ($directoryToCreate !== null)
                 {
@@ -301,7 +323,7 @@ class Directory
 
                 if ($crossesFilesystem)
                 {
-                    self::copyThenDelete($currentPath, $newPath, $overrideUmask, $preserveOwnership);
+                    $finished = self::copyThenDelete($currentPath, $newPath, $moveSettings, $progress);
                 }
                 elseif (!@rename($currentPath, $newPath))
                 {
@@ -311,7 +333,10 @@ class Directory
                 else
                 {
                     self::applySymlinkUpdates($currentPath, $newPath, $symlinkUpdates);
+                    $finished = $progress->withEverythingMoved();
                 }
+
+                $listener?->onMoveFinished($finished);
             }
         }
 
@@ -323,6 +348,8 @@ class Directory
      * Check that the directory can be moved to $newPath, apart from the symlinks inside it.
      * @param string $currentPath - the directory's real path.
      * @param string $newPath - the absolute path it will have.
+     * @param bool $resumable - whether an empty directory an earlier resumable attempt left at
+     * $newPath is allowed (see move()).
      * @return void
      * @throws BadArgumentException - if $newPath is inside the directory.
      * @throws FileAlreadyExistsException - if something already exists at $newPath.
@@ -331,15 +358,24 @@ class Directory
      * @throws DirectoryNotMovableException - if the directory can't be removed from its parent, or
      * added to its new one.
      */
-    private function checkCanMoveTo(string $currentPath, string $newPath): bool
+    private function checkCanMoveTo(string $currentPath, string $newPath, bool $resumable): bool
     {
         if (Filesystem::isWithinDirectory($newPath, $currentPath))
         {
             throw new BadArgumentException("Can't move {$currentPath} to {$newPath}, as that is inside itself.");
         }
 
-        # is_link() is needed too, as file_exists() is false for a broken symlink.
-        if (file_exists($newPath) || is_link($newPath))
+        # When resuming, the empty directory an earlier attempt made to hold the new name may still be there, which is
+        # fine. Anything else there (including someone else's empty directory) is refused, as usual. is_link() is
+        # needed too, as file_exists() is false for a broken symlink.
+        $isEarlierAttempts = (
+               $resumable
+            && is_dir($newPath)
+            && !Filesystem::isOnSameFilesystem($currentPath, $newPath)
+            && self::isResumablePlaceholder($newPath, self::findResumableCopyPath($currentPath, $newPath) . ".state")
+        );
+
+        if ((file_exists($newPath) || is_link($newPath)) && !$isEarlierAttempts)
         {
             throw new FileAlreadyExistsException(
                 "Can't move {$currentPath} to {$newPath}, as something already exists there. Nothing is ever " .
@@ -391,6 +427,8 @@ class Directory
      * @param string $newRoot - the absolute path it will have.
      * @param array $symlinkUpdates - [symlink path, new target] pairs, which this adds to.
      * @param array $problems - descriptions of anything that would stop it, which this adds to.
+     * @param array{files: int, bytes: int} $totals - how many files (and symlinks) there are, and
+     * their size, for a MoveProgress, which this adds to.
      * @return void
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
      * @throws FilesystemException - if a directory that could be listed can't be opened after all.
@@ -401,7 +439,8 @@ class Directory
         string $oldRoot,
         string $newRoot,
         array &$symlinkUpdates,
-        array &$problems
+        array &$problems,
+        array &$totals
     ): void
     {
         if (count($problems) < self::MAX_PROBLEMS)
@@ -425,6 +464,8 @@ class Directory
 
                     if (is_link($path))
                     {
+                        $totals['files']++;
+
                         # On Windows, readlink() gives the fully resolved absolute path rather than the link's own
                         # target, so whether a link is relative can't be told. So every link is created again,
                         # pointing at the same place absolutely (see newSymlinkTarget()). A broken one can't be read
@@ -453,7 +494,12 @@ class Directory
                     }
                     elseif (is_dir($path))
                     {
-                        self::planSymlinkUpdates($path, $oldRoot, $newRoot, $symlinkUpdates, $problems);
+                        self::planSymlinkUpdates($path, $oldRoot, $newRoot, $symlinkUpdates, $problems, $totals);
+                    }
+                    else
+                    {
+                        $totals['files']++;
+                        $totals['bytes'] += (int)filesize($path);
                     }
                 }
             }
@@ -577,7 +623,8 @@ class Directory
      * by the umask.
      * @param PreserveOwnershipEnum $preserveOwnership - with YES, owners and groups are checked too.
      * @param array $problems - descriptions of the problems found, which this adds to.
-     * @return void
+     * @return MoveProgress - how many files (and symlinks) there are to copy, and their size, with
+     * nothing moved yet. These may be short if there were problems.
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
      * @throws FilesystemException - if a directory that could be listed can't be opened after all.
      */
@@ -587,9 +634,10 @@ class Directory
         bool $overrideUmask,
         PreserveOwnershipEnum $preserveOwnership,
         array &$problems
-    ): void
+    ): MoveProgress
     {
         $checkOwnership = $preserveOwnership === PreserveOwnershipEnum::YES;
+        $totals = ['files' => 0, 'bytes' => 0];
 
         if ($checkOwnership && PHP_OS_FAMILY === "Windows")
         {
@@ -612,8 +660,7 @@ class Directory
         }
         else
         {
-            $totalBytes = 0;
-            self::planCopyEntry($oldRoot, $overrideUmask, $checkOwnership, $problems, $totalBytes);
+            self::planCopyEntry($oldRoot, $overrideUmask, $checkOwnership, $problems, $totals);
 
             # Check the space at the nearest existing directory, as the destination may not exist yet.
             $existingAncestor = dirname($newPath);
@@ -625,15 +672,17 @@ class Directory
 
             $freeBytes = @disk_free_space($existingAncestor);
 
-            if ($freeBytes !== false && $freeBytes < $totalBytes && count($problems) < self::MAX_PROBLEMS)
+            if ($freeBytes !== false && $freeBytes < $totals['bytes'] && count($problems) < self::MAX_PROBLEMS)
             {
                 $problems[] = new DirectoryMoveProblem(
                     $existingAncestor,
                     DirectoryMoveProblemEnum::NOT_ENOUGH_SPACE,
-                    "{$existingAncestor} only has {$freeBytes} bytes free, but copying needs {$totalBytes}."
+                    "{$existingAncestor} only has {$freeBytes} bytes free, but copying needs {$totals['bytes']}."
                 );
             }
         }
+
+        return new MoveProgress($totals['files'], $totals['bytes']);
     }
 
 
@@ -644,7 +693,8 @@ class Directory
      * @param bool $overrideUmask - whether permissions will be copied exactly.
      * @param bool $checkOwnership - whether to check every owner and group can be kept.
      * @param array $problems - descriptions of the problems found, which this adds to.
-     * @param int $totalBytes - the total size of the files found, which this adds to.
+     * @param array{files: int, bytes: int} $totals - how many files (and symlinks) were found, and
+     * the total size of the files, which this adds to.
      * @return void
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being checked.
      * @throws FilesystemException - if a directory that could be listed can't be opened after all.
@@ -654,7 +704,7 @@ class Directory
         bool $overrideUmask,
         bool $checkOwnership,
         array &$problems,
-        int &$totalBytes
+        array &$totals
     ): void
     {
         if (count($problems) < self::MAX_PROBLEMS)
@@ -727,9 +777,11 @@ class Directory
                 );
             }
 
-            if ($type === 0100000)
+            # Files and symlinks count as files for a MoveProgress, and only files have a size worth counting.
+            if (!$isDirectory)
             {
-                $totalBytes += $stats['size'];
+                $totals['files']++;
+                $totals['bytes'] += ($type === 0100000) ? $stats['size'] : 0;
             }
 
             if ($isDirectory && Filesystem::canListDirectory($path))
@@ -739,7 +791,7 @@ class Directory
                 for ($i = 0; $i < count($entries) && count($problems) < self::MAX_PROBLEMS; $i++)
                 {
                     $entryPath = "{$path}/{$entries[$i]}";
-                    self::planCopyEntry($entryPath, $overrideUmask, $checkOwnership, $problems, $totalBytes);
+                    self::planCopyEntry($entryPath, $overrideUmask, $checkOwnership, $problems, $totals);
                 }
             }
             elseif ($isDirectory && is_readable($path))
@@ -755,71 +807,178 @@ class Directory
 
 
     /**
-     * Copy the directory to a different filesystem, then delete the original. If the copy fails
-     * part way through, the partial copy is removed and the original is left as it was.
+     * Copy the directory to a different filesystem, then delete the original. It is copied under a
+     * hidden name, to the system's temporary directory if that is on the new filesystem and
+     * otherwise beside where it is going (see chooseCopyDirectory()), while an empty directory
+     * holds its new name, so nothing else can take it. Only once the copy is complete is it renamed
+     * into place (which is instant, as it is on the same filesystem), and only then is the
+     * original deleted. If the copy fails or is cancelled part way through, the partial copy is
+     * removed and the original is left as it was. If PHP stops part way (e.g. at a timeout), a
+     * shutdown function removes the partial copy, as far as it can.
      * @param string $oldRoot - the directory's real path.
      * @param string $newRoot - the absolute path the copy will have.
-     * @param bool $overrideUmask - whether to copy permissions exactly, rather than reducing them
-     * by the umask.
-     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep owners and groups.
-     * @return void
+     * @param array $moveSettings - "overrideUmask" (bool): whether to copy permissions exactly,
+     * rather than reducing them by the umask. "preserveOwnership" (PreserveOwnershipEnum): how hard
+     * to try to keep owners and groups. "listener" (?MoveListenerInterface): what to tell how the
+     * copy is going. "resumable" (bool): whether to keep a partial copy, and carry on from one an
+     * earlier attempt kept (see move()).
+     * @param MoveProgress $progress - the totals, with nothing moved yet.
+     * @return MoveProgress - the progress once everything has been copied.
+     * @throws MoveCancelledException - if the listener cancelled the move (the original is
+     * untouched).
      * @throws FilesystemException - if the copy failed (the original is untouched), or the original
      * couldn't be deleted afterwards (in which case both now exist).
      */
     private static function copyThenDelete(
         string $oldRoot,
         string $newRoot,
-        bool $overrideUmask,
-        PreserveOwnershipEnum $preserveOwnership
-    ): void
+        array $moveSettings,
+        MoveProgress $progress
+    ): MoveProgress
     {
+        $resumable = $moveSettings['resumable'];
+
+        # A resumable copy's name comes from the paths, so a later attempt can find it. Otherwise it is random.
+        if ($resumable)
+        {
+            $copyRoot = self::findResumableCopyPath($oldRoot, $newRoot);
+        }
+        else
+        {
+            try
+            {
+                $copyName = ".corelibs-move-" . bin2hex(random_bytes(8));
+                $copyRoot = self::chooseCopyDirectory(dirname($newRoot)) . "/{$copyName}";
+            }
+            catch (\Random\RandomException $e)
+            {
+                throw new FilesystemException("Failed to make a temporary name to copy {$oldRoot} to.", 0, $e);
+            }
+        }
+
+        # Hold the new name with an empty directory until the copy is renamed over it, unless an earlier resumable
+        # attempt left its own one there. Suppress the warning, as we throw an exception instead.
+        $stateFile = "{$copyRoot}.state";
+
+        if (!($resumable && self::isResumablePlaceholder($newRoot, $stateFile)))
+        {
+            if (!@mkdir($newRoot, 0700))
+            {
+                throw new FilesystemException("Failed to create {$newRoot}.");
+            }
+
+            if ($resumable)
+            {
+                self::writeResumableState($newRoot, $stateFile);
+            }
+        }
+
+        # A resumable copy is kept if PHP stops, so it can be resumed. The empty directory holding the name is removed.
+        self::rememberUnfinishedCopy($newRoot, true);
+
+        if (!$resumable)
+        {
+            self::rememberUnfinishedCopy($copyRoot, false);
+        }
+
         # Directories get their real owner, permissions and times only once everything is copied, so that a
         # read-only one can't stop the copy, or stop a failed copy being removed.
         $directoriesToFinish = [];
+        $isRenamed = false;
+        $current = $progress;
 
         try
         {
-            $copySettings = ['overrideUmask' => $overrideUmask, 'preserveOwnership' => $preserveOwnership];
             $symlinksToCreate = [];
 
             self::copyTree(
                 $oldRoot,
-                $newRoot,
+                $copyRoot,
                 $oldRoot,
                 $newRoot,
-                $copySettings,
+                $moveSettings,
                 $directoriesToFinish,
-                $symlinksToCreate
+                $symlinksToCreate,
+                $current
             );
 
-            self::createCopiedSymlinks($symlinksToCreate, $preserveOwnership);
+            # On Windows, a symlink can only be created once its target exists, and the targets are where everything
+            # will be once it is renamed into place, so they are created after that. Elsewhere, they are created now.
+            $onWindows = PHP_OS_FAMILY === "Windows";
 
-            # The deepest directories come last in the list, and must be finished first.
-            foreach (array_reverse($directoriesToFinish) as [$directoryPath, $stats])
+            if (!$onWindows)
             {
-                self::restoreOwnership($directoryPath, $stats, false, $preserveOwnership);
-                self::setPermissions($directoryPath, $stats, $overrideUmask);
-                self::setModificationTime($directoryPath, $stats);
+                self::createCopiedSymlinks($symlinksToCreate, $moveSettings, $current);
             }
+
+            # The deepest directories come last in the list, and must be finished first. The top one is finished once
+            # it is in place, as renaming a directory into another one needs it to be writable, and can change its
+            # modification time.
+            $topStats = $directoriesToFinish[0][1];
+
+            foreach (array_reverse(array_slice($directoriesToFinish, 1)) as [$directoryPath, $stats])
+            {
+                self::finishDirectory($directoryPath, $stats, $moveSettings);
+            }
+
+            self::renameIntoPlace($copyRoot, $newRoot);
+            $isRenamed = true;
+
+            if ($resumable)
+            {
+                # Suppress the warning, as a state file left behind changes nothing.
+                @unlink($stateFile);
+            }
+
+            self::forgetUnfinishedCopy($copyRoot);
+            self::forgetUnfinishedCopy($newRoot);
+
+            if ($onWindows)
+            {
+                $placedSymlinks = [];
+
+                foreach ($symlinksToCreate as [$linkPath, $target, $stats, $originalPath])
+                {
+                    $placedPath = $newRoot . substr($linkPath, strlen($copyRoot));
+                    $placedSymlinks[] = [$placedPath, $target, $stats, $originalPath];
+                }
+
+                self::createCopiedSymlinks($placedSymlinks, $moveSettings, $current);
+            }
+
+            self::finishDirectory($newRoot, $topStats, $moveSettings);
         }
         catch (\Throwable $e)
         {
-            # Remove the partial copy, leaving the original as it was.
-            if (is_dir($newRoot))
+            # Before the rename, the copy is under its hidden name, with the empty directory holding the new name. A
+            # resumable copy is kept there, unless it was already renamed into place.
+            $keepsCopy = $resumable && !$isRenamed;
+
+            if (!$keepsCopy)
             {
-                try
-                {
-                    Filesystem::deleteDir($newRoot);
-                }
-                catch (\Throwable $cleanUpError)
-                {
-                    # Report the copy failing, as that is the cause. The message says what may be left behind.
-                }
+                self::removePartialCopy($isRenamed ? $newRoot : $copyRoot);
             }
 
+            if (!$isRenamed)
+            {
+                # Suppress the warning, as it is only removed if it is still the empty one this made.
+                @rmdir($newRoot);
+                self::forgetUnfinishedCopy($newRoot);
+            }
+
+            # A cancelled move is passed on as it is, so the caller can tell it apart from a failure.
+            if ($e instanceof MoveCancelledException)
+            {
+                throw $e;
+            }
+
+            $whatWasCopied = $keepsCopy
+                ? "what was copied so far was kept at {$copyRoot}, so moving it again with \$resumable continues it"
+                : "anything copied so far was removed, if it could be";
+
             throw new FilesystemException(
-                "Failed to copy {$oldRoot} to {$newRoot}, so the original was left as it was (and anything " .
-                "copied so far was removed, if it could be): " . $e->getMessage(),
+                "Failed to copy {$oldRoot} to {$newRoot}, so the original was left as it was ({$whatWasCopied}): " .
+                $e->getMessage(),
                 0,
                 $e
             );
@@ -838,6 +997,8 @@ class Directory
                 $e
             );
         }
+
+        return $current;
     }
 
 
@@ -850,14 +1011,20 @@ class Directory
      * @param string $destination - where to copy it to.
      * @param string $oldRoot - the real path of the directory being moved.
      * @param string $newRoot - the path it is being moved to.
-     * @param array{overrideUmask: bool, preserveOwnership: PreserveOwnershipEnum} $copySettings -
-     * whether to copy permissions exactly, and how hard to try to keep owners and groups.
+     * @param array $copySettings - see copyThenDelete()'s $moveSettings. With "resumable", what an
+     * earlier attempt copied to $destination is reused where it is finished and still matches the
+     * original, and anything else there is replaced or removed.
      * @param array $directoriesToFinish - [path, lstat() of the original] pairs, which this adds
      * to.
-     * @param array $symlinksToCreate - [path, target, lstat() of the original] for each symlink,
-     * which this adds to, rather than creating them, as on Windows a symlink's target has to exist
-     * before it can be created (see createCopiedSymlinks()).
+     * @param array $symlinksToCreate - [path, target, lstat() of the original, original path] for
+     * each symlink, which this adds to, rather than creating them, as on Windows a symlink's target
+     * has to exist before it can be created (see createCopiedSymlinks()).
+     * @param MoveProgress $progress - how far the move has got, which this moves on for each file it
+     * copies, telling the listener.
      * @return void
+     * @throws MoveCancelledException - if the listener cancelled the move.
+     * @throws DirectoryNotDeletableException - when resuming, if something an earlier attempt copied
+     * that is in the way can't be removed.
      * @throws FilesystemException - if anything couldn't be copied.
      * @throws DirectoryDoesNotExistException - if a directory disappears while it is being copied.
      * @throws BadArgumentException - only if given relative paths, which the callers never do.
@@ -869,18 +1036,48 @@ class Directory
         string $newRoot,
         array $copySettings,
         array &$directoriesToFinish,
-        array &$symlinksToCreate
+        array &$symlinksToCreate,
+        MoveProgress &$progress
     ): void
     {
-        # Suppress the warnings, as we throw exceptions instead.
-        if (!@mkdir($destination, 0700))
+        $resumable = $copySettings['resumable'];
+
+        # When resuming, a directory the earlier attempt copied is reused. It is made private and writable again, as it
+        # may already have been given its original's permissions before that attempt stopped.
+        $isResumed = $resumable && is_dir($destination) && !is_link($destination);
+
+        if ($isResumed)
         {
-            throw new FilesystemException("Failed to create {$destination}.");
+            # Suppress the warning, as failing just means copying into it fails, which says why.
+            @chmod($destination, 0700);
+        }
+        else
+        {
+            if ($resumable)
+            {
+                self::clearForCopy($destination);
+            }
+
+            # Suppress the warnings, as we throw exceptions instead.
+            if (!@mkdir($destination, 0700))
+            {
+                throw new FilesystemException("Failed to create {$destination}.");
+            }
         }
 
         $directoriesToFinish[] = [$destination, lstat($source)];
+        $entries = Filesystem::getDirContents($source, false, false, false);
 
-        foreach (Filesystem::getDirContents($source, false, false, false) as $entry)
+        # Anything the earlier attempt copied that is no longer in the original is removed.
+        foreach ($isResumed ? Filesystem::getDirContents($destination, false, false, false) : [] as $copiedEntry)
+        {
+            if (!in_array($copiedEntry, $entries, true))
+            {
+                self::clearForCopy("{$destination}/{$copiedEntry}");
+            }
+        }
+
+        foreach ($entries as $entry)
         {
             $from = "{$source}/{$entry}";
             $to = "{$destination}/{$entry}";
@@ -890,28 +1087,275 @@ class Directory
             if ($type === 0120000)
             {
                 # Recreate the symlink, pointing at the same thing (see newSymlinkTarget()), once everything else is
-                # copied, as on Windows, its target has to exist first.
+                # copied, as on Windows, its target has to exist first. One from an earlier attempt is made again.
+                if ($resumable)
+                {
+                    self::clearForCopy($to);
+                }
+
                 $onWindows = PHP_OS_FAMILY === "Windows";
                 $newTarget = self::newSymlinkTarget($source, readlink($from), $oldRoot, $newRoot, $onWindows, true);
-                $symlinksToCreate[] = [$to, $newTarget, $stats];
+                $symlinksToCreate[] = [$to, $newTarget, $stats, $from];
             }
             elseif ($type === 0040000)
             {
-                self::copyTree($from, $to, $oldRoot, $newRoot, $copySettings, $directoriesToFinish, $symlinksToCreate);
+                self::copyTree(
+                    $from,
+                    $to,
+                    $oldRoot,
+                    $newRoot,
+                    $copySettings,
+                    $directoriesToFinish,
+                    $symlinksToCreate,
+                    $progress
+                );
             }
             else
             {
-                if (!@copy($from, $to))
+                $copySettings['listener']?->onFileStarting($progress, $from, $stats['size']);
+
+                # A file the earlier attempt finished has the original's size and modification time, as that is only
+                # set once the whole file has been copied. Anything else there (e.g. half a file) is copied again.
+                $copiedStats = ($resumable && is_file($to) && !is_link($to)) ? lstat($to) : false;
+
+                $isAlreadyCopied = (
+                       $copiedStats !== false
+                    && $copiedStats['size'] === $stats['size']
+                    && $copiedStats['mtime'] === $stats['mtime']
+                );
+
+                if (!$isAlreadyCopied)
                 {
-                    throw new FilesystemException("Failed to copy {$from} to {$to}.");
+                    if ($resumable)
+                    {
+                        self::clearForCopy($to);
+                    }
+
+                    if (!self::copyFileForMove($from, $to, $copySettings['listener'], $progress))
+                    {
+                        throw new FilesystemException("Failed to copy {$from} to {$to}.");
+                    }
                 }
 
-                # Permissions come after ownership, as changing the owner clears the setuid and setgid bits.
+                # Permissions come after ownership, as changing the owner clears the setuid and setgid bits. They are
+                # set again for a file already copied, in case they have changed since.
                 self::restoreOwnership($to, $stats, false, $copySettings['preserveOwnership']);
                 self::setPermissions($to, $stats, $copySettings['overrideUmask']);
                 self::setModificationTime($to, $stats);
+                $progress = $progress->withFileMoved($stats['size']);
+                $copySettings['listener']?->onFileMoved($progress, $from);
             }
         }
+    }
+
+
+    /**
+     * Work out where a resumable copy goes, for copyThenDelete(): a hidden name made from the two
+     * paths, so that a later attempt to make the same move finds it. One an earlier attempt left in
+     * either place a copy can go (see chooseCopyDirectory()) is reused, as long as it is still on
+     * the new filesystem, and otherwise it goes where chooseCopyDirectory() says.
+     * @param string $oldRoot - the directory's real path.
+     * @param string $newRoot - the absolute path the copy will have.
+     * @return string - the path for the copy.
+     * @throws BadArgumentException - only if given relative paths, which the callers never do.
+     */
+    private static function findResumableCopyPath(string $oldRoot, string $newRoot): string
+    {
+        $name = ".corelibs-move-" . substr(hash("sha256", "{$oldRoot}\0{$newRoot}"), 0, 32);
+        $newParent = dirname($newRoot);
+        $chosen = self::chooseCopyDirectory($newParent) . "/{$name}";
+        $candidates = [$chosen, "{$newParent}/{$name}", rtrim(sys_get_temp_dir(), "/") . "/{$name}"];
+        $found = "";
+
+        for ($i = 0; $i < count($candidates) && $found === ""; $i++)
+        {
+            $candidate = $candidates[$i];
+            $isUsable = is_dir($candidate) && !is_link($candidate);
+
+            if ($isUsable && Filesystem::isOnSameFilesystem(dirname($candidate), $newParent))
+            {
+                $found = $candidate;
+            }
+        }
+
+        return ($found === "") ? $chosen : $found;
+    }
+
+
+    /**
+     * Check whether $newRoot is the empty directory an earlier resumable attempt made to hold the
+     * name, rather than one someone else made, by comparing its device and inode numbers with
+     * those that attempt recorded in its state file.
+     * @param string $newRoot - the path the copy will have.
+     * @param string $stateFile - the state file of the resumable copy.
+     * @return bool - true if it is that empty directory.
+     */
+    private static function isResumablePlaceholder(string $newRoot, string $stateFile): bool
+    {
+        $isEmptyDirectory = is_dir($newRoot) && !is_link($newRoot) && count(scandir($newRoot) ?: []) === 2;
+        $state = is_file($stateFile) ? json_decode((string)file_get_contents($stateFile), true) : null;
+        $details = $isEmptyDirectory ? lstat($newRoot) : false;
+
+        return (
+               is_array($state)
+            && $details !== false
+            && ($state['device'] ?? null) === $details['dev']
+            && ($state['inode'] ?? null) === $details['ino']
+        );
+    }
+
+
+    /**
+     * Record which empty directory holds a resumable copy's new name (by its device and inode
+     * numbers), so a later attempt can tell it is the one it made (see isResumablePlaceholder()).
+     * @param string $newRoot - the empty directory holding the name.
+     * @param string $stateFile - where to record it.
+     * @return void
+     * @throws FilesystemException - if it couldn't be recorded (the empty directory is removed again).
+     */
+    private static function writeResumableState(string $newRoot, string $stateFile): void
+    {
+        $details = lstat($newRoot);
+        $state = json_encode(["device" => $details['dev'], "inode" => $details['ino']]);
+
+        # Suppress the warning, as we throw an exception instead.
+        if (@file_put_contents($stateFile, $state) === false)
+        {
+            @rmdir($newRoot);
+            throw new FilesystemException("Failed to record the state of the resumable copy in {$stateFile}.");
+        }
+    }
+
+
+    /**
+     * Remove whatever is at a path in a resumable copy, so something else can be copied there.
+     * Nothing there is fine.
+     * @param string $path - the path in the copy.
+     * @return void
+     * @throws FilesystemException - if it couldn't be removed.
+     * @throws BadArgumentException - never, as a symlink is removed as a link.
+     * @throws DirectoryDoesNotExistException - if a directory disappears while it is being removed.
+     * @throws DirectoryNotDeletableException - if something in a directory there can't be removed.
+     */
+    private static function clearForCopy(string $path): void
+    {
+        if (is_dir($path) && !is_link($path))
+        {
+            Filesystem::deleteDir($path);
+        }
+        elseif ((file_exists($path) || is_link($path)) && !@unlink($path))
+        {
+            # Suppress the warning, as we throw an exception instead.
+            throw new FilesystemException("Failed to remove {$path}, to copy over it.");
+        }
+    }
+
+
+    /**
+     * Give a copied directory its original's owner, group, permissions and modification time, for
+     * copyThenDelete(), once everything in it has been copied.
+     * @param string $path - the copied directory.
+     * @param array $stats - lstat() of the original.
+     * @param array $moveSettings - see copyThenDelete().
+     * @return void
+     * @throws BadFilePermissionsException - with PreserveOwnershipEnum::YES, if its owner or group
+     * couldn't be kept.
+     * @throws FilesystemException - if its permissions or modification time couldn't be set.
+     */
+    private static function finishDirectory(string $path, array $stats, array $moveSettings): void
+    {
+        # Permissions come after ownership, as changing the owner clears the setuid and setgid bits.
+        self::restoreOwnership($path, $stats, false, $moveSettings['preserveOwnership']);
+        self::setPermissions($path, $stats, $moveSettings['overrideUmask']);
+        self::setModificationTime($path, $stats);
+    }
+
+
+    /**
+     * Rename a finished copy into place, over the empty directory holding its name, for
+     * copyThenDelete(). Elsewhere, rename() replaces an empty directory in one step (and fails if
+     * anything was put in it). Windows can't rename over a directory, so the empty one is removed
+     * first there.
+     * @param string $copyRoot - the finished copy, under its hidden name.
+     * @param string $newRoot - where it goes.
+     * @return void
+     * @throws FilesystemException - if it couldn't be renamed, e.g. because something was put in the
+     * directory holding the name.
+     */
+    private static function renameIntoPlace(string $copyRoot, string $newRoot): void
+    {
+        # Suppress the warnings, as we throw an exception instead.
+        $cleared = (PHP_OS_FAMILY !== "Windows") || @rmdir($newRoot);
+
+        if (!$cleared || !@rename($copyRoot, $newRoot))
+        {
+            throw new FilesystemException(
+                "Failed to rename the finished copy {$copyRoot} to {$newRoot} (e.g. because something was put in " .
+                "{$newRoot} while it was being copied)."
+            );
+        }
+    }
+
+
+    /**
+     * Remove a partial copy, for copyThenDelete(), and stop remembering it for the shutdown
+     * function (see MoveCopyingTrait).
+     * @param string $path - the partial copy.
+     * @return void
+     */
+    private static function removePartialCopy(string $path): void
+    {
+        if (is_dir($path))
+        {
+            try
+            {
+                Filesystem::deleteDir($path);
+            }
+            catch (\Throwable $cleanUpError)
+            {
+                # Report the copy failing, as that is the cause. The message says what may be left behind.
+            }
+        }
+
+        self::forgetUnfinishedCopy($path);
+    }
+
+
+    /**
+     * Count the files (and symlinks) in a directory and their size, for a MoveProgress, for a move
+     * that doesn't otherwise walk through it.
+     * @param string $directory - the directory.
+     * @return MoveProgress - the totals, with nothing moved yet.
+     * @throws FilesystemException - if a directory in it can't be opened.
+     * @throws DirectoryDoesNotExistException - if a directory disappears while it is being counted.
+     */
+    private static function countContents(string $directory): MoveProgress
+    {
+        $files = 0;
+        $bytes = 0;
+        $toCount = [$directory];
+
+        while (count($toCount) > 0)
+        {
+            $current = array_pop($toCount);
+
+            foreach (Filesystem::getDirContents($current, false, false, false) as $entry)
+            {
+                $path = "{$current}/{$entry}";
+
+                if (is_dir($path) && !is_link($path))
+                {
+                    $toCount[] = $path;
+                }
+                else
+                {
+                    $files++;
+                    $bytes += is_link($path) ? 0 : (int)filesize($path);
+                }
+            }
+        }
+
+        return new MoveProgress($files, $bytes);
     }
 
 
@@ -920,14 +1364,17 @@ class Directory
      * On Windows, a symlink can only be created once its target exists, so one pointing at another
      * symlink waits until that one exists. Elsewhere, any symlink can be created, so they are all
      * created in one go.
-     * @param array<array{0: string, 1: string, 2: array}> $symlinks - each symlink's path, target, and
-     * lstat() of the original.
-     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep their owners and groups.
+     * @param array<array{0: string, 1: string, 2: array, 3: string}> $symlinks - each symlink's path,
+     * target, lstat() of the original, and the original's path.
+     * @param array $moveSettings - see copyThenDelete().
+     * @param MoveProgress $progress - how far the move has got, which this moves on for each symlink,
+     * telling the listener.
      * @return void
+     * @throws MoveCancelledException - if the listener cancelled the move.
      * @throws FilesystemException - if one couldn't be created, or (on Windows) its target never
      * appears.
      */
-    private static function createCopiedSymlinks(array $symlinks, PreserveOwnershipEnum $preserveOwnership): void
+    private static function createCopiedSymlinks(array $symlinks, array $moveSettings, MoveProgress &$progress): void
     {
         $toCreate = $symlinks;
         $madeProgress = true;
@@ -936,20 +1383,24 @@ class Directory
         {
             $madeProgress = false;
 
-            foreach ($toCreate as $index => [$linkPath, $target, $stats])
+            foreach ($toCreate as $index => [$linkPath, $target, $stats, $originalPath])
             {
                 $targetPath = Filesystem::isAbsolutePath($target) ? $target : dirname($linkPath) . "/" . $target;
 
                 if (PHP_OS_FAMILY !== "Windows" || file_exists($targetPath))
                 {
+                    $moveSettings['listener']?->onFileStarting($progress, $originalPath, 0);
+
                     if (!self::createSymlink($target, $linkPath))
                     {
                         throw new FilesystemException("Failed to create the symlink {$linkPath}.");
                     }
 
-                    self::restoreOwnership($linkPath, $stats, true, $preserveOwnership);
+                    self::restoreOwnership($linkPath, $stats, true, $moveSettings['preserveOwnership']);
                     unset($toCreate[$index]);
                     $madeProgress = true;
+                    $progress = $progress->withFileMoved(0);
+                    $moveSettings['listener']?->onFileMoved($progress, $originalPath);
                 }
             }
         }

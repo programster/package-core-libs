@@ -1298,7 +1298,15 @@ $smoke->run("fileperms", function () use ($dir) {
     chmod("{$base}/file.txt", 06755);
     assert(Filesystem::fileperms("{$base}/file.txt") === "-rwsr-sr-x");
     chmod("{$base}/file.txt", 06644);
-    assert(Filesystem::fileperms("{$base}/file.txt") === "-rwSr-Sr--");
+    clearstatcache();
+
+    # Some filesystems (e.g. WSL 1's) drop the setuid and setgid bits from a file nobody can run, so only check the
+    # capitals where they were kept.
+    if ((fileperms("{$base}/file.txt") & 06000) === 06000)
+    {
+        assert(Filesystem::fileperms("{$base}/file.txt") === "-rwSr-Sr--");
+    }
+
     chmod("{$base}/dir", 01777);
     assert(Filesystem::fileperms("{$base}/dir") === "drwxrwxrwt");
     chmod("{$base}/dir", 01776);

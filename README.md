@@ -42,6 +42,37 @@ really the other system's files:
 For the most predictable results, run PHP on the same side as the files: in WSL for files in WSL's filesystem, and on
 Windows for files on Windows drives.
 
+### Progress and cancelling moves
+`File` and `Directory` moves (and renames) take an optional `$listener`, to show progress or cancel the move. Extend
+`AbstractMoveListener` and override the events you want. Throwing `MoveCancelledException` cancels the move: what was
+copied so far is removed, the original is left as it was, and your exception is passed back to you.
+
+```php
+$listener = new class extends AbstractMoveListener {
+    public function onFileMoved(MoveProgress $progress, string $path): void
+    {
+        CliLib::showProgressBar($progress->getPercentMoved(), 0);
+    }
+
+    public function onBytesCopied(MoveProgress $progress, string $path): void
+    {
+        CliLib::showProgressBar($progress->getPercentMoved(), 0);
+    }
+};
+
+$directory->move("/mnt/backup", listener: $listener);
+```
+
+A move within one filesystem is a single instant rename, so it only calls `onMoveStarting()` and `onMoveFinished()`.
+A move to another filesystem also calls `onFileStarting()` and `onFileMoved()` for each file, and `onBytesCopied()`
+after each 8 MiB of a big file, so the progress keeps moving during it (and it can be cancelled part way through).
+A move to another filesystem copies everything under a hidden name, then renames it into place once it is complete,
+so an interrupted copy (e.g. by a timeout, or Ctrl+C) never leaves a half-finished copy under the real name.
+
+`Directory` moves to another filesystem also take `$resumable`. With it set, a copy that fails, is cancelled or is
+interrupted is kept, and making the same move again carries on from there: files already copied (and unchanged since)
+aren't copied again.
+
 ### Recommended Extensions
 This package recommends various extensions such as mbstring in order to be able to perform some of
 the provided methods. However, we did not wish to prevent this from allowing you to install the 

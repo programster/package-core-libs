@@ -15,6 +15,8 @@ use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
 use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
 use Programster\CoreLibs\Exceptions\DirectoryNotMovableException;
+use Programster\CoreLibs\Exceptions\MoveCancelledException;
+use Programster\CoreLibs\Models\MoveListenerInterface;
 use Programster\CoreLibs\Models\FileDeletionProblem;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
@@ -417,8 +419,9 @@ final class Filesystem
 
     /**
      * Move (or rename) a directory and everything in it, updating the symlinks inside it so that
-     * they keep pointing at the same things. This is a shortcut for Directory::rename(), which
-     * explains what is checked and how the symlinks are updated. Unlike Directory, a relative path
+     * they keep pointing at the same things. This is a shortcut for Directory::move(), with the new
+     * name taken from $destination, so see that for what is checked and how the symlinks are
+     * updated. Unlike Directory, a relative path
      * here is relative to the current working directory, as with PHP's own functions.
      * @param string $source - the directory to move.
      * @param string $destination - the path it should have afterwards. Its parent must already
@@ -431,7 +434,15 @@ final class Filesystem
      * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem: how
      * hard to try to keep everything's owner and group. Defaults to YES, which stops the move if
      * they can't all be kept (see Directory::move()).
+     * @param MoveListenerInterface|null $listener - optionally, something to tell how the move is
+     * going, e.g. to show progress while copying to another disk, which can also cancel it (see
+     * MoveListenerInterface). Defaults to null.
+     * @param bool $resumable - when moving to a different filesystem: whether to keep a partial copy
+     * if the move fails, is cancelled or is interrupted (e.g. a network filesystem dropping out,
+     * or a timeout), so that moving it again carries on from there (see Directory::move()).
+     * Defaults to false, which removes a partial copy.
      * @return void
+     * @throws MoveCancelledException - if $listener cancelled the move.
      * @throws BadArgumentException - if $source is a symlink, or $destination is empty or inside
      * $source.
      * @throws DirectoryDoesNotExistException - if there is no directory at $source, or
@@ -446,19 +457,23 @@ final class Filesystem
         string $source,
         string $destination,
         bool $overrideUmask = false,
-        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES,
+        ?MoveListenerInterface $listener = null,
+        bool $resumable = false
     ): void
     {
         $absoluteDestination = self::isAbsolutePath($destination) ? $destination : getcwd() . "/" . $destination;
         $directory = new Directory($source);
-        $directory->rename($absoluteDestination, $overrideUmask, $preserveOwnership);
+        $newParent = dirname($absoluteDestination);
+        $newName = basename($absoluteDestination);
+        $directory->move($newParent, false, $overrideUmask, $preserveOwnership, $listener, $resumable, $newName);
     }
 
 
     /**
-     * Move (or rename) a file. This is a shortcut for File::rename(), which explains what is
-     * checked: a directory is never replaced, a file is only replaced with $overwriteExistingFile,
-     * and a symlink is moved as the link itself (a relative one is recreated so that it still
+     * Move (or rename) a file. This is a shortcut for File::move(), with the new name taken from
+     * $destination, which explains what is checked: a directory is never replaced, a file is only
+     * replaced with $overwriteExistingFile, and a symlink is moved as the link itself (a relative one is recreated so that it still
      * points at the same place). Unlike File, a relative path here is relative to the current
      * working directory, as with PHP's own functions.
      * @param string $source - the file to move.
@@ -469,7 +484,10 @@ final class Filesystem
      * @param PreserveOwnershipEnum $preserveOwnership - when moving to a different filesystem: how
      * hard to try to keep the file's owner and group. Defaults to YES, which doesn't move it if they
      * can't be kept (see File::move()).
+     * @param MoveListenerInterface|null $listener - optionally, something to tell how the move is
+     * going, which can also cancel it (see MoveListenerInterface). Defaults to null.
      * @return void
+     * @throws MoveCancelledException - if $listener cancelled the move.
      * @throws BadArgumentException - if $destination is empty, or ends with a "/".
      * @throws FileDoesNotExistException - if there is no file at $source.
      * @throws DirectoryDoesNotExistException - if $destination's directory doesn't exist.
@@ -483,12 +501,15 @@ final class Filesystem
         string $source,
         string $destination,
         bool $overwriteExistingFile = false,
-        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::YES,
+        ?MoveListenerInterface $listener = null
     ): void
     {
         $absoluteDestination = self::isAbsolutePath($destination) ? $destination : getcwd() . "/" . $destination;
         $file = new File($source);
-        $file->rename($absoluteDestination, $overwriteExistingFile, $preserveOwnership);
+        $newDirectory = dirname($absoluteDestination);
+        $newName = basename($absoluteDestination);
+        $file->move($newDirectory, false, $overwriteExistingFile, $preserveOwnership, $listener, $newName);
     }
 
 
@@ -2410,13 +2431,45 @@ final class Filesystem
 
     /**
      * Check whether a directory can be listed and entered, which is needed to find, delete or copy
-     * what is in it.
+     * what is in it. On Windows, is_readable() can be false for a directory that can be listed
+     * (e.g. one in WSL, reached through \\wsl.localhost), so there, this tries opening it instead.
      * @param string $directory - the directory to check.
      * @return bool - true if it can be.
      */
     public static function canListDirectory(string $directory): bool
     {
-        return is_readable($directory) && self::canEnterDirectory($directory);
+        $canList = false;
+
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            # Suppress the warning, as failing just means it can't be listed.
+            $handle = @opendir($directory);
+            $canList = ($handle !== false);
+
+            if ($handle !== false)
+            {
+                closedir($handle);
+            }
+        }
+        else
+        {
+            $canList = is_readable($directory) && self::canEnterDirectory($directory);
+        }
+
+        return $canList;
+    }
+
+
+    /**
+     * Check whether SELinux is enabled (enforcing or permissive), which labels every file, so a file
+     * renamed in from another directory keeps that directory's label, and may then be refused
+     * access where it ends up. On systems without SELinux (including macOS and Windows), this is
+     * false.
+     * @return bool - true if it is enabled.
+     */
+    public static function isSelinuxEnabled(): bool
+    {
+        return file_exists("/sys/fs/selinux/enforce");
     }
 
 
@@ -3305,17 +3358,6 @@ final class Filesystem
         # Suppress the warning: if it can't be told, assume there is room.
         $freeBytes = @disk_free_space($directory);
         return ($freeBytes === false) || ($freeBytes >= $bytes);
-    }
-
-
-    /**
-     * Check whether SELinux is enabled (enforcing or permissive), which labels every file, so a file
-     * renamed in from another directory keeps that directory's label.
-     * @return bool - true if it is enabled.
-     */
-    private static function isSelinuxEnabled(): bool
-    {
-        return file_exists("/sys/fs/selinux/enforce");
     }
 
 
