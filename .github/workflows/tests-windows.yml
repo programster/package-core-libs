@@ -58,8 +58,9 @@ jobs:
             - name: Run the tests
               shell: bash
               run: |
-                  php testing/main.php > test-output.txt 2>&1
-                  status=$?
+                  # GitHub runs bash with -e, which would stop here if the tests failed, so catch the exit code instead.
+                  status=0
+                  php testing/main.php > test-output.txt 2>&1 || status=$?
                   cat test-output.txt
                   summary=$(grep -E "passed, [0-9]+ failed" test-output.txt | head -1)
                   echo "::notice title=PHP ${{ matrix.php }} results::${summary:-no summary line}"
