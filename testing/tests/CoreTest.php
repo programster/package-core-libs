@@ -7,6 +7,7 @@
 use Programster\CoreLibs\Core;
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 use Programster\CoreLibs\Enums\MemoryTypeEnum;
+use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\PhpVersionTooLowException;
 use Programster\CoreLibs\Network;
@@ -16,9 +17,17 @@ use Programster\CoreLibs\Testing\SmokeTest;
 /** @var string $dir - a temporary directory for the tests to use, which is deleted afterwards. */
 
 $smoke->run("getMemory", function () {
-    assert(Core::getMemory() > 0);
-    assert(Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::GIB) > 0);
-    Core::getMemory(MemoryTypeEnum::HUGE_PAGES_TOTAL);
+    # It reads /proc/meminfo, so only works on Linux, and says so elsewhere.
+    if (PHP_OS_FAMILY === "Linux")
+    {
+        assert(Core::getMemory() > 0);
+        assert(Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::GIB) > 0);
+        Core::getMemory(MemoryTypeEnum::HUGE_PAGES_TOTAL);
+    }
+    else
+    {
+        SmokeTest::expectException(UnsupportedPlatformException::class, fn() => Core::getMemory());
+    }
 });
 
 $smoke->run("signatures", function () {
@@ -33,8 +42,15 @@ $smoke->run("versionGuard", function () {
 });
 
 $smoke->run("runCommand / processes", function () {
-    assert(Core::runCommand("echo hi") === "hi\n");
-    assert(Core::runCommand("cat", "some input") === "some input");
+    # Windows ends lines with "\r\n", and has no cat command.
+    assert(rtrim(Core::runCommand("echo hi")) === "hi");
+
+    if (PHP_OS_FAMILY !== "Windows")
+    {
+        assert(Core::runCommand("echo hi") === "hi\n");
+        assert(Core::runCommand("cat", "some input") === "some input");
+    }
+
     assert(Core::getNumProcessors() > 0);
     assert(Core::getNumProcRunning("nothing-is-called-this") === 0);
     Core::setCliTitle("corelibs-smoke");
@@ -105,7 +121,7 @@ $smoke->run("redirectUser", function () use ($dir) {
     $portFinder = stream_socket_server("tcp://127.0.0.1:0");
     $port = (int) substr(strrchr(stream_socket_get_name($portFinder, false), ":"), 1);
     fclose($portFinder);
-    $nullDevice = ['file', '/dev/null', 'w'];
+    $nullDevice = ['file', SmokeTest::nullDevice(), 'w'];
 
     $server = proc_open(
         [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', "{$dir}/redirect-www"],

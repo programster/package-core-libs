@@ -20,6 +20,9 @@ final class SmokeTest
     # Checks that couldn't be run in this environment (e.g. ones that need root), so they can be reported.
     private static array $s_skipped = [];
 
+    # Whether symlinks can be created here, found the first time it is needed (see canCreateSymlinks()).
+    private static ?bool $s_canCreateSymlinks = null;
+
 
     public function __construct()
     {
@@ -41,16 +44,22 @@ final class SmokeTest
      * Run one test, recording it as failed if it throws, or raises any warnings/deprecations.
      * @param string $label - the name of the test, shown if it fails.
      * @param callable $test - the test to run.
+     * @param bool $needsSymlinks - true if the whole test is about symlinks, so it is skipped (and
+     * reported as skipped) where they can't be created, e.g. on Windows without admin rights.
      * @return void
      */
-    public function run(string $label, callable $test): void
+    public function run(string $label, callable $test, bool $needsSymlinks = false): void
     {
         $numWarningsBefore = count($this->m_warnings);
         $error = "";
+        $shouldRun = !$needsSymlinks || self::canCreateSymlinks($label);
 
         try
         {
-            $test();
+            if ($shouldRun)
+            {
+                $test();
+            }
         }
         catch (\Throwable $e)
         {
@@ -59,7 +68,11 @@ final class SmokeTest
 
         $newWarnings = array_slice($this->m_warnings, $numWarningsBefore);
 
-        if ($error === "" && count($newWarnings) === 0)
+        if (!$shouldRun)
+        {
+            # Recorded as skipped by canCreateSymlinks(), so neither passed nor failed.
+        }
+        elseif ($error === "" && count($newWarnings) === 0)
         {
             $this->m_numPassed++;
         }
@@ -168,8 +181,13 @@ final class SmokeTest
      */
     public static function canTestPermissions(string $checkName): bool
     {
-        # Without the posix extension, a read-only file that is still writable means we are root.
-        if (function_exists('posix_geteuid'))
+        # Windows has no Unix permissions to test. (Its read-only attribute would also stop the probe below being
+        # deleted.)
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            $isRoot = false;
+        }
+        elseif (function_exists('posix_geteuid'))
         {
             $isRoot = posix_geteuid() === 0;
         }
@@ -181,13 +199,17 @@ final class SmokeTest
             unlink($probe);
         }
 
-        if ($isRoot)
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            self::$s_skipped[] = "{$checkName} (needs Unix permissions, which Windows doesn't have)";
+        }
+        elseif ($isRoot)
         {
             self::$s_skipped[] = "{$checkName} (needs a normal user, as root ignores permissions, so is covered by " .
                 "the normal-user run in run-all-php-versions.sh)";
         }
 
-        return !$isRoot;
+        return !$isRoot && PHP_OS_FAMILY !== "Windows";
     }
 
 
@@ -204,6 +226,101 @@ final class SmokeTest
             fileowner($filepath) === self::OTHER_USER_ID && filegroup($filepath) === self::OTHER_USER_ID,
             "{$checkName} changed the file's owner"
         );
+    }
+
+
+    /**
+     * Assert a file or directory's Unix permissions, or record the check as skipped on Windows,
+     * which doesn't have them.
+     * @param string $path - the file or directory.
+     * @param int $permissions - the permissions it should have, e.g. 0640. The setuid, setgid and
+     * sticky bits are only compared if this includes any of them (e.g. 02755).
+     * @param string $message - optionally, what to say if it fails.
+     * @return void
+     */
+    public static function assertPermissions(string $path, int $permissions, string $message = ""): void
+    {
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            self::$s_skipped[] = "permission checks (Windows doesn't have Unix permissions)";
+        }
+        else
+        {
+            clearstatcache(true, $path);
+            # Only compare the setuid, setgid and sticky bits if the expected permissions include any.
+            $mask = ($permissions > 0777) ? 07777 : 0777;
+            $actual = fileperms($path) & $mask;
+            $description = ($message !== "") ? $message : "{$path} has permissions " . decoct($actual);
+            assert($actual === $permissions, $description . ", not " . decoct($permissions));
+        }
+    }
+
+
+    /**
+     * Assert that two paths lead to the same place, comparing them after resolving them, so that
+     * differences that don't matter (e.g. Windows' short names such as "RUNNER~1", or "\\" and "/")
+     * don't fail the check.
+     * @param string $actual - the path being checked.
+     * @param string $expected - the path it should be.
+     * @param string $message - optionally, what to say if it fails.
+     * @return void
+     */
+    public static function assertSamePath(string $actual, string $expected, string $message = ""): void
+    {
+        $resolvedActual = \Programster\CoreLibs\Filesystem::resolvePath($actual);
+        $resolvedExpected = \Programster\CoreLibs\Filesystem::resolvePath($expected);
+        $description = ($message !== "") ? $message : "{$actual} isn't {$expected}";
+        assert($resolvedActual === $resolvedExpected, $description);
+    }
+
+
+    /**
+     * Check whether symlinks can be created here (on Windows, they need admin rights or developer
+     * mode). If not, record the check as skipped, so that main.php can report it.
+     * @param string $checkName - what the check is for, to show if it is skipped.
+     * @return bool - true if symlinks can be created.
+     */
+    public static function canCreateSymlinks(string $checkName): bool
+    {
+        if (self::$s_canCreateSymlinks === null)
+        {
+            $probe = sys_get_temp_dir() . "/corelibs-symlink-check-" . getmypid();
+            self::$s_canCreateSymlinks = @symlink(__FILE__, $probe);
+
+            if (self::$s_canCreateSymlinks)
+            {
+                unlink($probe);
+            }
+        }
+
+        if (!self::$s_canCreateSymlinks)
+        {
+            self::$s_skipped[] = "{$checkName} (needs symlinks, which can't be created here)";
+        }
+
+        return self::$s_canCreateSymlinks;
+    }
+
+
+    /**
+     * Get the start of the name tempnam() gives a file with a prefix. Windows only uses the first
+     * three characters of the prefix (e.g. "corelibs-tmp-" gives "cor1A2B.tmp").
+     * @param string $prefix - the prefix given to tempnam().
+     * @return string - what the file's name starts with.
+     */
+    public static function tempnamPrefix(string $prefix): string
+    {
+        return (PHP_OS_FAMILY === "Windows") ? substr($prefix, 0, 3) : $prefix;
+    }
+
+
+    /**
+     * Get the path of the system's null device, which discards anything written to it.
+     * @return string - "NUL" on Windows, or "/dev/null" elsewhere.
+     */
+    public static function nullDevice(): string
+    {
+        return (PHP_OS_FAMILY === "Windows") ? "NUL" : "/dev/null";
     }
 
 

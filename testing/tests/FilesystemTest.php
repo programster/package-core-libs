@@ -40,7 +40,9 @@ $smoke->run("directories and files", function () use ($dir) {
     SmokeTest::expectException(
         FilesystemException::class,
         fn() => Filesystem::mkdir("{$isFile}/child"),
-        "Failed to create the directory {$isFile}/child: mkdir(): Not a directory"
+        # Windows gives a different reason for the same thing.
+        "Failed to create the directory {$isFile}/child: mkdir(): " .
+        ((PHP_OS_FAMILY === "Windows") ? "No such file or directory" : "Not a directory")
     );
     file_put_contents("{$dir}/sub/deep/f.txt", "abc\nxyz\n");
     Filesystem::getDirectories($dir, true);
@@ -73,7 +75,7 @@ $smoke->run("directories and files", function () use ($dir) {
     SmokeTest::expectException(NoFileExtensionException::class, fn() => Filesystem::getFileExtension("file."));
     Filesystem::deleteDir(Filesystem::tmpDir());
     Filesystem::mkdir("{$dir}/perms", "0o750");
-    assert((fileperms("{$dir}/perms") & 0777) === (0750 & ~umask()));
+    SmokeTest::assertPermissions("{$dir}/perms", (0750 & ~umask()));
     SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::mkdir("{$dir}/bad", "493"));
     SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::mkdir("{$dir}/bad", "0758"));
     assert(!file_exists("{$dir}/bad"));
@@ -89,11 +91,13 @@ $smoke->run("directories and files", function () use ($dir) {
     Filesystem::mkdir("{$dir}/umask-flat", "0770", false, true);
     umask($oldUmask);
     clearstatcache();
-    $permsOf = fn(string $path) => fileperms($path) & 07777;
-    assert($permsOf("{$dir}/umask-default") === 0755 && $permsOf("{$dir}/umask-default/child") === 0755);
-    assert($permsOf("{$dir}/umask-existing/a") === 0775 && $permsOf("{$dir}/umask-existing/a/b") === 0775);
-    assert($permsOf("{$dir}/umask-existing") === 0700, "mkdir() changed a directory that already existed");
-    assert($permsOf("{$dir}/umask-sticky") === 01777 && $permsOf("{$dir}/umask-flat") === 0770);
+    SmokeTest::assertPermissions("{$dir}/umask-default", 0755);
+    SmokeTest::assertPermissions("{$dir}/umask-default/child", 0755);
+    SmokeTest::assertPermissions("{$dir}/umask-existing/a", 0775);
+    SmokeTest::assertPermissions("{$dir}/umask-existing/a/b", 0775);
+    SmokeTest::assertPermissions("{$dir}/umask-existing", 0700, "mkdir() changed a directory that already existed");
+    SmokeTest::assertPermissions("{$dir}/umask-sticky", 01777);
+    SmokeTest::assertPermissions("{$dir}/umask-flat", 0770);
 
     # The default matches PHP's mkdir() (0777), reduced by the umask, so with the usual umask of 022 it gives 0755.
     $oldUmask = umask(0022);
@@ -102,7 +106,8 @@ $smoke->run("directories and files", function () use ($dir) {
     Filesystem::mkdir("{$dir}/umask-group-default");
     umask($oldUmask);
     clearstatcache();
-    assert($permsOf("{$dir}/umask-php-default") === 0755 && $permsOf("{$dir}/umask-group-default") === 0775);
+    SmokeTest::assertPermissions("{$dir}/umask-php-default", 0755);
+    SmokeTest::assertPermissions("{$dir}/umask-group-default", 0775);
     assert(Filesystem::permissionsStringToInt("755") === 0755);
     assert(Filesystem::permissionsStringToInt("0o1777") === 01777);
     SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::permissionsStringToInt("0x755"));
@@ -131,7 +136,7 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
     clearstatcache();
     assert(file_get_contents("{$dir}/utf8-dir/w.txt") === "Привет");
     assert(file_get_contents("{$dir}/utf8-dir/w-link.txt") === "Привет");
-    assert((fileperms("{$dir}/utf8-dir/w.txt") & 0777) === 0640);
+    SmokeTest::assertPermissions("{$dir}/utf8-dir/w.txt", 0640);
 
     if ($ownedByOtherUser)
     {
@@ -159,8 +164,10 @@ $smoke->run("replacing file contents in place", function () use ($dir) {
     # createReplacementFile() with ALWAYS makes an empty, private file in the system's temporary directory.
     $tmpFilepath = Filesystem::createReplacementFile("{$dir}/replace.txt", UseSystemTempDirEnum::ALWAYS);
     clearstatcache();
-    assert(dirname($tmpFilepath) === sys_get_temp_dir() && str_starts_with(basename($tmpFilepath), "corelibs-tmp-"));
-    assert(filesize($tmpFilepath) === 0 && (fileperms($tmpFilepath) & 0777) === 0600);
+    SmokeTest::assertSamePath(dirname($tmpFilepath), sys_get_temp_dir());
+    assert(str_starts_with(basename($tmpFilepath), SmokeTest::tempnamPrefix("corelibs-tmp-")));
+    assert(filesize($tmpFilepath) === 0);
+    SmokeTest::assertPermissions($tmpFilepath, 0600);
 
     # replaceWithFile() copies it into the original, shortening it if needed, and removes the temporary file.
     file_put_contents("{$dir}/replace.txt", "a long original line\n");
@@ -169,7 +176,8 @@ $smoke->run("replacing file contents in place", function () use ($dir) {
     file_put_contents($tmpFilepath, "short\n");
     Filesystem::replaceWithFile("{$dir}/replace.txt", $tmpFilepath);
     clearstatcache();
-    assert(file_get_contents("{$dir}/replace.txt") === "short\n" && (fileperms("{$dir}/replace.txt") & 0777) === 0644);
+    assert(file_get_contents("{$dir}/replace.txt") === "short\n");
+    SmokeTest::assertPermissions("{$dir}/replace.txt", 0644);
     assert(!file_exists($tmpFilepath));
 
     if ($ownedByOtherUser)
@@ -214,7 +222,7 @@ $smoke->run("downloadFile", function () use ($dir) {
     $portFinder = stream_socket_server("tcp://127.0.0.1:0");
     $port = (int) substr(strrchr(stream_socket_get_name($portFinder, false), ":"), 1);
     fclose($portFinder);
-    $nullDevice = ['file', '/dev/null', 'w'];
+    $nullDevice = ['file', SmokeTest::nullDevice(), 'w'];
     $server = proc_open(
         [PHP_BINARY, '-S', "127.0.0.1:{$port}", '-t', "{$dir}/www"],
         [1 => $nullDevice, 2 => $nullDevice],
@@ -267,12 +275,18 @@ $smoke->run("downloadFile without curl", function () {
         'set_error_handler(fn(int $number, string $message) => true); ' .
         'try { Programster\\CoreLibs\\Filesystem::downloadFile("http://127.0.0.1:1/x"); echo "downloaded"; } ' .
         'catch (Exception $e) { echo get_class($e), ": ", $e->getMessage(); }';
+    # Run it from a script file, rather than with -r, as shell quoting of code differs on Windows.
+    $script = tempnam(sys_get_temp_dir(), "corelibs-no-curl-");
+    file_put_contents($script, "<?php {$code}");
     $output = (string)shell_exec(
-        escapeshellarg(PHP_BINARY) . " -d disable_functions=curl_version -r " . escapeshellarg($code) . " 2>&1"
+        escapeshellarg(PHP_BINARY) . " -d disable_functions=curl_version " . escapeshellarg($script) . " 2>&1"
     );
+    unlink($script);
     $expected = FilesystemException::class . ": Failed to download http://127.0.0.1:1/x: fopen(";
     assert(str_starts_with($output, $expected), "downloadFile() without curl gave: {$output}");
-    assert(str_contains($output, "Connection refused"), "downloadFile() without curl gave: {$output}");
+
+    # Linux says "Connection refused", and Windows "the target machine actively refused it".
+    assert(str_contains($output, "refused"), "downloadFile() without curl gave: {$output}");
 });
 
 $smoke->run("zipDir / unzip", function () use ($dir) {
@@ -307,11 +321,14 @@ $smoke->run("zipDir / unzip", function () use ($dir) {
     # The destination is only created once the zip has opened, so an invalid zip doesn't leave it behind.
     assert(!file_exists("{$dir}/bad"));
 
-    # deleteDir() through a symlink used to empty the folder it points to, so it must now refuse, and touch nothing.
-    symlink("{$dir}/ziptest", "{$dir}/ziplink");
-    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink"));
-    SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink/"));
-    assert(file_exists("{$dir}/ziptest/sub/a.txt") && is_link("{$dir}/ziplink"));
+    if (SmokeTest::canCreateSymlinks("deleteDir() refusing a symlink"))
+    {
+        # deleteDir() through a symlink used to empty the folder it points to, so it must now refuse, and touch nothing.
+        symlink("{$dir}/ziptest", "{$dir}/ziplink");
+        SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink"));
+        SmokeTest::expectException(BadArgumentException::class, fn() => Filesystem::deleteDir("{$dir}/ziplink/"));
+        assert(file_exists("{$dir}/ziptest/sub/a.txt") && is_link("{$dir}/ziplink"));
+    }
 
     # zipDir() with $deleteOnComplete on a symlink zips the folder, then removes only the link, keeping the folder.
     Filesystem::zipDir("{$dir}/ziplink/", "{$dir}/link.zip", true);
@@ -516,7 +533,7 @@ $smoke->run("deleteDir / emptyDir check everything first", function () use ($dir
         assert(scandir("{$dir}/delete-parent/child") === [".", ".."]);
         chmod("{$dir}/delete-parent", 0755);
     }
-});
+}, needsSymlinks: true);
 
 $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
     # The "up" links below point at $dir (the tests' own temporary directory), never at "/", so that if following
@@ -599,7 +616,7 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
         assert(file_get_contents("{$base}/locked-parent/target/t.txt") === "t");
         chmod("{$base}/locked-parent", 0755);
     }
-});
+}, needsSymlinks: true);
 
 $smoke->run("fileFilter", function () use ($dir) {
     $base = "{$dir}/filter";
@@ -616,21 +633,24 @@ $smoke->run("fileFilter", function () use ($dir) {
     clearstatcache();
     assert(file_get_contents("{$base}/in-place.txt") === "abc\ndef\n");
     assert(file_get_contents("{$base}/in-place-link.txt") === "abc\ndef\n");
-    assert((fileperms("{$base}/in-place.txt") & 0777) === 0640);
+    SmokeTest::assertPermissions("{$base}/in-place.txt", 0640);
 
     if ($ownedByOtherUser)
     {
         SmokeTest::assertOwnedByOtherUser("{$base}/in-place.txt", "fileFilter()");
     }
 
-    # The same file under another path (here a symlink) counts as in place.
-    symlink("{$base}/in-place.txt", "{$base}/in-place-symlink.txt");
-    Filesystem::fileFilter(
-        "{$base}/in-place.txt",
-        fn(string $line) => $line !== "def\n",
-        "{$base}/in-place-symlink.txt"
-    );
-    assert(file_get_contents("{$base}/in-place.txt") === "abc\n" && is_link("{$base}/in-place-symlink.txt"));
+    if (SmokeTest::canCreateSymlinks("fileFilter() through a symlink"))
+    {
+        # The same file under another path (here a symlink) counts as in place.
+        symlink("{$base}/in-place.txt", "{$base}/in-place-symlink.txt");
+        Filesystem::fileFilter(
+            "{$base}/in-place.txt",
+            fn(string $line) => $line !== "def\n",
+            "{$base}/in-place-symlink.txt"
+        );
+        assert(file_get_contents("{$base}/in-place.txt") === "abc\n" && is_link("{$base}/in-place-symlink.txt"));
+    }
 
     # The callback throwing part way through leaves the file untouched.
     file_put_contents("{$base}/throws.txt", "one\ntwo\nthree\n");
@@ -646,7 +666,7 @@ $smoke->run("fileFilter", function () use ($dir) {
     Filesystem::fileFilter("{$base}/source.txt", $keepNonX, "{$base}/new-output.txt");
     clearstatcache();
     assert(file_get_contents("{$base}/new-output.txt") === "abc\n");
-    assert((fileperms("{$base}/new-output.txt") & 0777) === (0666 & ~umask()));
+    SmokeTest::assertPermissions("{$base}/new-output.txt", (0666 & ~umask()));
     assert(file_get_contents("{$base}/source.txt") === "abc\nxyz\n");
 
     # To an existing output file: it is replaced, keeping its permissions.
@@ -655,7 +675,7 @@ $smoke->run("fileFilter", function () use ($dir) {
     Filesystem::fileFilter("{$base}/source.txt", $keepNonX, "{$base}/existing-output.txt");
     clearstatcache();
     assert(file_get_contents("{$base}/existing-output.txt") === "abc\n");
-    assert((fileperms("{$base}/existing-output.txt") & 0777) === 0604);
+    SmokeTest::assertPermissions("{$base}/existing-output.txt", 0604);
 
     # Nothing is left in the temporary directory, whether it worked or not.
     assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
@@ -693,12 +713,13 @@ $smoke->run("tmpDir", function () use ($dir) {
     $tmpDir1 = Filesystem::tmpDir();
     $tmpDir2 = Filesystem::tmpDir("0700");
     clearstatcache();
-    assert(dirname($tmpDir1) === sys_get_temp_dir() && str_starts_with(basename($tmpDir1), "corelibs-dir-"));
+    SmokeTest::assertSamePath(dirname($tmpDir1), sys_get_temp_dir());
+    assert(str_starts_with(basename($tmpDir1), "corelibs-dir-"));
     assert(is_dir($tmpDir1) && scandir($tmpDir1) === [".", ".."] && $tmpDir1 !== $tmpDir2);
 
     # The mode is applied, reduced by the umask, as with mkdir().
-    assert((fileperms($tmpDir1) & 0777) === (0777 & ~umask()));
-    assert((fileperms($tmpDir2) & 0777) === (0700 & ~umask()));
+    SmokeTest::assertPermissions($tmpDir1, (0777 & ~umask()));
+    SmokeTest::assertPermissions($tmpDir2, (0700 & ~umask()));
     rmdir($tmpDir1);
     rmdir($tmpDir2);
 
@@ -706,7 +727,7 @@ $smoke->run("tmpDir", function () use ($dir) {
     $oldUmask = umask(0022);
     $exactTmpDir = Filesystem::tmpDir("0777", true);
     clearstatcache();
-    assert((fileperms($exactTmpDir) & 0777) === 0777);
+    SmokeTest::assertPermissions($exactTmpDir, 0777);
     rmdir($exactTmpDir);
     umask($oldUmask);
 
@@ -811,7 +832,7 @@ $smoke->run("getDirectories / getDirContents and symlinks", function () use ($di
 
     # The links point back into the test directory, so remove them, as other tests list $dir.
     Filesystem::deleteDir($base);
-});
+}, needsSymlinks: true);
 
 $smoke->run("unzip", function () use ($dir) {
     $base = "{$dir}/unzip-test";
@@ -997,7 +1018,7 @@ $smoke->run("fileperms", function () use ($dir) {
         fn() => Filesystem::fileperms("{$base}/missing"),
         "There is nothing at {$base}/missing"
     );
-});
+}, needsSymlinks: true);
 
 $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     $base = "{$dir}/zip-links";
@@ -1143,7 +1164,7 @@ $smoke->run("zipDir / unzip with symlinks", function () use ($dir) {
     Filesystem::zipDir("{$base}/named-link", "{$base}/named.zip", false);
     Filesystem::unzip("{$base}/named.zip", "{$base}/out-named", false, true);
     assert(file_get_contents("{$base}/out-named/named-link/d.txt") === "deeper");
-});
+}, needsSymlinks: true);
 
 $smoke->run("zipDir including hidden files", function () use ($dir) {
     $base = "{$dir}/zip-hidden";
@@ -1182,12 +1203,13 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     # NEVER puts a hidden, private file next to the original.
     $nextTo = Filesystem::createReplacementFile("{$base}/a.txt", UseSystemTempDirEnum::NEVER);
     clearstatcache();
-    assert(dirname($nextTo) === realpath($base) && str_starts_with(basename($nextTo), ".corelibs-tmp-"));
-    assert((fileperms($nextTo) & 0777) === 0600);
+    SmokeTest::assertSamePath(dirname($nextTo), realpath($base));
+    assert(str_starts_with(basename($nextTo), SmokeTest::tempnamPrefix(".corelibs-tmp-")));
+    SmokeTest::assertPermissions($nextTo, 0600);
 
     # WHEN_SAME_FS uses the system's temporary directory when it is on the same filesystem as the original.
     $sameFs = Filesystem::createReplacementFile("{$base}/a.txt", UseSystemTempDirEnum::WHEN_SAME_FS);
-    assert(dirname($sameFs) === sys_get_temp_dir());
+    SmokeTest::assertSamePath(dirname($sameFs), sys_get_temp_dir());
     unlink($sameFs);
 
     if (is_dir("/dev/shm") && stat("/dev/shm")['dev'] !== stat(sys_get_temp_dir())['dev'])
@@ -1206,7 +1228,7 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     # from there (the test directory is inside it here)...
     file_put_contents("{$base}/auto.txt", "x");
     $auto = Filesystem::createReplacementFile("{$base}/auto.txt", UseSystemTempDirEnum::AUTO);
-    assert(dirname($auto) === sys_get_temp_dir());
+    SmokeTest::assertSamePath(dirname($auto), sys_get_temp_dir());
     unlink($auto);
 
     # ...and next to the original when the system's temporary directory is on another (disk) filesystem, as renaming
@@ -1246,7 +1268,7 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     # ...and otherwise (e.g. it has another hard link, so would be copied back) in the system's temporary directory.
     link("{$base}/auto.txt", "{$base}/auto-hard-link.txt");
     $auto = Filesystem::createReplacementFile("{$base}/auto.txt", UseSystemTempDirEnum::AUTO);
-    assert(dirname($auto) === sys_get_temp_dir());
+    SmokeTest::assertSamePath(dirname($auto), sys_get_temp_dir());
     unlink($auto);
 
     # A tmpfs (held in memory) only counts as having room if that much memory is available too. /dev/shm is a tmpfs
@@ -1304,7 +1326,7 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
         link("{$base}/big.txt", "{$base}/big-hard-link.txt");
 
         $chosen = $chooseAuto($smallFilesystem, "{$base}/big.txt");
-        assert(dirname($chosen) === realpath($base), "AUTO with a full temporary directory chose: {$chosen}");
+        SmokeTest::assertSamePath(dirname($chosen), realpath($base), "AUTO with a full temporary directory chose: {$chosen}");
         unlink($chosen);
     }
 
@@ -1316,7 +1338,8 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     file_put_contents($nextTo, "new");
     Filesystem::replaceWithFile("{$base}/a.txt", $nextTo);
     clearstatcache();
-    assert(file_get_contents("{$base}/a.txt") === "new" && (fileperms("{$base}/a.txt") & 0777) === 0640);
+    assert(file_get_contents("{$base}/a.txt") === "new");
+    SmokeTest::assertPermissions("{$base}/a.txt", 0640);
     assert(fileinode("{$base}/a.txt") !== $inodeBefore && !file_exists($nextTo));
 
     # One with another hard link is copied back instead, so both names still share the new contents.
@@ -1328,13 +1351,16 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     clearstatcache();
     assert(fileinode("{$base}/a.txt") === $inodeBefore && file_get_contents("{$base}/a-hard-link.txt") === "newer");
 
-    # As is a symlink, which stays a symlink to the file it pointed to.
-    file_put_contents("{$base}/target.txt", "old");
-    symlink("target.txt", "{$base}/link.txt");
-    $tmp = Filesystem::createReplacementFile("{$base}/link.txt", UseSystemTempDirEnum::NEVER);
-    file_put_contents($tmp, "via link");
-    Filesystem::replaceWithFile("{$base}/link.txt", $tmp);
-    assert(is_link("{$base}/link.txt") && file_get_contents("{$base}/target.txt") === "via link");
+    if (SmokeTest::canCreateSymlinks("replaceWithFile() through a symlink"))
+    {
+        # As is a symlink, which stays a symlink to the file it pointed to.
+        file_put_contents("{$base}/target.txt", "old");
+        symlink("target.txt", "{$base}/link.txt");
+        $tmp = Filesystem::createReplacementFile("{$base}/link.txt", UseSystemTempDirEnum::NEVER);
+        file_put_contents($tmp, "via link");
+        Filesystem::replaceWithFile("{$base}/link.txt", $tmp);
+        assert(is_link("{$base}/link.txt") && file_get_contents("{$base}/target.txt") === "via link");
+    }
 
     # One in the system's temporary directory (ALWAYS) is renamed from there too when it is on the same filesystem (as
     # the test directory is here), unless SELinux is enabled.
@@ -1378,7 +1404,8 @@ $smoke->run("path helpers", function () use ($dir) {
     $normalised = [
         "/a/./b/../c/" => "/a/c",
         "/../a" => "/a",
-        "//a//b" => "/a/b",
+        # On Windows, a path starting with "//" is a UNC path (//server/share), so the first two are kept.
+        "//a//b" => (PHP_OS_FAMILY === "Windows") ? "//a/b" : "/a/b",
         "/" => "/",
         "a/./b/../c" => "a/c",
         "a/../../b" => "../b",
@@ -1418,36 +1445,39 @@ $smoke->run("path helpers", function () use ($dir) {
     # resolveLinkTarget() works out where a symlink's target leads, even for a broken one.
     mkdir("{$dir}/path-helpers/sub", 0777, true);
     $real = realpath("{$dir}/path-helpers");
-    assert(Filesystem::resolveLinkTarget("{$real}/sub", "../x.txt") === "{$real}/x.txt");
+    assert(Filesystem::resolveLinkTarget("{$real}/sub", "../x.txt") === Filesystem::normalisePath("{$real}/x.txt"));
     assert(Filesystem::resolveLinkTarget("{$real}/sub", "/elsewhere/./y.txt") === "/elsewhere/y.txt");
 
-    # resolvePath() follows the symlinks in the part of a path that exists, and tidies the rest.
-    mkdir("{$real}/data");
-    symlink("{$real}/data", "{$real}/link");
-    assert(Filesystem::resolvePath("{$real}/link/new/../file.txt") === "{$real}/data/file.txt");
-    assert(Filesystem::resolvePath("{$real}/sub") === "{$real}/sub");
+    if (SmokeTest::canCreateSymlinks("resolvePath() and isWithinDirectory() with symlinks"))
+    {
+        # resolvePath() follows the symlinks in the part of a path that exists, and tidies the rest.
+        mkdir("{$real}/data");
+        symlink("{$real}/data", "{$real}/link");
+        assert(Filesystem::resolvePath("{$real}/link/new/../file.txt") === "{$real}/data/file.txt");
+        assert(Filesystem::resolvePath("{$real}/sub") === "{$real}/sub");
 
-    # isWithinDirectory() follows symlinks by default, so a path through a link is where the link leads.
-    assert(Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/data"));
-    assert(!Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/sub"));
-    assert(Filesystem::isWithinDirectory("{$real}/data/file.txt", "{$real}/link"));
+        # isWithinDirectory() follows symlinks by default, so a path through a link is where the link leads.
+        assert(Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/data"));
+        assert(!Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/sub"));
+        assert(Filesystem::isWithinDirectory("{$real}/data/file.txt", "{$real}/link"));
 
-    # Without resolving, only the paths as written are compared.
-    assert(!Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/data", false));
+        # Without resolving, only the paths as written are compared.
+        assert(!Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/data", false));
 
-    # removeSymlink() removes a link (to a directory or a file) but not what it points to, and refuses anything else.
-    symlink("{$real}/sub", "{$real}/dir-link");
-    Filesystem::removeSymlink("{$real}/dir-link/");
-    assert(!is_link("{$real}/dir-link") && is_dir("{$real}/sub"));
-    file_put_contents("{$real}/real.txt", "x");
+        # removeSymlink() removes a link (to a directory or a file) but not what it points to, and refuses anything else.
+        symlink("{$real}/sub", "{$real}/dir-link");
+        Filesystem::removeSymlink("{$real}/dir-link/");
+        assert(!is_link("{$real}/dir-link") && is_dir("{$real}/sub"));
+        file_put_contents("{$real}/real.txt", "x");
 
-    SmokeTest::expectException(
-        BadArgumentException::class,
-        fn() => Filesystem::removeSymlink("{$real}/real.txt"),
-        "isn't a symlink"
-    );
+        SmokeTest::expectException(
+            BadArgumentException::class,
+            fn() => Filesystem::removeSymlink("{$real}/real.txt"),
+            "isn't a symlink"
+        );
 
-    assert(is_file("{$real}/real.txt"));
+        assert(is_file("{$real}/real.txt"));
+    }
 
     # canEnterDirectory() and canListDirectory() are true for a normal directory.
     assert(Filesystem::canEnterDirectory($real) && Filesystem::canListDirectory($real));

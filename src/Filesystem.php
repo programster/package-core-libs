@@ -3138,8 +3138,7 @@ final class Filesystem
         {
             # Suppress the warnings, as we throw an exception instead.
             # match() throws an UnhandledMatchError for a case it doesn't handle, rather than guessing.
-            $deleted = match ($operation)
-            {
+            $deleted = match ($operation) {
                 FileDeletionOperationEnum::UNLINK => self::unlinkFileOrSymlink($path),
                 FileDeletionOperationEnum::RMDIR => @rmdir($path),
             };
@@ -3162,13 +3161,14 @@ final class Filesystem
      */
     private static function describeDeletionProblem(FileDeletionProblem $problem): string
     {
-        return match ($problem->reason)
-        {
-            FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE => "{$problem->path} can't be listed",
-            FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE =>
-                "{$problem->path}, as {$problem->directory} can't be written to",
-            FileDeletionProblemEnum::NOT_OWNED_IN_STICKY_DIRECTORY =>
-                "{$problem->path}, as {$problem->directory} is a sticky directory, and it isn't ours",
+        $path = $problem->path;
+        $dir = $problem->directory;
+
+        return match ($problem->reason) {
+            FileDeletionProblemEnum::DIRECTORY_NOT_LISTABLE => "{$path} can't be listed",
+            FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE => "{$path}, as {$dir} can't be written to",
+            FileDeletionProblemEnum::NOT_OWNED_IN_STICKY_DIRECTORY => "{$path}, as {$dir} is sticky and it isn't ours",
+            FileDeletionProblemEnum::READ_ONLY_ON_WINDOWS => "{$path}, as it is read-only (on Windows)",
         };
     }
 
@@ -3186,9 +3186,19 @@ final class Filesystem
      */
     private static function findDeletionProblem(string $parentDir, string $path, array &$problems): void
     {
+        $isReadOnlyOnWindows = PHP_OS_FAMILY === "Windows"
+            && is_file($path)
+            && !is_link($path)
+            && !is_writable($path);
+
         if (!is_writable($parentDir) || !self::canEnterDirectory($parentDir))
         {
             $problems[] = new FileDeletionProblem($path, $parentDir, FileDeletionProblemEnum::DIRECTORY_NOT_WRITABLE);
+        }
+        elseif ($isReadOnlyOnWindows)
+        {
+            # Windows won't delete a read-only file, whatever its directory allows.
+            $problems[] = new FileDeletionProblem($path, $path, FileDeletionProblemEnum::READ_ONLY_ON_WINDOWS);
         }
         elseif ((fileperms($parentDir) & 01000) !== 0 && function_exists('posix_geteuid'))
         {

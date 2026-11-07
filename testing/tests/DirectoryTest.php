@@ -43,7 +43,8 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
     $directory = new Directory("{$base}/project");
     $directory->move("archive/2026", true);
     $moved = "{$base}/archive/2026/project";
-    assert($directory->getPath() === $moved && !file_exists("{$base}/project"));
+    SmokeTest::assertSamePath($directory->getPath(), $moved);
+    assert(!file_exists("{$base}/project"));
 
     # Relative links inside stay exactly as they are. Relative links outside are worked out again. Absolute links
     # inside point at the new location, and absolute links outside are left as they are.
@@ -102,7 +103,8 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
     # It is separate from FileDoesNotExistException, so each can be caught without the other.
     assert(!is_subclass_of(DirectoryDoesNotExistException::class, FileDoesNotExistException::class));
 
-    assert(is_dir($renamed) && !file_exists("{$base}/archive/not-there") && $renamedDirectory->getPath() === $renamed);
+    assert(is_dir($renamed) && !file_exists("{$base}/archive/not-there"));
+    SmokeTest::assertSamePath($renamedDirectory->getPath(), $renamed);
 
     if (SmokeTest::canTestPermissions("Directory checking everything can be done before moving"))
     {
@@ -137,7 +139,7 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
     # Remove everything this made, as it contains symlinks that point back into the test directory, which would
     # otherwise show up in other tests that list $dir.
     Filesystem::deleteDir($base);
-});
+}, needsSymlinks: true);
 
 $smoke->run("Directory move to a different filesystem", function () use ($dir) {
     # /dev/shm is usually a separate (in-memory) filesystem, so use it as the destination when it is.
@@ -173,9 +175,11 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
             $directory->move("{$otherFilesystem}/archive", true);
             $moved = "{$otherFilesystem}/archive/project";
             clearstatcache();
-            assert($directory->getPath() === $moved && !file_exists("{$base}/project"));
+            SmokeTest::assertSamePath($directory->getPath(), $moved);
+            assert(!file_exists("{$base}/project"));
             assert(file_get_contents("{$moved}/file.txt") === "file");
-            assert((fileperms("{$moved}/file.txt") & 07777) === 0640 && (fileperms("{$moved}/sub") & 07777) === 0750);
+            SmokeTest::assertPermissions("{$moved}/file.txt", 0640);
+            SmokeTest::assertPermissions("{$moved}/sub", 0750);
             assert(filemtime("{$moved}/file.txt") === 1000000000);
 
             if ($ownedByOtherUser)
@@ -201,8 +205,8 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
             (new Directory("{$base}/group-writable"))->move($otherFilesystem);
             (new Directory("{$base}/group-writable-exact"))->move($otherFilesystem, false, true);
             clearstatcache();
-            assert((fileperms("{$otherFilesystem}/group-writable/g.txt") & 07777) === 0644);
-            assert((fileperms("{$otherFilesystem}/group-writable-exact/g.txt") & 07777) === 0664);
+            SmokeTest::assertPermissions("{$otherFilesystem}/group-writable/g.txt", 0644);
+            SmokeTest::assertPermissions("{$otherFilesystem}/group-writable-exact/g.txt", 0664);
             assert(!file_exists("{$base}/group-writable") && !file_exists("{$base}/group-writable-exact"));
 
             # Hard links and special files can't be copied as they are, so they stop the move.
@@ -389,7 +393,7 @@ $smoke->run("Directory move to a different filesystem", function () use ($dir) {
                 $moveWithReadOnly();
                 clearstatcache();
                 assert(file_get_contents("{$otherFilesystem}/with-read-only/locked/r.txt") === "r");
-                assert((fileperms("{$otherFilesystem}/with-read-only/locked") & 07777) === 0555);
+                SmokeTest::assertPermissions("{$otherFilesystem}/with-read-only/locked", 0555);
                 assert(!file_exists("{$base}/with-read-only"));
             }
         }
@@ -419,5 +423,5 @@ $smoke->run("Directory move keeping a link to a link", function () use ($dir) {
     (new Directory("{$base}/project"))->move("{$base}/elsewhere");
     assert(readlink("{$base}/elsewhere/project/to-b") === "{$base}/elsewhere/project/b");
     assert(file_get_contents("{$base}/elsewhere/project/to-b") === "outside");
-});
+}, needsSymlinks: true);
 

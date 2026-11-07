@@ -535,17 +535,20 @@ final class Core
             return (int) $meminfo[$field];
         };
 
+        # The huge page fields are a number of pages rather than an amount of memory, so convert them.
+        $hugePagesKib = function () use ($getKib, $type): float {
+            return $getKib($type->value) * $getKib('Hugepagesize');
+        };
+
         $memoryKib = match ($type) {
             # Calculated from multiple fields, in the same way as the "free" command.
             MemoryTypeEnum::USED => $getKib('MemTotal') - $getKib('MemAvailable'),
             MemoryTypeEnum::BUFF_CACHE => $getKib('Buffers') + $getKib('Cached') + $getKib('SReclaimable'),
             MemoryTypeEnum::SWAP_USED => $getKib('SwapTotal') - $getKib('SwapFree'),
-
-            # These are a number of pages rather than an amount of memory, so convert them.
-            MemoryTypeEnum::HUGE_PAGES_TOTAL,
-            MemoryTypeEnum::HUGE_PAGES_FREE,
-            MemoryTypeEnum::HUGE_PAGES_RESERVED,
-            MemoryTypeEnum::HUGE_PAGES_SURPLUS => $getKib($type->value) * $getKib('Hugepagesize'),
+            MemoryTypeEnum::HUGE_PAGES_TOTAL => $hugePagesKib(),
+            MemoryTypeEnum::HUGE_PAGES_FREE => $hugePagesKib(),
+            MemoryTypeEnum::HUGE_PAGES_RESERVED => $hugePagesKib(),
+            MemoryTypeEnum::HUGE_PAGES_SURPLUS => $hugePagesKib(),
 
             # Everything else is a single field in KiB, and the enum's value is that field's name.
             default => $getKib($type->value),
@@ -622,26 +625,31 @@ final class Core
      */
     public static function setClipboard(string $content): void
     {
-        $command = match (PHP_OS_FAMILY) {
-            # Untested. This uses PowerShell rather than clip.exe, as clip.exe mangles UTF-8 text. Set-Clipboard
-            # won't accept an empty string, so clear the clipboard instead in that case.
-            "Windows" => 'powershell -NoProfile -NonInteractive -Command "'
-                . '[Console]::InputEncoding = [System.Text.Encoding]::UTF8; '
-                . '$text = [Console]::In.ReadToEnd(); '
-                . 'if ($text -eq \'\') { Set-Clipboard -Value $null } else { Set-Clipboard -Value $text }"',
+        # Untested. This uses PowerShell rather than clip.exe, as clip.exe mangles UTF-8 text. Set-Clipboard won't
+        # accept an empty string, so clear the clipboard instead in that case.
+        $windowsCommand = 'powershell -NoProfile -NonInteractive -Command "'
+            . '[Console]::InputEncoding = [System.Text.Encoding]::UTF8; '
+            . '$text = [Console]::In.ReadToEnd(); '
+            . 'if ($text -eq \'\') { Set-Clipboard -Value $null } else { Set-Clipboard -Value $text }"';
 
+        # Both wl-copy and xclip leave a process running in the background to keep serving the clipboard, which keeps
+        # stdout open. Send stdout to /dev/null, otherwise runCommand() would wait for it forever. This is a closure,
+        # so the clipboard tools are only looked for on Linux.
+        $linuxCommand = function (): string {
+            return self::useWaylandClipboard("wl-copy")
+                ? "wl-copy > /dev/null"
+                : "xclip -selection clipboard -in > /dev/null";
+        };
+
+        $unsupported = "Running on unsupported OS: " . PHP_OS_FAMILY . " - only Windows, Linux, and macOS are " .
+            "supported.";
+
+        $command = match (PHP_OS_FAMILY) {
+            "Windows" => $windowsCommand,
             # Untested. pbcopy relies on the locale to know that the text is UTF-8.
             "Darwin" => "LC_CTYPE=UTF-8 pbcopy",
-
-            # Both wl-copy and xclip leave a process running in the background to keep serving the clipboard, which
-            # keeps stdout open. Send stdout to /dev/null, otherwise runCommand() would wait for it forever.
-            "Linux" => (self::useWaylandClipboard("wl-copy"))
-                ? "wl-copy > /dev/null"
-                : "xclip -selection clipboard -in > /dev/null",
-
-            default => throw new UnsupportedPlatformException(
-                "Running on unsupported OS: " . PHP_OS_FAMILY . " - only Windows, Linux, and macOS are supported."
-            ),
+            "Linux" => $linuxCommand(),
+            default => throw new UnsupportedPlatformException($unsupported),
         };
 
         self::runCommand($command, $content);

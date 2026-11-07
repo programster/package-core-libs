@@ -349,7 +349,7 @@ $smoke->run("CSV methods", function () use ($dir) {
     # Outside code can't change a CsvFile's details directly.
     SmokeTest::expectException(\Error::class, function () use ($reloadCsv) { $reloadCsv->m_rowCount = 99; });
     clearstatcache();
-    assert((fileperms("{$dir}/trailing.csv") & 0777) === 0640);
+    SmokeTest::assertPermissions("{$dir}/trailing.csv", 0640);
     SmokeTest::expectException(
         FileDoesNotExistException::class,
         fn() => CsvLib::removeTrailingBlankLines("{$dir}/nope.csv")
@@ -412,7 +412,7 @@ $smoke->run("CSV methods", function () use ($dir) {
     CsvLib::removeRows("{$dir}/rows-dir/good.csv", [0]);
     clearstatcache();
     assert(file_get_contents("{$dir}/rows-dir/good.csv") === "b\n");
-    assert((fileperms("{$dir}/rows-dir/good.csv") & 0777) === 0640);
+    SmokeTest::assertPermissions("{$dir}/rows-dir/good.csv", 0640);
     assert(array_values(array_diff(scandir("{$dir}/rows-dir"), [".", ".."])) === ["bad.csv", "good.csv"]);
 
     # CsvFile::removeHeader() updates the CsvFile to have no header and one fewer row, and throws if there isn't one.
@@ -442,7 +442,8 @@ $smoke->run("CSV methods", function () use ($dir) {
     file_put_contents("{$dir}/semi2.csv", "a;b\n2;x\n");
     $semi1 = new CsvFile("{$dir}/semi1.csv", true, ";");
     $semi2 = new CsvFile("{$dir}/semi2.csv", true, ";");
-    assert($semi1->getFilepath() === "{$dir}/semi1.csv" && $semi1->getDelimiter() === ";" && $semi1->hasHeader());
+    SmokeTest::assertSamePath($semi1->getFilepath(), "{$dir}/semi1.csv");
+    assert($semi1->getDelimiter() === ";" && $semi1->hasHeader());
     assert($semi1->toArray() === [["a" => "5", "b" => "x"]]);
     $semi1NoHeader = new CsvFile("{$dir}/semi1.csv", false, ";");
     assert(!$semi1NoHeader->hasHeader() && $semi1NoHeader->toArray() === [["a", "b"], ["5", "x"]]);
@@ -592,7 +593,7 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
         $method($file);
         chmod("{$dir}/in-place", 0755);
         clearstatcache();
-        assert((fileperms($file) & 0777) === 0640, "{$name}() changed the file's permissions");
+        SmokeTest::assertPermissions($file, 0640, "{$name}() changed the file's permissions");
         assert(file_get_contents($file) !== " a , b \n c , d \n\n", "{$name}() didn't change the file");
         assert(file_get_contents("{$file}.link") === file_get_contents($file), "{$name}() replaced the file");
 
@@ -695,8 +696,8 @@ $smoke->run("CSV writing methods only replace the output once it is complete", f
     CsvLib::convertArrayToCsv("{$base}/new.csv", [["a" => 1]], true, addByteOrderMark: false);
     clearstatcache();
     assert(file_get_contents("{$base}/array.csv") === "a,b\n1,\n");
-    assert((fileperms("{$base}/array.csv") & 0777) === 0640);
-    assert((fileperms("{$base}/new.csv") & 0777) === (0666 & ~umask()));
+    SmokeTest::assertPermissions("{$base}/array.csv", 0640);
+    SmokeTest::assertPermissions("{$base}/new.csv", (0666 & ~umask()));
 
     # convertCsvToJson(): a value that can't be encoded (invalid UTF-8) leaves an existing file as it was.
     $resetExisting("{$base}/out.json");

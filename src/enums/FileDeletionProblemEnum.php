@@ -19,4 +19,8 @@ enum FileDeletionProblemEnum : string
     # The directory the path is in is "sticky" (e.g. /tmp), so only the path's owner, the directory's owner, or root
     # can delete it, and the current user is none of those.
     case NOT_OWNED_IN_STICKY_DIRECTORY = 'not_owned_in_sticky_directory';
+
+    # On Windows, the file itself is read-only, which stops it being deleted whatever its directory allows. (On other
+    # systems, only the directory's permissions matter.)
+    case READ_ONLY_ON_WINDOWS = 'read_only_on_windows';
 }

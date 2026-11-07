@@ -17,8 +17,8 @@ final readonly class FileDeletionProblem
     # listed, so its contents can't be deleted.
     public string $path;
 
-    # The directory whose permissions cause the problem: the one $path is in, or $path itself for
-    # DIRECTORY_NOT_LISTABLE. This is usually the one to change the permissions of to fix it.
+    # What has the permissions that cause the problem: the directory $path is in, or $path itself for
+    # DIRECTORY_NOT_LISTABLE and READ_ONLY_ON_WINDOWS. This is usually the one to change the permissions of to fix it.
     public string $directory;
 
     # Why it can't be deleted.

@@ -4,6 +4,7 @@
  * Smoke tests for Network. These are run by testing/main.php, which provides $smoke and $dir.
  */
 
+use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\NetworkException;
 use Programster\CoreLibs\Core;
@@ -53,7 +54,16 @@ $smoke->run("isPrivateIp / isPortOpen / getIps", function () {
     SmokeTest::expectException(BadArgumentException::class, fn() => Network::isPrivateIp("not-an-ip"));
     SmokeTest::expectException(BadArgumentException::class, fn() => Network::isPrivateIp("[::1]"));
     assert(!Network::isPortOpen("127.0.0.1", 1, timeout: 1));
-    assert(in_array("127.0.0.1", Network::getIps("lo"), true));
+
+    # getIps() reads /sys/class/net, so only works on Linux, and says so elsewhere.
+    if (PHP_OS_FAMILY === "Linux")
+    {
+        assert(in_array("127.0.0.1", Network::getIps("lo"), true));
+    }
+    else
+    {
+        SmokeTest::expectException(UnsupportedPlatformException::class, fn() => Network::getIps("lo"));
+    }
 });
 
 $smoke->run("sendTcpRequest", function () {
