@@ -30,9 +30,8 @@ Each method's docblock gives the details.
 
 #### WSL
 Inside WSL, PHP is running on Linux, so this library behaves as it does on Linux. The "WSL tests" badge shows the
-tests run in WSL's own filesystem, and PHP on Windows working with WSL's files through `\\wsl.localhost`. GitHub's
-Windows runners only have WSL 1, though, so WSL 2 isn't tested. Two places behave differently, because they are
-really the other system's files:
+tests run in WSL's own filesystem, and PHP on Windows working with WSL's files through `\\wsl.localhost`, in both
+WSL 1 and WSL 2. Two places behave differently, because they are really the other system's files:
 
 | Where | What to expect |
 |---|---|

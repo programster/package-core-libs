@@ -3,6 +3,9 @@
 # WSL's own filesystem. Then PHP on Windows runs the UNC path test against a folder in WSL, reached through
 # \\wsl.localhost, as Windows programs do. Like the Windows and macOS tests, this is a separate workflow with its own
 # badge, so it doesn't turn the "Linux tests" badge red.
+# It runs in both WSL 1 and WSL 2, as they are very different underneath. WSL 2 is a real Linux kernel in a lightweight
+# virtual machine, with an ext4 filesystem. WSL 1 has no Linux kernel: Windows translates each Linux system call
+# itself, and WSL's files are stored on NTFS, so renames, locks, permissions and /proc can behave differently there.
 name: WSL tests
 
 on:
@@ -27,9 +30,15 @@ permissions:
 
 jobs:
     tests:
-        name: Tests in WSL, and from Windows into WSL
+        name: Tests in WSL ${{ matrix.wsl }}, and from Windows into WSL ${{ matrix.wsl }}
         runs-on: windows-latest
         timeout-minutes: 40
+
+        # Keep running the other WSL version if one fails, so both results are always seen.
+        strategy:
+            fail-fast: false
+            matrix:
+                wsl: [1, 2]
 
         steps:
             - name: Check out the code
@@ -38,9 +47,10 @@ jobs:
             # Ubuntu 24.04's own PHP is 8.3, the oldest supported version, with the same extensions as the Docker
             # images. Commands run in WSL as root.
             - name: Install WSL, with PHP
-              uses: Vampire/setup-wsl@v6
+              uses: Vampire/setup-wsl@v7
               with:
                   distribution: Ubuntu-24.04
+                  wsl-version: ${{ matrix.wsl }}
                   additional-packages:
                       php8.3-cli
                       php8.3-mbstring
@@ -56,6 +66,10 @@ jobs:
             - name: Run the tests in WSL
               shell: wsl-bash {0}
               run: |
+                  # Shows which WSL really ran: WSL 2's kernel ends in "-WSL2", while WSL 1 reports a made-up version
+                  # ending in "-Microsoft".
+                  echo "::notice title=WSL ${{ matrix.wsl }} kernel::$(uname -r)"
+
                   rm -rf /src
                   cp -r . /src
                   cd /src
@@ -72,9 +86,9 @@ jobs:
                   # Annotations can be read without logging in to GitHub, unlike the logs: the results of both runs
                   # (as root, and as a normal user), what was skipped, and the failures (at most 9, grouped).
                   summaries=$({ grep -E "passed, [0-9]+ failed" /src/test-output.txt || true; } | awk '{printf "%s%%0A", $0}')
-                  echo "::notice title=WSL results::${summaries:-no summary line}"
+                  echo "::notice title=WSL ${{ matrix.wsl }} results::${summaries:-no summary line}"
                   skipped=$({ grep -E "^  SKIPPED " /src/test-output.txt || true; } | sort -u | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
-                  echo "::notice title=WSL skipped::${skipped:-nothing was skipped}"
+                  echo "::notice title=WSL ${{ matrix.wsl }} skipped::${skipped:-nothing was skipped}"
                   grep -E "^  FAIL |^FAILED" /src/test-output.txt > /src/failures.txt || true
                   total=$(wc -l < /src/failures.txt)
 
@@ -84,11 +98,11 @@ jobs:
 
                       for group in /src/failure-group-*; do
                           message=$(sed 's/%/%25/g' "$group" | awk '{printf "%s%%0A", $0}')
-                          echo "::error title=WSL failures::${message}"
+                          echo "::error title=WSL ${{ matrix.wsl }} failures::${message}"
                       done
                   elif [ "$status" -ne 0 ]; then
                       message=$(tail -n 30 /src/test-output.txt | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
-                      echo "::error title=WSL failed without a summary::${message}"
+                      echo "::error title=WSL ${{ matrix.wsl }} failed without a summary::${message}"
                   fi
 
                   exit $status
@@ -127,9 +141,9 @@ jobs:
                   message=$(sed 's/%/%25/g' unc-output.txt | awk '{printf "%s%%0A", $0}')
 
                   if [ "$status" -eq 0 ]; then
-                      echo "::notice title=Windows into WSL results::${message}"
+                      echo "::notice title=Windows into WSL ${{ matrix.wsl }} results::${message}"
                   else
-                      echo "::error title=Windows into WSL failed::${message}"
+                      echo "::error title=Windows into WSL ${{ matrix.wsl }} failed::${message}"
                   fi
 
                   exit $status
