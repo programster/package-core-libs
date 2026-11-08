@@ -6,135 +6,136 @@ Core Libs
 [![macOS tests](https://github.com/programster/package-core-libs/actions/workflows/tests-macos.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-macos.yml)
 [![WSL tests](https://github.com/programster/package-core-libs/actions/workflows/tests-wsl.yml/badge.svg)](https://github.com/programster/package-core-libs/actions/workflows/tests-wsl.yml)
 
-This is a PHP package providing a set of static libraries that act to "extend" the standard library. 
-These are built primarily with a focus on rapid development and ease of understanding over 
-performance.
+## Contents
+- [About](#about)
+- [Requirements](#requirements)
+- [Installation](#installation)
+    - [Optional extensions](#optional-extensions)
+- [Quick start](#quick-start)
+- [What's in it](#whats-in-it)
+- [Documentation](#documentation)
+    - [Upgrading from version 2](docs/upgrading-to-3.md)
+    - [Arrays (`ArrayLib`)](docs/arrays.md)
+    - [Strings (`StringLib`)](docs/strings.md)
+    - [System, processes and web requests (`Core`)](docs/core.md)
+    - [Command line scripts (`CliLib`)](docs/cli.md)
+    - [CSV files (`CsvLib` and `CsvFile`)](docs/csv.md)
+    - [Files and directories (`Filesystem`)](docs/filesystem.md)
+    - [Changing files safely](docs/safe-file-changes.md)
+    - [Moving and renaming (`File`, `Directory`)](docs/moving-and-renaming.md)
+    - [Networking (`Network`)](docs/network.md)
+    - [Encryption and passwords (`EncryptionLib`)](docs/encryption.md)
+    - [Exceptions](docs/exceptions.md)
+    - [Supported platforms (Linux, macOS, Windows, WSL)](docs/platforms.md)
+    - [Testing](docs/testing.md)
+- [Design principles](#design-principles)
+- [License](#license)
 
-### Supported platforms
-Linux has first-class support: it is what this library is built and tested on, and every test runs on it
-automatically. Windows and macOS are supported too, and their tests also run automatically (see the "Windows tests"
-and "macOS tests" badges), but a few things work differently, or not at all, there:
+## About
+This is a PHP package of static libraries that "extend" the standard library, with the things that PHP projects keep
+needing but PHP doesn't quite provide: reading and rewriting huge CSV files without running out of memory, deleting or
+moving a directory tree safely, getting the system's memory, running a shell command that throws when it fails, and so
+on. It is built primarily for rapid development and ease of understanding, rather than raw performance.
 
-| Method | On macOS | On Windows |
-|---|---|---|
-| `Core::getMemory()` | Only `TOTAL`, `AVAILABLE`, `FREE`, `USED` and the three `SWAP_` figures. The others throw `UnsupportedPlatformException`. `AVAILABLE` is worked out from `vm_stat`, so is an approximation | The same seven figures. `FREE` is the same as `AVAILABLE`, as Windows doesn't report them separately |
-| `Core::getNumProcRunning()` | As on Linux | Matches window titles, as that is what `Core::setCliTitle()` sets on Windows |
-| `Core::setClipboard()`, `getClipboard()` | Works, but untested | Works, but untested |
-| `CliLib::getPasswordFromUserInput()` | As on Linux | Typing is hidden using PowerShell. Untested on a real console |
-| `File` and `Directory` moves | As on Linux | A move to another drive copies each file's owner and permissions (ACLs) to its copy, using PowerShell. Setting another user as the owner needs administrator rights, so with `PreserveOwnershipEnum::YES` (the default), a move that can't keep every owner is undone (the original is left as it was). Pass `PREFERRED` to keep what it can, or `NO` |
-| Anything that creates symlinks (`unzip()`, `Directory` moves, `File` moves of a symlink) | As on Linux | Needs admin rights or developer mode, as on any Windows program. PHP can't create a relative or broken symlink there, so `unzip()` creates absolute ones (or copies, with `$convertSymlinksOnWindows`), and refuses a zip with a broken one. PHP's `readlink()` there gives a link's resolved absolute path, so relative links can't be told apart: `Directory` and `File` moves create each symlink they move again with an absolute target. A broken one is left as it is when a `Directory` is moved on the same drive, and refused otherwise |
-| Permissions and ownership (e.g. `Filesystem::mkdir()`'s `$permissions`, `fileperms()`) | As on Linux | Windows has no Unix permissions or owners, so these are mostly ignored. Only the read-only setting has an effect |
-| `Filesystem::isTmpfs()` | Reads the `mount` command's output | Always false, as Windows has no tmpfs |
+## Requirements
+- PHP 8.3 or later (8.3, 8.4 and 8.5 are tested). Where PHP 8.5 has a native function for something, it is used.
+- The `fileinfo` and `sodium` extensions, which most PHP installs already have.
 
-Each method's docblock gives the details.
+Linux has first-class support, and macOS, Windows and WSL are tested too. See [Supported platforms](docs/platforms.md)
+for the few things that differ.
 
-#### WSL
-Inside WSL, PHP is running on Linux, so this library behaves as it does on Linux. The "WSL tests" badge shows the
-tests run in WSL's own filesystem, and PHP on Windows working with WSL's files through `\\wsl.localhost`, in both
-WSL 1 and WSL 2. Two places behave differently, because they are really the other system's files:
+## Installation
+```bash
+composer require programster/core-libs
+```
 
-| Where | What to expect |
+Then use the classes from the `Programster\CoreLibs` namespace:
+
+```php
+use Programster\CoreLibs\Filesystem;
+
+$size = Filesystem::getDirSize("/var/log");
+```
+
+### Optional extensions
+Some methods need an extension that the package doesn't require, so that you can install it without them if you don't
+use those methods. If one is missing, the method throws a `MissingExtensionException` saying which extension it needs,
+rather than failing in some less obvious way.
+
+| Extension | Needed by |
 |---|---|
-| Windows drives seen from WSL (e.g. `/mnt/c`) | Unless the drive is mounted with the `metadata` option, Unix permissions and owners aren't stored there: `chmod()` and `chown()` have no lasting effect, and every file appears to belong to you. So checks that a copy kept its exact permissions (`$overrideUmask` on `File` and `Directory` moves) can fail there, and the moves that need them are refused. Moving files between there and WSL's own filesystem copies them, as they are different filesystems |
-| WSL's files seen from Windows (e.g. `\\wsl.localhost\Ubuntu\home\...`) | PHP on Windows treats these as a network share on another drive, so moves between them and `C:` copy rather than rename, keeping owners and permissions where Windows can set them there (see the table above). Symlinks made inside WSL may not show as symlinks from Windows |
+| `mbstring` | `Filesystem::convertFileToUtf8()` |
+| `zip` | `Filesystem::zipDir()` and `Filesystem::unzip()` |
+| `sockets` | `Network::sendTcpRequest()` |
+| `openssl` | `Network::getPublicIp()` (which uses HTTPS), and `EncryptionLib::decryptLegacy()` |
+| `posix` | `File` and `Directory` moves to another filesystem with `PreserveOwnershipEnum::YES` (the default), to check who owns what |
+| `curl` | Nothing: `Filesystem::downloadFile()` uses it if it is there, and PHP's own HTTP support otherwise |
 
-For the most predictable results, run PHP on the same side as the files: in WSL for files in WSL's filesystem, and on
-Windows for files on Windows drives.
-
-### Progress and cancelling moves
-`File` and `Directory` moves (and renames) take an optional `$listener`, to show progress or cancel the move. Extend
-`AbstractMoveListener` and override the events you want. Throwing `MoveCancelledException` cancels the move: what was
-copied so far is removed, the original is left as it was, and your exception is passed back to you.
-
+## Quick start
 ```php
-$listener = new class extends AbstractMoveListener {
-    public function onFileMoved(MoveProgress $progress, string $path): void
-    {
-        CliLib::showProgressBar($progress->getPercentMoved(), 0);
-    }
+use Programster\CoreLibs\Core;
+use Programster\CoreLibs\CsvLib;
+use Programster\CoreLibs\Enums\DataSizeUnitEnum;
+use Programster\CoreLibs\Enums\MemoryTypeEnum;
+use Programster\CoreLibs\Filesystem;
+use Programster\CoreLibs\Models\Directory;
 
-    public function onBytesCopied(MoveProgress $progress, string $path): void
-    {
-        CliLib::showProgressBar($progress->getPercentMoved(), 0);
-    }
-};
+// Run a command, getting an exception (with its exit code and error output) if it fails.
+$branch = trim(Core::runCommand("git rev-parse --abbrev-ref HEAD"));
 
-$directory->move("/mnt/backup", listener: $listener);
+// How much memory is available, in GiB.
+$available = Core::getMemory(MemoryTypeEnum::AVAILABLE, DataSizeUnitEnum::GIB);
+
+// Strip the whitespace from every value of a CSV file, one row at a time, however big it is.
+CsvLib::trim("/data/export.csv");
+
+// Move a directory to another disk, keeping its owners and permissions, and its symlinks working.
+$uploads = new Directory("/srv/uploads");
+$uploads->move("/mnt/archive");
+
+// Delete a directory tree. Everything is checked first, so either all of it goes, or none of it does.
+Filesystem::deleteDir("/tmp/build");
 ```
 
-A move within one filesystem is a single instant rename, so it only calls `onMoveStarting()` and `onMoveFinished()`.
-A move to another filesystem also calls `onFileStarting()` and `onFileMoved()` for each file, and `onBytesCopied()`
-after each 8 MiB of a big file, so the progress keeps moving during it (and it can be cancelled part way through).
-A move to another filesystem copies everything under a hidden name, then renames it into place once it is complete,
-so an interrupted copy (e.g. by a timeout, or Ctrl+C) never leaves a half-finished copy under the real name.
+## What's in it
 
-`Directory` moves to another filesystem also take `$resumable`. With it set, a copy that fails, is cancelled or is
-interrupted is kept, and making the same move again carries on from there: files already copied (and unchanged since)
-aren't copied again.
+| Class | For |
+|---|---|
+| [`ArrayLib`](docs/arrays.md) | Getting the first, last or a random element or key, fast diffs and intersections, splitting an array evenly, merging with a clash handler |
+| [`StringLib`](docs/strings.md) | Random strings, `startsWith()`/`endsWith()`/`contains()` with case options, line breaks and `<br>` tags, URL-safe base64 |
+| [`Core`](docs/core.md) | Running commands, memory and processor counts, process titles, request arguments, safe redirects, signed data, the clipboard |
+| [`CliLib`](docs/cli.md) | Progress bars, and reading a password without showing it |
+| [`CsvLib`, `CsvFile`](docs/csv.md) | Validating, converting, trimming, merging and comparing CSV files, and removing their rows or columns |
+| [`Filesystem`](docs/filesystem.md) | Listing, creating, deleting, zipping and sizing directories, filtering and converting files, paths, downloads |
+| [`File`, `Directory`](docs/moving-and-renaming.md) | Moving and renaming, including across filesystems, with progress, cancelling and resuming |
+| [`Network`](docs/network.md) | IP addresses, open ports, and simple TCP requests |
+| [`EncryptionLib`](docs/encryption.md) | Authenticated encryption, and password hashing |
 
-### Recommended Extensions
-This package recommends various extensions such as mbstring in order to be able to perform some of
-the provided methods. However, we did not wish to prevent this from allowing you to install the 
-package in case you did not need to use these limited methods. Thus, if you try to execute one of
-these methods without having the recommended extension installed, it will raise an
-`MissingExtensionException` with details of which extension is missing.
+## Documentation
+The [`docs`](docs/) folder has a page for each area, with examples, and the details that are easy to be caught out by.
+Every public method also has a full docblock, which your IDE will show, saying what it does, what each parameter means,
+and every exception it can throw.
 
-### Exceptions
-Every exception this library throws extends the abstract
-`Programster\CoreLibs\Exceptions\CoreLibsException`, so you can catch all of them at once:
+If you are upgrading from version 2, start with [Upgrading from version 2](docs/upgrading-to-3.md), as version 3 has
+breaking changes, some of which (e.g. `Filesystem::mkdir()` no longer creating parent directories by default) won't
+show up as errors.
 
-```php
-use Programster\CoreLibs\Exceptions\CoreLibsException;
-use Programster\CoreLibs\Exceptions\FilesystemException;
+## Design principles
+These apply throughout, so are worth knowing before you start:
 
-try
-{
-    CsvLib::removeColumns($filepath, [2]);
-}
-catch (FilesystemException $e)
-{
-    // handle a specific failure, such as the file not being openable
-}
-catch (CoreLibsException $e)
-{
-    // handle anything else that went wrong in this library
-}
-```
+- **Failures throw.** Methods throw an exception if something goes wrong, rather than returning `false` or `null`
+  for you to check. Every exception the library throws extends `CoreLibsException`, so you can catch them all at
+  once. See [Exceptions](docs/exceptions.md).
+- **Safe by default.** Where a method could do something surprising or dangerous, the default is the safe choice, and
+  the riskier behaviour needs an extra parameter. For example, `Core::redirectUser()` won't redirect to another site
+  unless you pass `$allowExternal`, `Filesystem::unzip()` refuses a zip with symlinks pointing outside it unless you
+  pass `$trusted`, and `Filesystem::deleteDir()` won't follow symlinks unless you pass `$followSymlinks`.
+- **Nothing half done.** Methods that change files check everything they can before changing anything, and write new
+  contents to a temporary file before replacing the original, so a failure part way through leaves things as they
+  were. See [Changing files safely](docs/safe-file-changes.md).
+- **Big files are fine.** The CSV and file methods work a row or line at a time, so the size of the file doesn't matter.
+  `CsvLib::convertCsvToArray()` (and `CsvFile::toArray()`) is the exception, as it returns everything as an array.
+- **Every class is `final`**, and the libraries only have static methods.
 
-`CoreLibsException` extends `\Exception`, so existing `catch (\Exception $e)` blocks keep working.
-
-Errors raised by PHP itself, such as a `TypeError` from passing the wrong type of argument, are not
-library exceptions, so they don't extend `CoreLibsException`.
-
-### Testing
-To run the tests on your current version of PHP, run `composer install`, and then:
-
-```bash
-php testing/main.php
-```
-
-The tests are in `testing/tests/`, with one file per class (e.g. `CsvLibTest.php`). Between them, they call nearly
-every public method and check its result. A test fails if it throws, fails an `assert()`, or raises a PHP warning or
-deprecation. `main.php` runs every `*Test.php` file in that folder, so a new file is picked up automatically.
-
-This package supports PHP 8.3 and above. To check it works on every supported version, run the following, which
-uses Docker to test each version in its own container. Use this before releasing, as it catches code that only
-works on newer versions of PHP than the minimum.
-
-```bash
-testing/run-all-php-versions.sh             # test every supported version (8.3, 8.4 and 8.5)
-testing/run-all-php-versions.sh 8.3 8.5     # test only specific versions
-testing/run-all-php-versions.sh --rebuild   # rebuild the Docker images first, to get the latest PHP patch releases
-```
-
-For each version, this lints every file and runs the tests. It exits with a non-zero code if anything fails. The
-Docker images are built the first time they are needed, and then reused. When a new version of PHP is released, add
-it to `SUPPORTED_VERSIONS` at the top of the script.
-
-The same script runs on GitHub Actions (`.github/workflows/tests.yml`) for pushes to `master`, every tag, and pull
-requests into `master`, which is what the "Linux tests" badge at the top of this README shows. Pushes to other
-branches don't run it, but it can be run on any branch by hand, with "Run workflow" on the repository's Actions tab.
-In each container, the tests run three times: as root (for the checks that need it, e.g. that rewriting a file keeps
-its owner), as a normal user (for the checks that root would get past, e.g. a read-only folder), and as a normal user
-with the temporary directory behind a symlink, as on macOS. Each run lists the checks it had to skip, which another
-run covers.
+## License
+MIT. See [LICENSE](LICENSE).
