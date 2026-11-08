@@ -70,6 +70,11 @@ $smoke->run("other ArrayLib methods", function () {
     assert(ArrayLib::removeIndexes([1, 2, 3], [1], true) === [1, 3]);
     assert(ArrayLib::wrapElements(["a"], "`") === ["`a`"]);
     assert(ArrayLib::fastDiff([1, 2], [2]) === [1] && ArrayLib::fastIntersect([1, 2], [2]) === [2]);
+    assert(ArrayLib::fastDiff([1, 3, 1, 2], [2]) === [1, 3, 1]);
+
+    # A value in both arrays is only given once, however many times it appears in either.
+    assert(ArrayLib::fastIntersect([1, 2, 2, 3, 1], [3, 2, 2]) === [2, 3]);
+    assert(ArrayLib::fastIntersect(["a", "b", "b"], ["b", "a"]) === ["a", "b"]);
     assert(ArrayLib::indexDiff(["x" => 1], [2]) === ["x"]);
     assert(ArrayLib::getValues(["a" => 1], ["a"]) === [1]);
     assert(ArrayLib::stripEmptyElements([0, 1, "", 2]) === [1, 2]);

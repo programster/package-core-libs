@@ -36,6 +36,11 @@ WSL 1 and WSL 2. Two places behave differently, because they are really the othe
 | Windows drives seen from WSL (e.g. `/mnt/c`) | Unless the drive is mounted with the `metadata` option, Unix permissions and owners aren't stored there: `chmod()` and `chown()` have no lasting effect, and every file appears to belong to you. So checks that a copy kept its exact permissions (`$overrideUmask` on `File` and `Directory` moves) can fail there, and the moves that need them are refused. Moving files between there and WSL's own filesystem copies them, as they are different filesystems |
 | WSL's files seen from Windows (e.g. `\\wsl.localhost\Ubuntu\home\...`) | PHP on Windows treats these as a network share on another drive, so moves between them and `C:` copy rather than rename, keeping owners and permissions where Windows can set them there (see the table above). Symlinks made inside WSL may not show as symlinks from Windows |
 
+WSL 1 only imitates the Linux kernel, and its `/proc/meminfo` has no `MemAvailable` field, so there,
+`Core::getMemory()` estimates `AVAILABLE` (and so `USED`) as the free memory plus the buffers and page cache, as the
+`free` command did before that field existed. That can be a little high. WSL 2 runs a real Linux kernel, so gives the
+real figure.
+
 For the most predictable results, run PHP on the same side as the files: in WSL for files in WSL's filesystem, and on
 Windows for files on Windows drives.
 

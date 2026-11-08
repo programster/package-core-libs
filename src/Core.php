@@ -551,6 +551,9 @@ final class Core
      * Fetch information about the system's memory (RAM and swap).
      * On Linux, every MemoryTypeEnum measurement is available, from /proc/meminfo. Based on:
      * http://stackoverflow.com/questions/1455379/get-server-ram-with-php
+     * Where /proc/meminfo has no MemAvailable (in WSL 1, and on kernels older than 3.14),
+     * AVAILABLE (and so USED) is estimated as the free memory plus the buffers and page cache, as
+     * the "free" command did before that field existed, so it can be a little high.
      * On macOS and Windows, only the main figures are: TOTAL, AVAILABLE, FREE, USED, SWAP_TOTAL,
      * SWAP_USED and SWAP_FREE. On macOS, these come from sysctl and vm_stat, and AVAILABLE is
      * worked out as the free, inactive and speculative memory. On Windows, they come from
@@ -861,6 +864,31 @@ final class Core
             }
         }
 
+        # /proc/meminfo reports in KiB (despite labelling it "kB").
+        return self::calculateLinuxMemoryKib($meminfo, $type) * 1024;
+    }
+
+
+    /**
+     * Work out an amount of memory from the fields of /proc/meminfo, for getLinuxMemory().
+     *
+     * Some systems leave fields out. WSL 1 (which only imitates the Linux kernel) and kernels older
+     * than 3.14 have no MemAvailable, so it is estimated as MemFree + Buffers + Cached, which is how
+     * the "free" command worked it out before that field existed. That counts all of the page cache
+     * as available, so it can be a little high. SReclaimable is counted as 0 where it is missing, as
+     * "free" does.
+     *
+     * @param array<string, string> $meminfo - the fields of /proc/meminfo, by name, with their
+     * values in KiB (without the " kB").
+     *
+     * @param MemoryTypeEnum $type - which measurement of memory.
+     *
+     * @return float - the amount, in KiB.
+     *
+     * @throws UnexpectedOutputException - if $meminfo doesn't have a field the measurement needs.
+     */
+    private static function calculateLinuxMemoryKib(array $meminfo, MemoryTypeEnum $type): float
+    {
         $getKib = function (string $field) use ($meminfo): int {
             if (!array_key_exists($field, $meminfo))
             {
@@ -870,6 +898,32 @@ final class Core
             return (int) $meminfo[$field];
         };
 
+        $getAvailableKib = function () use ($meminfo, $getKib): int {
+            if (array_key_exists('MemAvailable', $meminfo))
+            {
+                $availableKib = $getKib('MemAvailable');
+            }
+            else
+            {
+                $availableKib = $getKib('MemFree') + $getKib('Buffers') + $getKib('Cached');
+            }
+
+            return $availableKib;
+        };
+
+        $getReclaimableSlabKib = function () use ($meminfo, $getKib): int {
+            if (array_key_exists('SReclaimable', $meminfo))
+            {
+                $reclaimableKib = $getKib('SReclaimable');
+            }
+            else
+            {
+                $reclaimableKib = 0;
+            }
+
+            return $reclaimableKib;
+        };
+
         # The huge page fields are a number of pages rather than an amount of memory, so convert them.
         $hugePagesKib = function () use ($getKib, $type): float {
             return $getKib($type->value) * $getKib('Hugepagesize');
@@ -877,8 +931,9 @@ final class Core
 
         $memoryKib = match ($type) {
             # Calculated from multiple fields, in the same way as the "free" command.
-            MemoryTypeEnum::USED => $getKib('MemTotal') - $getKib('MemAvailable'),
-            MemoryTypeEnum::BUFF_CACHE => $getKib('Buffers') + $getKib('Cached') + $getKib('SReclaimable'),
+            MemoryTypeEnum::AVAILABLE => $getAvailableKib(),
+            MemoryTypeEnum::USED => $getKib('MemTotal') - $getAvailableKib(),
+            MemoryTypeEnum::BUFF_CACHE => $getKib('Buffers') + $getKib('Cached') + $getReclaimableSlabKib(),
             MemoryTypeEnum::SWAP_USED => $getKib('SwapTotal') - $getKib('SwapFree'),
             MemoryTypeEnum::HUGE_PAGES_TOTAL => $hugePagesKib(),
             MemoryTypeEnum::HUGE_PAGES_FREE => $hugePagesKib(),
@@ -889,8 +944,7 @@ final class Core
             default => $getKib($type->value),
         };
 
-        # /proc/meminfo reports in KiB (despite labelling it "kB").
-        return $memoryKib * 1024;
+        return $memoryKib;
     }
 
 

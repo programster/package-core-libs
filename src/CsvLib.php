@@ -99,8 +99,12 @@ final class CsvLib
 
             $jsonFlags = JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR | ($compressed ? 0 : JSON_PRETTY_PRINT);
             # Use "\n" rather than PHP_EOL (which is "\r\n" on Windows), as json_encode() always uses "\n", so the
-            # output is the same everywhere.
+            # output is the same everywhere. Readable output puts each object on a new line, as
+            # json_encode($array, JSON_PRETTY_PRINT) would, so the first one starts with a newline, and a newline goes
+            # before the closing bracket (unless the array is empty).
             $separator = $compressed ? "," : ",\n";
+            $firstSeparator = $compressed ? "" : "\n";
+            $closingBracket = $compressed ? "]" : "\n]";
 
             try
             {
@@ -108,7 +112,7 @@ final class CsvLib
                 self::skipByteOrderMark($csvHandle);
                 $headers = fgetcsv($csvHandle, 0, $delimiter, $enclosure, $escape);
                 $hasWrittenObject = false;
-                self::writeToOutput($jsonFile, $compressed ? "[" : "[\n");
+                self::writeToOutput($jsonFile, "[");
 
                 # Read with fgetcsv(), so a quoted value can contain line breaks. Blank lines can only be at the end,
                 # as the file has been validated, so are skipped.
@@ -131,12 +135,12 @@ final class CsvLib
                             $jsonString = "    " . str_replace("\n", "\n    ", $jsonString);
                         }
 
-                        self::writeToOutput($jsonFile, ($hasWrittenObject ? $separator : "") . $jsonString);
+                        self::writeToOutput($jsonFile, ($hasWrittenObject ? $separator : $firstSeparator) . $jsonString);
                         $hasWrittenObject = true;
                     }
                 }
 
-                self::writeToOutput($jsonFile, "]");
+                self::writeToOutput($jsonFile, $hasWrittenObject ? $closingBracket : "]");
             }
             finally
             {
@@ -1456,6 +1460,17 @@ final class CsvLib
      * @param string $escape - optionally specify the escape sequence to use when passing to
      * fputcsv.
      *
+     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
+     * replace an existing merged file (see UseSystemTempDirEnum). Defaults to AUTO, which picks
+     * the fastest place that will work, which can be a hidden, private file next to it for a
+     * moment. Pass ALWAYS to keep it in the system's temporary directory, e.g. for a directory
+     * served to the public.
+     *
+     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep an existing file's
+     * owner and group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
+     *
+     * @return void
+     *
      * @throws FileDoesNotExistException - if there is no file at one of $filepaths.
      *
      * @throws InvalidCsvException - if one of the files isn't valid (see the CsvFile constructor),
@@ -1468,16 +1483,6 @@ final class CsvLib
      *
      * @throws FilesystemException - if one of the files can't be read, or the merged file can't be
      * written.
-     *
-     * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents before they
-     * replace an existing merged file (see UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place
-     * that will work, which can be a hidden, private file next to it for a moment. Pass ALWAYS to
-     * keep it in the system's temporary directory, e.g. for a directory served to the public.
-     *
-     * @param PreserveOwnershipEnum $preserveOwnership - how hard to try to keep an existing file's owner and
-     * group when replacing it (see Filesystem::replaceWithFile()). Defaults to PREFERRED.
-     *
-     * @return void
      */
     public static function mergeFiles(
         array $filepaths,

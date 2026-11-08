@@ -82,6 +82,38 @@ $smoke->run("getMemory reading macOS and Windows output", function () {
     SmokeTest::expectException(UnexpectedOutputException::class, $parseNonsense);
 });
 
+$smoke->run("getMemory without MemAvailable, as in WSL 1", function () {
+    $calculate = new ReflectionMethod(Core::class, "calculateLinuxMemoryKib");
+
+    # WSL 1 (and kernels before 3.14) have no MemAvailable or SReclaimable.
+    $wsl1 = [
+        'MemTotal' => '16000000',
+        'MemFree' => '9000000',
+        'Buffers' => '30000',
+        'Cached' => '200000',
+        'SwapTotal' => '4000000',
+        'SwapFree' => '4000000',
+    ];
+
+    assert($calculate->invoke(null, $wsl1, MemoryTypeEnum::AVAILABLE) === 9230000.0);
+    assert($calculate->invoke(null, $wsl1, MemoryTypeEnum::USED) === 6770000.0);
+    assert($calculate->invoke(null, $wsl1, MemoryTypeEnum::BUFF_CACHE) === 230000.0);
+    assert($calculate->invoke(null, $wsl1, MemoryTypeEnum::FREE) === 9000000.0);
+
+    # Where the fields are there, they are used as they are.
+    $modern = $wsl1 + ['MemAvailable' => '12000000', 'SReclaimable' => '50000'];
+    assert($calculate->invoke(null, $modern, MemoryTypeEnum::AVAILABLE) === 12000000.0);
+    assert($calculate->invoke(null, $modern, MemoryTypeEnum::USED) === 4000000.0);
+    assert($calculate->invoke(null, $modern, MemoryTypeEnum::BUFF_CACHE) === 280000.0);
+
+    # A field that is missing, and can't be estimated, still throws.
+    $getDirty = function () use ($calculate, $wsl1): void {
+        $calculate->invoke(null, $wsl1, MemoryTypeEnum::DIRTY);
+    };
+
+    SmokeTest::expectException(UnexpectedOutputException::class, $getDirty, "Dirty");
+});
+
 $smoke->run("signatures", function () {
     $signature = Core::generateSignature(["a" => 1], "secret");
     assert(Core::isValidSignedRequest(["a" => 1], $signature, "secret"));

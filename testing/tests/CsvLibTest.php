@@ -1022,15 +1022,19 @@ $smoke->run("convertCsvToJson", function () use ($dir) {
     CsvLib::convertCsvToJson("{$dir}/multi-line.csv", "{$dir}/multi-line.json", true);
     assert(file_get_contents("{$dir}/multi-line.json") === '[{"h1":"line1\\nline2","h2":"x"}]');
 
-    # The readable form indents each object inside the array.
+    # The readable form indents each object inside the array, exactly as json_encode() with JSON_PRETTY_PRINT does.
     file_put_contents("{$dir}/pretty.csv", "h1\na\nb\n");
     CsvLib::convertCsvToJson("{$dir}/pretty.csv", "{$dir}/pretty.json", false);
-    $expected = "[\n    {\n        \"h1\": \"a\"\n    },\n    {\n        \"h1\": \"b\"\n    }]";
+    $expected = "[\n    {\n        \"h1\": \"a\"\n    },\n    {\n        \"h1\": \"b\"\n    }\n]";
     assert(file_get_contents("{$dir}/pretty.json") === $expected);
+    $prettyRows = json_encode([["h1" => "a"], ["h1" => "b"]], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    assert(file_get_contents("{$dir}/pretty.json") === $prettyRows);
 
-    # Just a header gives an empty array.
+    # Just a header gives an empty array, in either form.
     file_put_contents("{$dir}/header-only.csv", "h1,h2\n");
     CsvLib::convertCsvToJson("{$dir}/header-only.csv", "{$dir}/header-only.json", true);
+    assert(file_get_contents("{$dir}/header-only.json") === "[]");
+    CsvLib::convertCsvToJson("{$dir}/header-only.csv", "{$dir}/header-only.json", false);
     assert(file_get_contents("{$dir}/header-only.json") === "[]");
 
     # A blank line in the middle makes the file invalid, and nothing is written.

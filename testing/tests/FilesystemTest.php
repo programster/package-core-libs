@@ -1310,8 +1310,8 @@ $smoke->run("fileperms", function () use ($dir) {
     chmod("{$base}/file.txt", 06644);
     clearstatcache();
 
-    # Some filesystems (e.g. WSL 1's) drop the setuid and setgid bits from a file nobody can run, so only check the
-    # capitals where they were kept.
+    # Some systems drop the setuid and setgid bits from a file nobody can run (this was seen in the WSL tests, when
+    # they could only have been running in WSL 2), so only check the capitals where they were kept.
     if ((fileperms("{$base}/file.txt") & 06000) === 06000)
     {
         assert(Filesystem::fileperms("{$base}/file.txt") === "-rwSr-Sr--");
@@ -1322,7 +1322,8 @@ $smoke->run("fileperms", function () use ($dir) {
     chmod("{$base}/dir", 01776);
     clearstatcache();
 
-    # As with setuid above, WSL 1 drops the sticky bit from a directory others can't enter, so only check it was kept.
+    # As with setuid above, the sticky bit can be dropped from a directory others can't enter (also seen in the WSL
+    # tests), so only check it was kept.
     if ((fileperms("{$base}/dir") & 01000) === 01000)
     {
         assert(Filesystem::fileperms("{$base}/dir") === "drwxrwxrwT");

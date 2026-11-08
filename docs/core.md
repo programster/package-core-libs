@@ -76,7 +76,9 @@ The main measurements match the columns of the `free` command:
 
 On Linux, these come from `/proc/meminfo`, and every other field in it is available too (e.g. `DIRTY`, `HUGE_PAGES_TOTAL`,
 `COMMITTED_AS`). Which fields exist depends on the kernel, so asking for one that isn't there throws an
-`UnexpectedOutputException`. The enum's comments describe each one.
+`UnexpectedOutputException`. The enum's comments describe each one. Where there is no `MemAvailable` field (in WSL 1,
+and on kernels older than 3.14), `AVAILABLE` and `USED` are estimated from the free memory, buffers and page cache, as
+the `free` command did before that field existed.
 
 On macOS and Windows, only `TOTAL`, `AVAILABLE`, `FREE`, `USED` and the three `SWAP_` measurements are available, and
 the others throw an `UnsupportedPlatformException`. See [Supported platforms](platforms.md).

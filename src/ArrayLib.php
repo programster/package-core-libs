@@ -258,14 +258,17 @@ final class ArrayLib
 
 
     /**
-     * Faster version of array_diff that relies on not needing to keep indexes of the missing values
-     * Compares values, but returns the indexes
+     * A faster version of array_diff(), for large arrays: the values in $array1 that aren't in
+     * $array2. It looks each value up in a flipped copy of $array2, rather than comparing every
+     * pair, so the values must be integers or strings. Unlike array_diff(), the keys aren't kept:
+     * the values are returned as a list, in the order they are in $array1 (including any repeats).
+     * Use indexDiff() for their keys instead.
      *
-     * @param array $array1 - array to compare
+     * @param array $array1 - array of integers or strings to compare.
      *
-     * @param array $array2 - array to compare
+     * @param array $array2 - array of integers or strings to compare against.
      *
-     * @return array - values in array1 but not array2
+     * @return array - the values in $array1 that aren't in $array2, as a list.
      */
     public static function fastDiff(array $array1, array $array2): array
     {
@@ -285,26 +288,29 @@ final class ArrayLib
 
 
     /**
-     * Returns all the values that are in array1 and array2. Relies on the values being integers or
-     * strings Will only return a value once, even if it appears multiple times in the array. Does
-     * not maintain indexes.
+     * Returns all the values that are in both array1 and array2. Relies on the values being integers
+     * or strings. Will only return a value once, even if it appears multiple times in either array.
+     * Does not maintain indexes: the values are returned as a list, in the order they first appear
+     * in $array1.
      *
      * @param array $array1 - array of integers or strings to compare
      *
      * @param array $array2 - array of integers or strings to compare
      *
-     * @return array - values that are in both arrays
+     * @return array - values that are in both arrays, each once.
      */
     public static function fastIntersect(array $array1, array $array2): array
     {
         $sharedValues = [];
         $flippedArray2 = array_flip($array2); # swaps indexes and values
+        $added = [];
 
         foreach ($array1 as $value)
         {
-            if (isset($flippedArray2[$value]))
+            if (isset($flippedArray2[$value]) && !isset($added[$value]))
             {
                 $sharedValues[] = $value;
+                $added[$value] = true;
             }
         }
 

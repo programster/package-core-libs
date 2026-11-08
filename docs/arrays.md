@@ -66,7 +66,7 @@ ArrayLib::stripEmptyElements(["a" => "x", "b" => "", "c" => "y"]); // ["a" => "x
 |---|---|
 | `fastDiff($array1, $array2)` | The values in `$array1` that aren't in `$array2`, as a list |
 | `indexDiff($array1, $array2)` | The *keys* in `$array1` whose values aren't in `$array2` |
-| `fastIntersect($array1, $array2)` | The values of `$array1` that are also in `$array2`, as a list |
+| `fastIntersect($array1, $array2)` | The values that are in both arrays, each once, as a list |
 | `setDiff($array1, $array2)` | The arrays in `$array1` that aren't in `$array2`, where each element is itself an array |
 
 ```php
@@ -78,8 +78,8 @@ ArrayLib::setDiff([[1, 2], [3, 4], [5, 6]], [[3, 4]]); // [[1, 2], [5, 6]]
 
 `fastDiff()`, `indexDiff()` and `fastIntersect()` are faster than `array_diff()` and `array_intersect()` on large
 arrays, as they look the values up in a flipped copy of `$array2`, rather than comparing every pair. That means the
-values must be integers or strings. `fastIntersect()` gives a value once for each time it is in `$array1`, so a
-value repeated there is repeated in the result.
+values must be integers or strings. `fastIntersect()` gives each shared value once, however many times it appears in
+either array, in the order they first appear in `$array1`. `fastDiff()` keeps any repeats from `$array1`.
 
 `setDiff()` compares the inner arrays strictly (with `===`), so they only match if they have the same keys and values,
 of the same types, in the same order: `[1, 2]` doesn't match `[2, 1]`, and `[1]` doesn't match `["1"]`.

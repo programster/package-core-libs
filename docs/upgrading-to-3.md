@@ -42,6 +42,7 @@ These still run, but do something different, so search for them:
 | `Filesystem::getDirectories()`, `getDirContents()` paths | Real paths | Absolute paths that keep any symlinks in the path you gave | Pass `resolveSymlinks: true` for real paths |
 | `Network::sendTcpRequest()` | JSON encoded the request (so a string was sent in quotes), and tried to connect up to 100 times | Sends the request as it is, and tries 5 times | `json_encode()` the request yourself if the server expects JSON |
 | `ArrayLib::split()` | Could return fewer arrays than asked for | Always returns exactly `$numberOfArrays`, some empty if there aren't enough elements | Check code that counts the result |
+| `ArrayLib::fastIntersect()` | Gave a value once for each time it was in the first array | Gives each shared value once, as its docblock always said | Check code that relied on the repeats |
 | `ArrayLib::getLastKey()` (was `getLastIndex()`) with `$removeElement` | Didn't remove the element | Removes it | Check you meant to remove it |
 
 ## Requirements
