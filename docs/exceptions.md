@@ -63,7 +63,7 @@ All are in the `Programster\CoreLibs\Exceptions` namespace. Those indented exten
 | `NetworkInterfaceDoesNotExistException` | `Network::getIps()` was given an interface that doesn't exist |
 | `NoCsvHeaderException` | `CsvFile::toJson()` was called for a file without a header row |
 | `NoFileExtensionException` | `Filesystem::getFileExtension()` was given a name without an extension |
-| `NoWebRequestException` | Something that needs a web request (e.g. `Core::getCurrentUrl()`) was called from the command line |
+| `NoWebRequestException` | Something that needs a web request (e.g. `Network::getCurrentUrl()`) was called from the command line |
 | `PhpVersionTooLowException` | `Core::versionGuard()` found an older version of PHP than required |
 | `StringConversionFailedException` | A string couldn't be converted, e.g. by `StringLib::base64UrlDecode()` |
 | `UnexpectedOutputException` | A command or system file didn't give what was expected, e.g. `/proc/meminfo` is missing a field |

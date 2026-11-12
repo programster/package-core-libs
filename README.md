@@ -108,7 +108,7 @@ Filesystem::deleteDir("/tmp/build");
 | [`CsvLib`, `CsvFile`](docs/csv.md) | Validating, converting, trimming, merging and comparing CSV files, and removing their rows or columns |
 | [`Filesystem`](docs/filesystem.md) | Listing, creating, deleting, zipping and sizing directories, filtering and converting files, paths, downloads |
 | [`File`, `Directory`](docs/moving-and-renaming.md) | Moving and renaming, including across filesystems, with progress, cancelling and resuming |
-| [`Network`](docs/network.md) | IP addresses, open ports, and simple TCP requests |
+| [`Network`](docs/network.md) | IP addresses, open ports, simple TCP requests, and the current web request (whether it is HTTPS, and its URL) |
 | [`EncryptionLib`](docs/encryption.md) | Authenticated encryption, and password hashing |
 
 ## Documentation

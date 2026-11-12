@@ -15,6 +15,7 @@ use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\NetworkException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
+use Programster\CoreLibs\Exceptions\NoWebRequestException;
 
 final class Network
 {
@@ -142,6 +143,66 @@ final class Network
     {
         $serverHttps = strtolower((string)($_SERVER["HTTPS"] ?? ""));
         return $serverHttps !== "" && $serverHttps !== "off";
+    }
+
+
+    /**
+     * Builds the URL of the current page, including any query string, e.g.
+     * "https://blog.programster.org/some-page?id=1". The host name has to be given, as there is no
+     * safe way to get it from the request: HTTP_HOST comes from the client's Host header, and so can
+     * SERVER_NAME, depending on the web server's set up, so either could be spoofed. Only the path
+     * and query string come from the request.
+     * WARNING: as the path and query string come from the client, they can contain characters such
+     * as " and <, so escape the URL (e.g. with htmlspecialchars()) before putting it in HTML.
+     *
+     * @param string $host - the host name of the site, e.g. "blog.programster.org" or "localhost", or
+     * its IP address, e.g. "127.0.0.1", or "[::1]" for IPv6 (in square brackets, as in a URL). It can
+     * include a port (1 to 65535, with no leading zeros) if the site isn't on the standard one, e.g.
+     * "localhost:8080" or "[::1]:8080". Surrounding whitespace and any trailing slashes are removed.
+     *
+     * @param bool $forceHttps - true (the default) to always give an https:// URL. Many sites are
+     * behind a proxy or load balancer that handles HTTPS, so the web server only sees plain HTTP,
+     * and can't tell the URL should be HTTPS. Set false to use whatever the web server reports
+     * instead (see isHttps()).
+     *
+     * @return string - the full URL of the current page.
+     *
+     * @throws BadArgumentException - if $host isn't a valid host name or IP address (with an
+     * optional port), e.g. it includes a scheme such as "https://" or a path, its port is out of
+     * range, or it is an IPv6 address without square brackets.
+     *
+     * @throws NoWebRequestException - if there is no web request (e.g. this is running from the CLI),
+     * so there is no current page.
+     */
+    public static function getCurrentUrl(string $host, bool $forceHttps = true): string
+    {
+        $trimmedHost = rtrim(trim($host), "/");
+
+        if (!self::isValidHostWithOptionalPort($trimmedHost))
+        {
+            throw new BadArgumentException(
+                "getCurrentUrl: {$host} isn't a valid host name, e.g. blog.programster.org, or [::1]:8080 for an " .
+                "IPv6 address with a port (with no scheme or path, and a port from 1 to 65535)."
+            );
+        }
+
+        if (!isset($_SERVER["REQUEST_URI"]))
+        {
+            throw new NoWebRequestException("getCurrentUrl: there is no current page, as this isn't a web request.");
+        }
+
+        # The request line can give the URL in full (e.g. "http://other.host/page"), so only keep its path and query.
+        $requestUri = (string)$_SERVER["REQUEST_URI"];
+
+        if (!str_starts_with($requestUri, "/"))
+        {
+            $path = parse_url($requestUri, PHP_URL_PATH) ?: "/";
+            $query = parse_url($requestUri, PHP_URL_QUERY);
+            $requestUri = ($query === null || $query === false) ? $path : "{$path}?{$query}";
+        }
+
+        $scheme = ($forceHttps || self::isHttps()) ? "https" : "http";
+        return "{$scheme}://{$trimmedHost}{$requestUri}";
     }
 
 
@@ -651,5 +712,39 @@ final class Network
 
             $remaining = substr($remaining, $bytesWritten);
         }
+    }
+
+
+    /**
+     * Check whether a host is valid for getCurrentUrl(): a host name (e.g. "localhost") or IPv4
+     * address, or an IPv6 address in square brackets (e.g. "[::1]"), each with an optional port from
+     * 1 to 65535, with no leading zeros (e.g. "localhost:8080" or "[::1]:8080").
+     *
+     * @param string $host - the host to check, already trimmed.
+     *
+     * @return bool - true if it is valid, false if not.
+     */
+    private static function isValidHostWithOptionalPort(string $host): bool
+    {
+        $isBracketed = preg_match('/^\[([^\]]+)\](?::([^:]*))?$/', $host, $bracketedParts) === 1;
+
+        if ($isBracketed)
+        {
+            $isValidAddress = filter_var($bracketedParts[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
+            $port = $bracketedParts[2] ?? null;
+        }
+        else
+        {
+            $hostParts = explode(":", $host, 2);
+            $isValidAddress = filter_var($hostParts[0], FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
+            $port = $hostParts[1] ?? null;
+        }
+
+        $isValidPort = (
+               $port === null
+            || (preg_match('/^[1-9][0-9]{0,4}$/', $port) === 1 && (int)$port <= 65535)
+        );
+
+        return $isValidAddress && $isValidPort;
     }
 }

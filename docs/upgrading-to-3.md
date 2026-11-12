@@ -35,7 +35,7 @@ These still run, but do something different, so search for them:
 | `CsvLib::csvWalk()` escape character | Defaulted to `"\\"` | Defaults to `""` (no escape character), as for the other CSV methods | Pass `escape: "\\"` if your files use backslash escapes |
 | `Core::fetchReqArgsFromArray()`, `fetchOptionalArgsFromArray()` | A key whose value was `null` counted as missing | It counts as provided, and its `null` is returned | Check for `null` values where you relied on them being missing |
 | `Core::generateTrueFalseString()` | Returned the opposite of what it should | Fixed | Remove any workaround |
-| `Core::getCurrentUrl()` | Built the host from the request's `Host` header, which the client controls | Takes the host as `$fqdn`, and gives an `https://` URL unless `$forceHttps` is false | Pass your site's host name |
+| `getCurrentUrl()` (now in `Network`) | Built the host from the request's `Host` header, which the client controls | Takes the host as `$host`, and gives an `https://` URL unless `$forceHttps` is false | Pass your site's host name |
 | `Core::redirectUser()` | Redirected anywhere | Only redirects to a path on this site (e.g. `/account`), and exits | Pass `allowExternal: true` for a URL you trust |
 | `Filesystem::getFileExtension()` | Returned the whole name for a file without an extension (e.g. "README") | Throws `NoFileExtensionException`, and ignores the dot of a hidden file (".bashrc" has no extension) | Catch the exception where files may have no extension |
 | `Filesystem::deleteDir()` given a symlink to a directory | Emptied the directory it pointed to, then failed to remove the link | Throws `BadArgumentException`, without deleting anything | Use `Filesystem::removeSymlink()` to remove the link, or pass `followSymlinks: true` to delete the directory too |
@@ -88,6 +88,7 @@ The exceptions from version 2 have been renamed, to end in "Exception":
 |---|---|
 | `ArrayLib::getLastIndex()` | `ArrayLib::getLastKey()` |
 | `Network::getIp()` | `Network::getIps()`, which returns an array of every IPv4 address on the interface |
+| `Core::getCurrentUrl()` | `Network::getCurrentUrl()`, next to `Network::isHttps()` (see [Network](#network)) |
 | `$is_write_lock`, `$is_blocking` (`lockFile()`) | `$isWriteLock`, `$isBlocking` |
 | `$input_array` (`fetchReqArgsFromArray()`, `fetchOptionalArgsFromArray()`) | `$inputArray` |
 | `$nameingPrefix` (`setCliTitle()`) | `$namingPrefix` |
@@ -123,7 +124,6 @@ Renamed parameters only matter if you pass them by name.
 - `setCliTitle()` returns nothing, and throws `CliTitleNotSetException` if it can't set the title, rather than
   returning `false`.
 - `versionGuard()` throws `PhpVersionTooLowException`, rather than calling `die()`.
-- `getCurrentUrl()` throws `NoWebRequestException` when there is no web request (e.g. from the CLI).
 - `isValidSignedRequest()` compares signatures with `hash_equals()`, so it can't leak them through timing.
 - `getNumProcessors()`, `getNumProcRunning()`, `setClipboard()` and `getClipboard()` work on macOS and Windows, and the
   clipboard methods support Wayland as well as X11.
@@ -182,6 +182,8 @@ See [Encryption](encryption.md#moving-data-from-version-2) for an example.
 - `getPublicIp()` uses HTTPS (so needs the `openssl` extension), and takes a `$timeout`, 5 seconds by default.
 - `isPortOpen($host, $port, $timeout = 5.0)` only checks TCP, so the `$protocol` parameter was removed.
 - `sendTcpRequest()` sends and returns plain strings, supports IPv6, and has a working timeout.
+- `getCurrentUrl()` moved here from `Core`. It throws `NoWebRequestException` when there is no web request (e.g. from
+  the CLI).
 - New: `isHttps()`.
 
 ## StringLib

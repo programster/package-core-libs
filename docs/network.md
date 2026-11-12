@@ -1,6 +1,7 @@
 # Networking (`Network`)
 
-`Programster\CoreLibs\Network` has static methods for IP addresses, ports and simple TCP requests.
+`Programster\CoreLibs\Network` has static methods for IP addresses, ports, simple TCP requests, and the current web
+request.
 
 - [IP addresses](#ip-addresses)
 - [Checking a port](#checking-a-port)
@@ -82,4 +83,17 @@ session_set_cookie_params(["secure" => Network::isHttps(), "httponly" => true, "
 Behind a proxy or load balancer that handles HTTPS, the web server only sees plain HTTP, so this is false unless the web
 server is set up to report it. The `X-Forwarded-Proto` header isn't used, as the client can set it.
 
-For building the current page's URL, and redirects, see [Core](core.md#redirects-and-the-current-url).
+`getCurrentUrl()` builds the URL of the current page. The host name has to be given, as the one in the request comes
+from the client, so can't be trusted:
+
+```php
+$url = Network::getCurrentUrl("blog.programster.org");   // "https://blog.programster.org/some-page?id=1"
+$url = Network::getCurrentUrl("localhost:8080", false);  // http or https, as the web server reports it
+$url = Network::getCurrentUrl("[::1]:8080");             // an IPv6 address goes in square brackets, as in a URL
+```
+
+It gives an `https://` URL by default, as a site behind a proxy or load balancer that handles HTTPS can't tell from the
+request (see `isHttps()` above). The path and query string come from the client, so escape the URL (e.g. with
+`htmlspecialchars()`) before putting it in HTML. It throws a `NoWebRequestException` from the command line.
+
+For redirects, see [Core](core.md#redirects).

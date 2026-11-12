@@ -17,7 +17,6 @@ use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
-use Programster\CoreLibs\Exceptions\NoWebRequestException;
 
 final class Core
 {
@@ -264,66 +263,6 @@ final class Core
         }
 
         return $values;
-    }
-
-
-    /**
-     * Builds the URL of the current page, including any query string, e.g.
-     * "https://blog.programster.org/some-page?id=1". The host name has to be given, as there is no
-     * safe way to get it from the request: HTTP_HOST comes from the client's Host header, and so can
-     * SERVER_NAME, depending on the web server's set up, so either could be spoofed. Only the path
-     * and query string come from the request.
-     * WARNING: as the path and query string come from the client, they can contain characters such
-     * as " and <, so escape the URL (e.g. with htmlspecialchars()) before putting it in HTML.
-     *
-     * @param string $fqdn - the fully qualified domain name of the site, e.g. "blog.programster.org".
-     * It can include a port if the site isn't on the standard one, e.g. "localhost:8080". Surrounding
-     * whitespace and any trailing slashes are removed.
-     *
-     * @param bool $forceHttps - true (the default) to always give an https:// URL. Many sites are
-     * behind a proxy or load balancer that handles HTTPS, so the web server only sees plain HTTP,
-     * and can't tell the URL should be HTTPS. Set false to use whatever the web server reports
-     * instead (see Network::isHttps()).
-     *
-     * @return string - the full URL of the current page.
-     *
-     * @throws BadArgumentException - if $fqdn isn't a valid host name (with an optional port), e.g.
-     * it includes a scheme such as "https://", or a path.
-     *
-     * @throws NoWebRequestException - if there is no web request (e.g. this is running from the CLI),
-     * so there is no current page.
-     */
-    public static function getCurrentUrl(string $fqdn, bool $forceHttps = true): string
-    {
-        $host = rtrim(trim($fqdn), "/");
-        $hostParts = explode(":", $host, 2);
-        $isValidName = filter_var($hostParts[0], FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
-        $isValidPort = !isset($hostParts[1]) || preg_match('/^[0-9]{1,5}$/', $hostParts[1]) === 1;
-
-        if ($hostParts[0] === "" || !$isValidName || !$isValidPort)
-        {
-            throw new BadArgumentException(
-                "getCurrentUrl: {$fqdn} isn't a valid host name, e.g. blog.programster.org (with no scheme or path)."
-            );
-        }
-
-        if (!isset($_SERVER["REQUEST_URI"]))
-        {
-            throw new NoWebRequestException("getCurrentUrl: there is no current page, as this isn't a web request.");
-        }
-
-        # The request line can give the URL in full (e.g. "http://other.host/page"), so only keep its path and query.
-        $requestUri = (string)$_SERVER["REQUEST_URI"];
-
-        if (!str_starts_with($requestUri, "/"))
-        {
-            $path = parse_url($requestUri, PHP_URL_PATH) ?: "/";
-            $query = parse_url($requestUri, PHP_URL_QUERY);
-            $requestUri = ($query === null || $query === false) ? $path : "{$path}?{$query}";
-        }
-
-        $scheme = ($forceHttps || Network::isHttps()) ? "https" : "http";
-        return "{$scheme}://{$host}{$requestUri}";
     }
 
 

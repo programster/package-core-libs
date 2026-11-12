@@ -8,7 +8,6 @@ use Programster\CoreLibs\Exceptions\NetworkInterfaceDoesNotExistException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\NetworkException;
-use Programster\CoreLibs\Core;
 use Programster\CoreLibs\Exceptions\NoWebRequestException;
 use Programster\CoreLibs\Network;
 use Programster\CoreLibs\Testing\FakeHttpsStream;
@@ -127,7 +126,7 @@ $smoke->run("getCurrentUrl() / isHttps()", function () {
         unset($_SERVER['REQUEST_URI'], $_SERVER['HTTPS']);
 
         $getUrlOutsideWebRequest = function (): void {
-            Core::getCurrentUrl("blog.programster.org");
+            Network::getCurrentUrl("blog.programster.org");
         };
 
         SmokeTest::expectException(NoWebRequestException::class, $getUrlOutsideWebRequest);
@@ -137,32 +136,60 @@ $smoke->run("getCurrentUrl() / isHttps()", function () {
         $_SERVER['HTTP_HOST'] = "evil.example.com";
         $_SERVER['SERVER_NAME'] = "evil.example.com";
         $_SERVER['REQUEST_URI'] = "/some-page?id=1";
-        assert(Core::getCurrentUrl("blog.programster.org") === "https://blog.programster.org/some-page?id=1");
-        assert(Core::getCurrentUrl("  blog.programster.org//  ") === "https://blog.programster.org/some-page?id=1");
-        assert(Core::getCurrentUrl("localhost:8080") === "https://localhost:8080/some-page?id=1");
+        assert(Network::getCurrentUrl("blog.programster.org") === "https://blog.programster.org/some-page?id=1");
+        assert(Network::getCurrentUrl("  blog.programster.org//  ") === "https://blog.programster.org/some-page?id=1");
+        assert(Network::getCurrentUrl("localhost:8080") === "https://localhost:8080/some-page?id=1");
+
+        # IP addresses work too, with IPv6 in square brackets, as in a URL, and ports go up to 65535.
+        assert(Network::getCurrentUrl("127.0.0.1:8080") === "https://127.0.0.1:8080/some-page?id=1");
+        assert(Network::getCurrentUrl("[::1]") === "https://[::1]/some-page?id=1");
+        assert(Network::getCurrentUrl("[2001:db8::1]:8080") === "https://[2001:db8::1]:8080/some-page?id=1");
+        assert(Network::getCurrentUrl("localhost:1") === "https://localhost:1/some-page?id=1");
+        assert(Network::getCurrentUrl("localhost:65535") === "https://localhost:65535/some-page?id=1");
 
         # A request line with the URL in full only has its path and query used.
         $_SERVER['REQUEST_URI'] = "http://evil.example.com/other?x=2";
-        assert(Core::getCurrentUrl("blog.programster.org") === "https://blog.programster.org/other?x=2");
+        assert(Network::getCurrentUrl("blog.programster.org") === "https://blog.programster.org/other?x=2");
         $_SERVER['REQUEST_URI'] = "/some-page?id=1";
 
         # HTTPS is forced by default, as behind a proxy the web server only sees HTTP. Without forcing it, the web
         # server's HTTPS setting is used, which IIS sets to "off" for plain HTTP.
-        assert(Core::getCurrentUrl("blog.programster.org", false) === "http://blog.programster.org/some-page?id=1");
+        assert(Network::getCurrentUrl("blog.programster.org", false) === "http://blog.programster.org/some-page?id=1");
         $_SERVER['HTTPS'] = "off";
         assert(Network::isHttps() === false);
-        assert(Core::getCurrentUrl("blog.programster.org", false) === "http://blog.programster.org/some-page?id=1");
+        assert(Network::getCurrentUrl("blog.programster.org", false) === "http://blog.programster.org/some-page?id=1");
         $_SERVER['HTTPS'] = "on";
         assert(Network::isHttps() === true);
-        assert(Core::getCurrentUrl("blog.programster.org", false) === "https://blog.programster.org/some-page?id=1");
+        assert(Network::getCurrentUrl("blog.programster.org", false) === "https://blog.programster.org/some-page?id=1");
 
-        foreach (["", "https://blog.programster.org", "blog.programster.org/page", "bad host", "host:abc"] as $bad)
+        # A port must be from 1 to 65535, with no leading zeros, and an IPv6 address must be in square brackets, as
+        # its colons would otherwise be mistaken for a port.
+        $badHosts = [
+            "",
+            "https://blog.programster.org",
+            "blog.programster.org/page",
+            "bad host",
+            "host:abc",
+            "host:",
+            "host:0",
+            "host:65536",
+            "host:99999",
+            "host:080",
+            "::1",
+            "[::1]:",
+            "[::1]:65536",
+            "[::1]:80:80",
+            "[127.0.0.1]",
+            "[not-an-ip]",
+        ];
+
+        foreach ($badHosts as $bad)
         {
-            $getUrlForBadFqdn = function () use ($bad): void {
-                Core::getCurrentUrl($bad);
+            $getUrlForBadHost = function () use ($bad): void {
+                Network::getCurrentUrl($bad);
             };
 
-            SmokeTest::expectException(BadArgumentException::class, $getUrlForBadFqdn, "isn't a valid");
+            SmokeTest::expectException(BadArgumentException::class, $getUrlForBadHost, "isn't a valid");
         }
     }
     finally

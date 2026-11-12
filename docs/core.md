@@ -9,7 +9,7 @@ requests.
 - [Processors](#processors)
 - [Naming and counting processes](#naming-and-counting-processes)
 - [Request arguments](#request-arguments)
-- [Redirects and the current URL](#redirects-and-the-current-url)
+- [Redirects](#redirects)
 - [Signing data](#signing-data)
 - [The clipboard](#the-clipboard)
 - [Turning warnings into exceptions](#turning-warnings-into-exceptions)
@@ -152,7 +152,7 @@ $options = Core::fetchOptionalArgsFromArray(["sort", "page"], $_GET);
 A key that's there with a `null` value counts as provided, and its `null` is returned. The values are returned as
 they are, so validate them before use.
 
-## Redirects and the current URL
+## Redirects
 `redirectUser()` sends a redirect and exits, so nothing after it runs by mistake. By default, it only redirects to a
 path on this site, so a location taken from the request (e.g. `?next=...`) can't send the user to another site, which
 attackers use to make phishing links look trustworthy (an "open redirect"):
@@ -167,20 +167,7 @@ Core::redirectUser($_GET["next"]);
 Core::redirectUser("https://accounts.example.com/login", allowExternal: true);
 ```
 
-`getCurrentUrl()` builds the URL of the current page. The host name has to be given, as the one in the request comes
-from the client, so can't be trusted:
-
-```php
-$url = Core::getCurrentUrl("blog.programster.org");   // "https://blog.programster.org/some-page?id=1"
-$url = Core::getCurrentUrl("localhost:8080", false);  // http or https, as the web server reports it
-```
-
-It gives an `https://` URL by default, as a site behind a proxy or load balancer that handles HTTPS can't tell from the
-request. The path and query string come from the client, so escape the URL (e.g. with `htmlspecialchars()`) before
-putting it in HTML. It throws a `NoWebRequestException` from the command line.
-
-`Network::isHttps()` says whether the current request was made over HTTPS, as far as the web server knows. See
-[Networking](network.md#web-requests).
+To build the URL of the current page, see [Networking](network.md#web-requests).
 
 ## Signing data
 `generateSignature()` signs some data with a secret (using HMAC-SHA256), so that when it comes back (e.g. in a link in
