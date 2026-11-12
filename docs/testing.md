@@ -27,11 +27,17 @@ works on newer versions of PHP than the minimum.
 testing/run-all-php-versions.sh             # test every supported version (8.3, 8.4 and 8.5)
 testing/run-all-php-versions.sh 8.3 8.5     # test only specific versions
 testing/run-all-php-versions.sh --rebuild   # rebuild the Docker images first, to get the latest PHP patch releases
+testing/run-all-php-versions.sh --tmp=tmpfs # only test with /tmp held in memory (or --tmp=disk for only on disk)
 ```
 
 For each version, this lints every file and runs the tests. It exits with a non-zero code if anything fails. The
 Docker images are built the first time they are needed, and then reused. When a new version of PHP is released, add
 it to `SUPPORTED_VERSIONS` at the top of the script.
+
+Each version is tested in two containers: one with `/tmp` on disk, and one with `/tmp` on a tmpfs (held in memory),
+mounted as on Debian 13. Both matter, as `UseSystemTempDirEnum::AUTO` chooses where to write temporary files differently
+for each (see [safe file changes](safe-file-changes.md)). A test checks that `/tmp` really is what each container is
+meant to be testing.
 
 In each container, the tests run three times:
 
@@ -56,6 +62,7 @@ Other environment variables are set by the scripts for the checks that need some
 |---|---|
 | `CORELIBS_TEST_FIXTURES` | A directory of files owned by another user, made as root by `run-in-container.sh` |
 | `CORELIBS_TEST_SMALL_FILESYSTEM` | A small filesystem, for the checks of running out of space |
+| `CORELIBS_TEST_TMP_TYPE` | `disk` or `tmpfs`: what the system's temporary directory should be on, checked by a test |
 | `CORELIBS_TEST_UNC_DIR` | A UNC path (e.g. `\\wsl.localhost\Ubuntu\...`) for the UNC path test on Windows |
 
 ## Continuous integration
@@ -63,7 +70,7 @@ Each platform has its own GitHub Actions workflow and badge, so a failure on one
 
 | Workflow | Runs |
 |---|---|
-| `.github/workflows/tests.yml` ("Linux tests") | `run-all-php-versions.sh`, so every supported version, three times each |
+| `.github/workflows/tests.yml` ("Linux tests") | `run-all-php-versions.sh`, so every supported version, three times each, in two jobs: with `/tmp` on disk, and on a tmpfs |
 | `.github/workflows/tests-windows.yml` ("Windows tests") | The tests on Windows, with each supported version |
 | `.github/workflows/tests-macos.yml` ("macOS tests") | The tests on macOS, with each supported version |
 | `.github/workflows/tests-wsl.yml` ("WSL tests") | The tests in WSL 1 and WSL 2 (as root and as a normal user), then the UNC path test from Windows into WSL's filesystem |

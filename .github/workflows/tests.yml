@@ -1,6 +1,8 @@
 # Runs lint and the tests on every supported version of PHP, using the same script as running them locally
 # (testing/run-all-php-versions.sh), which tests each version in its own Docker container, as root. Running as root
 # means the checks that need it (e.g. that rewriting a file keeps its owner) run here too, rather than being skipped.
+# Each version is tested with /tmp on disk and with /tmp on a tmpfs (held in memory, as on Debian 13), as the library
+# chooses where to write temporary files differently for each. The two run as separate jobs, side by side.
 # The README's "Linux tests" badge shows the result of the latest run on the default branch.
 name: Linux tests
 
@@ -29,9 +31,15 @@ permissions:
 
 jobs:
     tests:
-        name: Lint and tests on PHP 8.3, 8.4 and 8.5
+        name: Lint and tests on PHP 8.3, 8.4 and 8.5, with /tmp on ${{ matrix.tmp }}
         runs-on: ubuntu-latest
         timeout-minutes: 30
+
+        strategy:
+            # Run both, even if one fails, to see whether a failure only happens with one kind of /tmp.
+            fail-fast: false
+            matrix:
+                tmp: [disk, tmpfs]
 
         steps:
             - name: Check out the code
@@ -43,4 +51,4 @@ jobs:
               run: composer install --no-interaction --no-progress --prefer-dist --ignore-platform-reqs
 
             - name: Run lint and the tests on every supported version of PHP
-              run: sh testing/run-all-php-versions.sh
+              run: sh testing/run-all-php-versions.sh --tmp=${{ matrix.tmp }}

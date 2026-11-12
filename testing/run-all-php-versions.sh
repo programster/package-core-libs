@@ -6,7 +6,10 @@
 #   testing/run-all-php-versions.sh                # test every supported version
 #   testing/run-all-php-versions.sh 8.3 8.5        # test only these versions
 #   testing/run-all-php-versions.sh --rebuild      # rebuild the Docker images first (e.g. to get the latest patch release)
+#   testing/run-all-php-versions.sh --tmp=tmpfs    # only test with /tmp held in memory (or --tmp=disk for only on disk)
 #
+# By default, each version is tested twice: with /tmp on disk, and with /tmp on a tmpfs (held in memory), as on
+# Debian 13, as the library chooses where to write temporary files differently for each.
 # Requires Docker, and "composer install" to have been run, as the tests use the vendor/ directory.
 # Exits with 0 if every version passed, or 1 if any failed.
 
@@ -16,15 +19,28 @@ scriptDir=$(cd "$(dirname "$0")" && pwd)
 repoDir=$(dirname "$scriptDir")
 rebuild=0
 versions=""
+tmpTypes="disk tmpfs"
 
 for arg in "$@"
 do
-    if [ "$arg" = "--rebuild" ]
-    then
-        rebuild=1
-    else
-        versions="$versions $arg"
-    fi
+    case "$arg" in
+        --rebuild)
+            rebuild=1
+            ;;
+        --tmp=disk|--tmp=tmpfs)
+            tmpTypes="${arg#--tmp=}"
+            ;;
+        --tmp=both)
+            tmpTypes="disk tmpfs"
+            ;;
+        -*)
+            echo "Unknown option ${arg}. Use --rebuild, or --tmp=disk, --tmp=tmpfs or --tmp=both."
+            exit 1
+            ;;
+        *)
+            versions="$versions $arg"
+            ;;
+    esac
 done
 
 if [ -z "$versions" ]
@@ -58,14 +74,32 @@ do
         fi
     fi
 
-    # The 1 MB tmpfs is a small filesystem for testing what happens when there isn't enough free space.
-    if ! docker run --rm -v "$repoDir":/src:ro \
-        --tmpfs /mnt/corelibs-small:size=1m,mode=1777 \
-        -e CORELIBS_TEST_SMALL_FILESYSTEM=/mnt/corelibs-small \
-        "$image" sh /src/testing/php-versions/run-in-container.sh
-    then
-        failedVersions="$failedVersions $version"
-    fi
+    for tmpType in $tmpTypes
+    do
+        echo
+        echo "######## PHP ${version}, with /tmp on ${tmpType}"
+
+        # A tmpfs /tmp is mounted as on Debian 13. Without it, /tmp is on the container's own (disk) filesystem.
+        if [ "$tmpType" = "tmpfs" ]
+        then
+            tmpMount="--tmpfs /tmp:rw,exec,nosuid,nodev,mode=1777"
+        else
+            tmpMount=""
+        fi
+
+        # The 1 MB tmpfs is a small filesystem for testing what happens when there isn't enough free space.
+        # CORELIBS_TEST_TMP_TYPE lets the tests check /tmp really is what this run is meant to be testing.
+        # $tmpMount is left unquoted on purpose, so that it is split into its option and value (or is nothing).
+        if ! docker run --rm -v "$repoDir":/src:ro \
+            $tmpMount \
+            --tmpfs /mnt/corelibs-small:size=1m,mode=1777 \
+            -e CORELIBS_TEST_SMALL_FILESYSTEM=/mnt/corelibs-small \
+            -e CORELIBS_TEST_TMP_TYPE="$tmpType" \
+            "$image" sh /src/testing/php-versions/run-in-container.sh
+        then
+            failedVersions="$failedVersions ${version}(/tmp-on-${tmpType})"
+        fi
+    done
 done
 
 echo

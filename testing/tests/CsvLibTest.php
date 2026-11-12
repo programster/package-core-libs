@@ -1160,12 +1160,20 @@ $smoke->run("mergeFiles checking the files match", function () use ($dir) {
 $smoke->run("file-rewriting methods passing on where to write first", function () {
     # In /dev/shm (a separate filesystem from the system's temporary directory in the test containers), AUTO puts the
     # new contents next to the original and renames them over it, so the file gets a new inode, while the default
-    # (ALWAYS) copies them back, so it keeps its inode.
+    # (ALWAYS) copies them back, so it keeps its inode. If the system's temporary directory is itself a tmpfs (e.g. /tmp
+    # on Debian 13), AUTO writes there and copies back too, so the two can't be told apart.
     if (!is_dir("/dev/shm") || stat("/dev/shm")['dev'] === stat(sys_get_temp_dir())['dev'])
     {
         SmokeTest::skip(
             "file-rewriting methods passing on where to write first",
             "needs /dev/shm on another filesystem"
+        );
+    }
+    elseif (Filesystem::isTmpfs(sys_get_temp_dir()))
+    {
+        SmokeTest::skip(
+            "file-rewriting methods passing on where to write first",
+            "needs the system's temporary directory not to be a tmpfs"
         );
     }
     else

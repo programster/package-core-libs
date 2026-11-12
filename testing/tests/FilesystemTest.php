@@ -1570,6 +1570,30 @@ $smoke->run("zipDir including hidden files", function () use ($dir) {
     }
 });
 
+$smoke->run("the system's temporary directory being on what this run tests", function () {
+    # run-all-php-versions.sh tests with /tmp on disk and on a tmpfs (held in memory), as AUTO chooses where to write
+    # differently for each, and says which with CORELIBS_TEST_TMP_TYPE. Check /tmp really is that, so that a run can't
+    # quietly test the same thing twice. stat is used as well as isTmpfs(), so this doesn't rely on what it checks.
+    $expectedType = getenv("CORELIBS_TEST_TMP_TYPE");
+
+    if ($expectedType === false || $expectedType === "")
+    {
+        SmokeTest::skip(
+            "the system's temporary directory being on what this run tests",
+            "CORELIBS_TEST_TMP_TYPE isn't set (run-all-php-versions.sh sets it)"
+        );
+    }
+    else
+    {
+        assert(in_array($expectedType, ["disk", "tmpfs"], true), "CORELIBS_TEST_TMP_TYPE must be disk or tmpfs");
+        $tmpDirectory = sys_get_temp_dir();
+        $statType = trim((string)shell_exec("stat -f -c %T " . escapeshellarg($tmpDirectory) . " 2>/dev/null"));
+        $expectTmpfs = ($expectedType === "tmpfs");
+        assert(($statType === "tmpfs") === $expectTmpfs, "stat says {$tmpDirectory} is on {$statType}");
+        assert(Filesystem::isTmpfs($tmpDirectory) === $expectTmpfs);
+    }
+});
+
 $smoke->run("createReplacementFile locations, and replaceWithFile renaming", function () use ($dir) {
     $base = "{$dir}/replacement-locations";
     mkdir($base);
@@ -1653,15 +1677,22 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     unlink($auto);
 
     # A tmpfs (held in memory) only counts as having room if that much memory is available too. /dev/shm is a tmpfs
-    # in the test containers, and the system's temporary directory isn't.
+    # in the test containers, and the system's temporary directory isn't, but it can be elsewhere (e.g. /tmp on
+    # Debian 13), so $base is checked against what stat reports for it, rather than assumed to be on disk.
     $hasFreeMemory = new ReflectionMethod(Filesystem::class, "hasFreeMemory");
 
     if (is_dir("/dev/shm") && str_contains((string)@file_get_contents("/proc/mounts"), " /dev/shm tmpfs "))
     {
         assert(Filesystem::isTmpfs("/dev/shm") === true);
-        assert(Filesystem::isTmpfs($base) === false);
-        file_put_contents("{$base}/on-disk.txt", "x");
-        assert(Filesystem::isTmpfs("{$base}/on-disk.txt") === false);
+        $baseFilesystemType = trim((string)shell_exec("stat -f -c %T " . escapeshellarg($base) . " 2>/dev/null"));
+
+        if ($baseFilesystemType !== "")
+        {
+            $baseIsTmpfs = ($baseFilesystemType === "tmpfs");
+            assert(Filesystem::isTmpfs($base) === $baseIsTmpfs);
+            file_put_contents("{$base}/a-file.txt", "x");
+            assert(Filesystem::isTmpfs("{$base}/a-file.txt") === $baseIsTmpfs);
+        }
     }
 
     $checkTmpfsOfMissing = function () use ($base): void {
