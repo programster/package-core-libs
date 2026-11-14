@@ -4,6 +4,7 @@
 request.
 
 - [IP addresses](#ip-addresses)
+- [Checking a host](#checking-a-host)
 - [Checking a port](#checking-a-port)
 - [Sending a TCP request](#sending-a-tcp-request)
 - [Web requests](#web-requests)
@@ -37,6 +38,22 @@ connecting to it may need port forwarding.
 
 `isPrivateIp()` throws a `BadArgumentException` for something that isn't an IP address. Give IPv6 addresses without
 square brackets.
+
+## Checking a host
+`isValidHostWithOptionalPort()` checks that a host is valid in a URL, e.g. one from a config file, before using it. It
+can be a host name, an IPv4 address, or an IPv6 address in square brackets, each with an optional port from 1 to 65535:
+
+```php
+Network::isValidHostWithOptionalPort("blog.programster.org");  // true
+Network::isValidHostWithOptionalPort("localhost:8080");        // true
+Network::isValidHostWithOptionalPort("[::1]:8080");            // true
+Network::isValidHostWithOptionalPort("::1");                   // false, as IPv6 needs square brackets
+Network::isValidHostWithOptionalPort("999.999.999.999");       // false, as it isn't a valid IPv4 address
+Network::isValidHostWithOptionalPort("https://example.com");   // false, as it has a scheme
+```
+
+Nothing is trimmed, so surrounding whitespace or a trailing newline makes a host invalid. It only checks the format,
+and doesn't look the host up. `getCurrentUrl()` uses it to check the host it is given.
 
 ## Checking a port
 `isPortOpen()` checks whether something is listening on a TCP port, by trying to connect to it:

@@ -184,7 +184,7 @@ See [Encryption](encryption.md#moving-data-from-version-2) for an example.
 - `sendTcpRequest()` sends and returns plain strings, supports IPv6, and has a working timeout.
 - `getCurrentUrl()` moved here from `Core`. It throws `NoWebRequestException` when there is no web request (e.g. from
   the CLI).
-- New: `isHttps()`.
+- New: `isHttps()`, and `isValidHostWithOptionalPort()`.
 
 ## StringLib
 - `base64UrlDecode()` is strict, and throws `StringConversionFailedException` for anything `base64UrlEncode()` couldn't

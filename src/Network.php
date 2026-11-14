@@ -370,6 +370,61 @@ final class Network
 
 
     /**
+     * Check whether a host is valid in a URL: a host name (e.g. "localhost" or
+     * "blog.programster.org"), an IPv4 address (e.g. "127.0.0.1"), or an IPv6 address in square
+     * brackets (e.g. "[::1]"), each with an optional port from 1 to 65535, with no leading zeros
+     * (e.g. "localhost:8080" or "[::1]:8080").
+     * Nothing is trimmed, so surrounding whitespace or a trailing newline makes it invalid, and so
+     * does anything else a URL could have around the host, such as a scheme ("https://"), a path,
+     * or a user name ("user@"). Something that looks like an IPv4 address, as its last part is all
+     * digits, has to be a valid one, so e.g. "999.999.999.999" and "1.2.3" are invalid, rather than
+     * being taken as host names. This only checks the format: it doesn't look the host up.
+     *
+     * @param string $host - the host to check, with an optional port, e.g. "localhost:8080". An IPv6
+     * address must be in square brackets, as its colons would otherwise be mistaken for a port.
+     *
+     * @return bool - true if it is valid, false if not.
+     */
+    public static function isValidHostWithOptionalPort(string $host): bool
+    {
+        # The D modifier stops $ from also matching before a newline at the end, so "[::1]\n" isn't valid.
+        $isBracketed = preg_match('/^\[([^\]]+)\](?::([^:]*))?$/D', $host, $bracketedParts) === 1;
+
+        if ($isBracketed)
+        {
+            $isValidAddress = filter_var($bracketedParts[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
+            $port = $bracketedParts[2] ?? null;
+        }
+        else
+        {
+            $hostParts = explode(":", $host, 2);
+            $name = $hostParts[0];
+            $port = $hostParts[1] ?? null;
+
+            # A top-level domain is never all digits, so a name whose last part is must be an IPv4 address.
+            $labels = explode(".", rtrim($name, "."));
+            $looksLikeIpv4 = preg_match('/^[0-9]+$/D', end($labels)) === 1;
+
+            if ($looksLikeIpv4)
+            {
+                $isValidAddress = filter_var($name, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false;
+            }
+            else
+            {
+                $isValidAddress = filter_var($name, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
+            }
+        }
+
+        $isValidPort = (
+               $port === null
+            || (preg_match('/^[1-9][0-9]{0,4}$/D', $port) === 1 && (int)$port <= 65535)
+        );
+
+        return $isValidAddress && $isValidPort;
+    }
+
+
+    /**
      * Get the IPv4 addresses of a network interface on Linux, for getIps(), with the ip command.
      *
      * @param string $interface - the network interface.
@@ -712,39 +767,5 @@ final class Network
 
             $remaining = substr($remaining, $bytesWritten);
         }
-    }
-
-
-    /**
-     * Check whether a host is valid for getCurrentUrl(): a host name (e.g. "localhost") or IPv4
-     * address, or an IPv6 address in square brackets (e.g. "[::1]"), each with an optional port from
-     * 1 to 65535, with no leading zeros (e.g. "localhost:8080" or "[::1]:8080").
-     *
-     * @param string $host - the host to check, already trimmed.
-     *
-     * @return bool - true if it is valid, false if not.
-     */
-    private static function isValidHostWithOptionalPort(string $host): bool
-    {
-        $isBracketed = preg_match('/^\[([^\]]+)\](?::([^:]*))?$/', $host, $bracketedParts) === 1;
-
-        if ($isBracketed)
-        {
-            $isValidAddress = filter_var($bracketedParts[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false;
-            $port = $bracketedParts[2] ?? null;
-        }
-        else
-        {
-            $hostParts = explode(":", $host, 2);
-            $isValidAddress = filter_var($hostParts[0], FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME) !== false;
-            $port = $hostParts[1] ?? null;
-        }
-
-        $isValidPort = (
-               $port === null
-            || (preg_match('/^[1-9][0-9]{0,4}$/', $port) === 1 && (int)$port <= 65535)
-        );
-
-        return $isValidAddress && $isValidPort;
     }
 }

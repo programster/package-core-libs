@@ -198,6 +198,70 @@ $smoke->run("getCurrentUrl() / isHttps()", function () {
     }
 });
 
+$smoke->run("isValidHostWithOptionalPort()", function () {
+    $validHosts = [
+        "localhost",
+        "LOCALHOST",
+        "blog.programster.org",
+        "blog.programster.org.",
+        "123abc.com",
+        "localhost:1",
+        "localhost:8080",
+        "localhost:65535",
+        "127.0.0.1",
+        "127.0.0.1:8080",
+        "[::1]",
+        "[::1]:8080",
+        "[2001:db8::1]:443",
+        "[::ffff:192.0.2.1]",
+    ];
+
+    foreach ($validHosts as $valid)
+    {
+        assert(Network::isValidHostWithOptionalPort($valid) === true, "{$valid} should be valid");
+    }
+
+    # Nothing is trimmed, so whitespace or a trailing newline (which $ in a regex would otherwise allow) is invalid. A
+    # name whose last part is all digits must be a valid IPv4 address, and IPv6 addresses need square brackets.
+    $invalidHosts = [
+        "",
+        ":80",
+        " localhost",
+        "localhost ",
+        "localhost\n",
+        "localhost:80\n",
+        "[::1]\n",
+        "[::1]:80\n",
+        "https://localhost",
+        "localhost/page",
+        "user@localhost",
+        "bad host",
+        "-bad.com",
+        "a..b",
+        "localhost:",
+        "localhost:0",
+        "localhost:080",
+        "localhost:65536",
+        "localhost:abc",
+        "999.999.999.999",
+        "1.2.3",
+        "1234",
+        "a.b.1",
+        "::1",
+        "[::1]:",
+        "[::1]:65536",
+        "[::1]:80:80",
+        "[127.0.0.1]",
+        "[not-an-ip]",
+    ];
+
+    foreach ($invalidHosts as $invalid)
+    {
+        $shown = json_encode($invalid);
+        assert(Network::isValidHostWithOptionalPort($invalid) === false, "{$shown} should be invalid");
+    }
+});
+
 $smoke->run("getIps() reading macOS and Windows output", function () {
     # These only run on macOS and Windows, so check them here with sample output.
     $ifconfig = new ReflectionMethod(Network::class, "parseIfconfigIps");
