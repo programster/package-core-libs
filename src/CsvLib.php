@@ -135,7 +135,8 @@ final class CsvLib
                             $jsonString = "    " . str_replace("\n", "\n    ", $jsonString);
                         }
 
-                        self::writeToOutput($jsonFile, ($hasWrittenObject ? $separator : $firstSeparator) . $jsonString);
+                        $objectSeparator = $hasWrittenObject ? $separator : $firstSeparator;
+                        self::writeToOutput($jsonFile, $objectSeparator . $jsonString);
                         $hasWrittenObject = true;
                     }
                 }

@@ -133,11 +133,12 @@ $smoke->run("Directory move and rename keep symlinks working", function () use (
 
         # The messages give real paths (e.g. macOS's /private/var/... for /var/...).
         $realBase = realpath($base);
+        $readOnly = "{$realBase}/locked/read-only";
 
         $expectedMessages = [
             "2 problem(s) were found, so nothing was moved",
             "{$realBase}/locked/unreadable can't be listed",
-            "{$realBase}/locked/read-only/abs-self needs updating, but {$realBase}/locked/read-only can't be written to",
+            "{$readOnly}/abs-self needs updating, but {$readOnly} can't be written to",
         ];
 
         foreach ($expectedMessages as $expectedMessage)
@@ -482,7 +483,10 @@ $smoke->run("moves to another drive on Windows keeping ownership", function () u
 
     if (!$canTest)
     {
-        SmokeTest::skip("moves to another drive on Windows keeping ownership", "needs Windows with a separate D: drive");
+        SmokeTest::skip(
+            "moves to another drive on Windows keeping ownership",
+            "needs Windows with a separate D: drive"
+        );
     }
     else
     {
@@ -500,12 +504,13 @@ $smoke->run("moves to another drive on Windows keeping ownership", function () u
             "param([string]\$path)\n" .
             "\$acl = Get-Acl -LiteralPath \$path\n" .
             "'OWNER ' + \$acl.Owner\n" .
-            "\$acl.Access | Where-Object { -not \$_.IsInherited } | ForEach-Object { 'RULE ' + \$_.IdentityReference }\n"
+            "\$acl.Access | Where-Object { -not \$_.IsInherited } | " .
+            "ForEach-Object { 'RULE ' + \$_.IdentityReference }\n"
         );
 
         $readSecurity = function (string $path) use ($script): string {
-            $command = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " . escapeshellarg($script) .
-                " " . escapeshellarg(str_replace("/", "\\", $path));
+            $command = "powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " .
+                escapeshellarg($script) . " " . escapeshellarg(str_replace("/", "\\", $path));
 
             exec($command, $output);
             return implode("\n", $output);
@@ -781,7 +786,11 @@ $smoke->run("move listeners and cancelling across filesystems", function () use 
         symlink("a.txt", "{$base}/project/link");
         mkdir($otherFilesystem);
         $leftovers = function () use ($otherFilesystem): array {
-            $hidden = array_merge(glob("{$otherFilesystem}/.corelibs-move-*"), glob(sys_get_temp_dir() . "/.corelibs-move-*"));
+            $hidden = array_merge(
+                glob("{$otherFilesystem}/.corelibs-move-*"),
+                glob(sys_get_temp_dir() . "/.corelibs-move-*")
+            );
+
             return $hidden;
         };
 
@@ -792,7 +801,8 @@ $smoke->run("move listeners and cancelling across filesystems", function () use 
             $directory = new Directory("{$base}/project");
 
             $moveAndCancel = function () use ($directory, $otherFilesystem, $cancelling): void {
-                $directory->move($otherFilesystem, preserveOwnership: PreserveOwnershipEnum::PREFERRED, listener: $cancelling);
+                $ownership = PreserveOwnershipEnum::PREFERRED;
+                $directory->move($otherFilesystem, preserveOwnership: $ownership, listener: $cancelling);
             };
 
             SmokeTest::expectException(MoveCancelledException::class, $moveAndCancel, "cancelled by the test");
@@ -802,16 +812,23 @@ $smoke->run("move listeners and cancelling across filesystems", function () use 
 
             # Without cancelling, every file and symlink is reported, and the totals add up.
             $listener = $makeRecordingListener();
-            $directory->move($otherFilesystem, preserveOwnership: PreserveOwnershipEnum::PREFERRED, listener: $listener);
+            $ownership = PreserveOwnershipEnum::PREFERRED;
+            $directory->move($otherFilesystem, preserveOwnership: $ownership, listener: $listener);
             $events = $listener->getEvents();
-            $moved = array_values(array_filter($events, function (array $event): bool { return $event[0] === "file moved"; }));
+
+            $isFileMoved = function (array $event): bool {
+                return $event[0] === "file moved";
+            };
+
+            $moved = array_values(array_filter($events, $isFileMoved));
             $movedNames = array_column($moved, 2);
             sort($movedNames);
             assert($movedNames === ["a.txt", "b.txt", "c.txt", "link"], implode(", ", $movedNames));
             assert($events[0][1]->getTotalFiles() === 4 && $events[0][1]->getTotalBytes() === 9);
             $last = end($events);
             assert($last[0] === "finished" && $last[1]->getFilesMoved() === 4 && $last[1]->getBytesMoved() === 9);
-            assert(file_get_contents("{$otherFilesystem}/project/sub/b.txt") === "123" && !file_exists("{$base}/project"));
+            assert(file_get_contents("{$otherFilesystem}/project/sub/b.txt") === "123");
+            assert(!file_exists("{$base}/project"));
             assert(readlink("{$otherFilesystem}/project/link") === "a.txt" && $leftovers() === []);
         }
         finally
@@ -874,7 +891,12 @@ $smoke->run("moves cleaning up when PHP stops part way", function () use ($dir) 
         try
         {
             assert($exitCode === 3, "the script didn't stop where expected: " . implode("\n", $output));
-            $hidden = array_merge(glob("{$otherFilesystem}/.corelibs-move-*"), glob(sys_get_temp_dir() . "/.corelibs-move-*"));
+
+            $hidden = array_merge(
+                glob("{$otherFilesystem}/.corelibs-move-*"),
+                glob(sys_get_temp_dir() . "/.corelibs-move-*")
+            );
+
             assert(!file_exists("{$otherFilesystem}/project"), "the folder holding the name was left behind");
             assert($hidden === [], "the partial copy was left behind: " . implode(", ", $hidden));
             assert(file_get_contents("{$base}/project/b.txt") === "b", "the original was changed");
@@ -904,7 +926,10 @@ $smoke->run("resumable moves", function () use ($dir, $makeRecordingListener) {
         file_put_contents("{$base}/project/sub/c.txt", "ccc");
         mkdir($otherFilesystem);
         $hiddenCopies = function () use ($otherFilesystem): array {
-            return array_merge(glob("{$otherFilesystem}/.corelibs-move-*"), glob(sys_get_temp_dir() . "/.corelibs-move-*"));
+            return array_merge(
+                glob("{$otherFilesystem}/.corelibs-move-*"),
+                glob(sys_get_temp_dir() . "/.corelibs-move-*")
+            );
         };
 
         try
@@ -945,7 +970,8 @@ $smoke->run("resumable moves", function () use ($dir, $makeRecordingListener) {
             $finalFiles = Filesystem::getDirContents($moved, includePath: false);
             sort($finalFiles);
             assert($finalFiles === ["b.txt", "c.txt", "d.txt"], "ended with: " . implode(", ", $finalFiles));
-            assert(file_get_contents("{$moved}/b.txt") === "changed" && file_get_contents("{$moved}/sub/c.txt") === "ccc");
+            assert(file_get_contents("{$moved}/b.txt") === "changed");
+            assert(file_get_contents("{$moved}/sub/c.txt") === "ccc");
             assert($hiddenCopies() === [] && !file_exists("{$base}/project"));
 
             # A file that was already copied, and hadn't changed, wasn't copied again.
@@ -970,7 +996,10 @@ $smoke->run("resumable moves after PHP is killed", function () use ($dir) {
 
     if (!$canTest)
     {
-        SmokeTest::skip("resumable moves after PHP is killed", "needs posix_kill(), and /dev/shm on another filesystem");
+        SmokeTest::skip(
+            "resumable moves after PHP is killed",
+            "needs posix_kill(), and /dev/shm on another filesystem"
+        );
     }
     else
     {
@@ -988,7 +1017,10 @@ $smoke->run("resumable moves after PHP is killed", function () use ($dir) {
             "use Programster\\CoreLibs\\Models\\{AbstractMoveListener, Directory, MoveProgress};\n" .
             "use Programster\\CoreLibs\\Enums\\PreserveOwnershipEnum;\n" .
             "\$killer = new class extends AbstractMoveListener {\n" .
-            "    public function onFileMoved(MoveProgress \$progress, string \$path): void { posix_kill(getmypid(), 9); }\n" .
+            "    public function onFileMoved(MoveProgress \$progress, string \$path): void\n" .
+            "    {\n" .
+            "        posix_kill(getmypid(), 9);\n" .
+            "    }\n" .
             "};\n" .
             "(new Directory({$source}))->move({$destination}, preserveOwnership: PreserveOwnershipEnum::PREFERRED, " .
             "listener: \$killer, resumable: true);\n";
@@ -1010,7 +1042,8 @@ $smoke->run("resumable moves after PHP is killed", function () use ($dir) {
             $directory = new Directory("{$base}/project");
 
             $resume = function () use ($directory, $otherFilesystem): void {
-                $directory->move($otherFilesystem, preserveOwnership: PreserveOwnershipEnum::PREFERRED, resumable: true);
+                $ownership = PreserveOwnershipEnum::PREFERRED;
+                $directory->move($otherFilesystem, preserveOwnership: $ownership, resumable: true);
             };
 
             SmokeTest::expectException(FileAlreadyExistsException::class, $resume);
@@ -1059,15 +1092,22 @@ $smoke->run("move listeners during a big file", function () use ($dir, $makeReco
 
             SmokeTest::expectException(MoveCancelledException::class, $moveAndCancel, "part way through a file");
             assert(filesize("{$base}/project/big.bin") === 9 * $megabyte && !file_exists("{$otherFilesystem}/big.bin"));
-            $hidden = array_merge(glob("{$otherFilesystem}/.corelibs-move-*"), glob(sys_get_temp_dir() . "/.corelibs-move-*"));
+
+            $hidden = array_merge(
+                glob("{$otherFilesystem}/.corelibs-move-*"),
+                glob(sys_get_temp_dir() . "/.corelibs-move-*")
+            );
+
             assert($hidden === [], "a partial copy was left: " . implode(", ", $hidden));
 
             # A Directory move reports the chunk, then the whole file.
             $listener = $makeRecordingListener();
-            (new Directory("{$base}/project"))->move($otherFilesystem, preserveOwnership: $ownership, listener: $listener);
+            $project = new Directory("{$base}/project");
+            $project->move($otherFilesystem, preserveOwnership: $ownership, listener: $listener);
             $events = $listener->getEvents();
             $names = array_column($events, 0);
-            assert($names === ["starting", "file starting", "bytes copied", "file moved", "finished"], implode(", ", $names));
+            $expectedNames = ["starting", "file starting", "bytes copied", "file moved", "finished"];
+            assert($names === $expectedNames, implode(", ", $names));
             assert($events[2][1]->getBytesMoved() === 8 * $megabyte && $events[2][1]->getFilesMoved() === 0);
             assert($events[3][1]->getBytesMoved() === 9 * $megabyte && $events[3][1]->getFilesMoved() === 1);
             assert(filesize("{$otherFilesystem}/project/big.bin") === 9 * $megabyte);

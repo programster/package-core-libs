@@ -819,7 +819,8 @@ $smoke->run("deleteDir with followSymlinks", function () use ($dir) {
         SmokeTest::expectException(
             DirectoryNotDeletableException::class,
             $deleteThroughLockedLink,
-            # What is reached by following a link is given by its real path (e.g. macOS's /private/var/... for /var/...).
+            # What is reached by following a link is given by its real path (e.g. macOS's /private/var/... for
+            # /var/...).
             "(e.g. " . realpath($base) . "/locked-parent/target, as " . realpath($base) . "/locked-parent can't be " .
             "written to)"
         );
@@ -1750,7 +1751,8 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
         link("{$base}/big.txt", "{$base}/big-hard-link.txt");
 
         $chosen = $chooseAuto($smallFilesystem, "{$base}/big.txt");
-        SmokeTest::assertSamePath(dirname($chosen), realpath($base), "AUTO with a full temporary directory chose: {$chosen}");
+        $message = "AUTO with a full temporary directory chose: {$chosen}";
+        SmokeTest::assertSamePath(dirname($chosen), realpath($base), $message);
         unlink($chosen);
     }
 
@@ -1841,7 +1843,8 @@ $smoke->run("path helpers", function () use ($dir) {
 
     foreach ($normalised as $path => $expected)
     {
-        assert(Filesystem::normalisePath($path) === $expected, "normalisePath({$path}) gave " . Filesystem::normalisePath($path));
+        $actual = Filesystem::normalisePath($path);
+        assert($actual === $expected, "normalisePath({$path}) gave {$actual}");
     }
 
     # relativePathBetween() works between two absolute paths, or two relative ones.
@@ -1897,7 +1900,8 @@ $smoke->run("path helpers", function () use ($dir) {
         # Without resolving, only the paths as written are compared.
         assert(!Filesystem::isWithinDirectory("{$real}/link/file.txt", "{$real}/data", false));
 
-        # removeSymlink() removes a link (to a directory or a file) but not what it points to, and refuses anything else.
+        # removeSymlink() removes a link (to a directory or a file) but not what it points to, and refuses anything
+        # else.
         symlink("{$real}/sub", "{$real}/dir-link");
         Filesystem::removeSymlink("{$real}/dir-link/");
         assert(!is_link("{$real}/dir-link") && is_dir("{$real}/sub"));
@@ -2161,7 +2165,8 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
     # With $resolveSymlinks, the real paths are given instead, including for what is found through a followed symlink.
     $realBase = realpath($base);
     assert(Filesystem::getDirContents("{$base}/link", resolveSymlinks: true) === $tidy(["{$realBase}/real/sub/f.txt"]));
-    # Compare them resolved, as Windows can give a folder's short name (e.g. RUNNER~1) in one and its long one in another.
+    # Compare them resolved, as Windows can give a folder's short name (e.g. RUNNER~1) in one and its long one in
+    # another.
     $resolvedDirectories = Filesystem::listDirectories("{$base}/link", resolveSymlinks: true);
     $message = "listDirectories() resolving symlinks gave: " . implode(", ", $resolvedDirectories);
     assert(count($resolvedDirectories) === 1, $message);
@@ -2169,7 +2174,12 @@ $smoke->run("getDirContents / getDirectories paths keep symlinks", function () u
     symlink("{$base}/elsewhere", "{$base}/real/sub/to-elsewhere");
     $followed = Filesystem::getDirContents("{$base}/link", followSymlinks: true, resolveSymlinks: true);
     $message = "getDirContents() resolving symlinks gave: " . implode(", ", $followed);
-    $expected = ["beside-target.txt" => "{$realBase}/elsewhere/beside-target.txt", "f.txt" => "{$realBase}/real/sub/f.txt"];
+
+    $expected = [
+        "beside-target.txt" => "{$realBase}/elsewhere/beside-target.txt",
+        "f.txt" => "{$realBase}/real/sub/f.txt",
+    ];
+
     assert(count($followed) === 2, $message);
 
     # Compared resolved, one by one, as Windows can give a short folder name (e.g. RUNNER~1) in some of them.
@@ -2248,11 +2258,17 @@ $smoke->run("deleteDir() / emptyDir() in a sticky folder", function () {
 
     if ($sticky === "" || !is_dir($sticky))
     {
-        SmokeTest::skip("deleteDir() / emptyDir() in a sticky folder", "needs the fixtures from run-all-php-versions.sh");
+        SmokeTest::skip(
+            "deleteDir() / emptyDir() in a sticky folder",
+            "needs the fixtures from run-all-php-versions.sh"
+        );
     }
     elseif (function_exists("posix_geteuid") && posix_geteuid() === 0)
     {
-        SmokeTest::skip("deleteDir() / emptyDir() in a sticky folder", "needs a normal user, as root can delete anything");
+        SmokeTest::skip(
+            "deleteDir() / emptyDir() in a sticky folder",
+            "needs a normal user, as root can delete anything"
+        );
     }
     else
     {
@@ -2299,7 +2315,8 @@ $smoke->run("deleteDir() failing part way through", function () use ($dir) {
     };
 
     # It stops at the failure, and says some may already have been deleted.
-    SmokeTest::expectException(FilesystemException::class, $deletePartWay, "some of {$base} may already have been deleted");
+    $partlyDeletedMessage = "some of {$base} may already have been deleted";
+    SmokeTest::expectException(FilesystemException::class, $deletePartWay, $partlyDeletedMessage);
     assert(!file_exists("{$base}/first.txt") && is_dir($base));
 });
 
@@ -2334,7 +2351,8 @@ $smoke->run("UNC paths, as used for WSL's files from Windows", function () use (
     # same files as C:\..., so that is used.
     $fromEnvironment = getenv("CORELIBS_TEST_UNC_DIR");
     $base = Filesystem::normalisePath(realpath($dir)) . "/unc-paths";
-    $adminShare = (preg_match('#^([A-Za-z]):/(.*)$#', $base, $match) === 1) ? "//localhost/{$match[1]}$/{$match[2]}" : "";
+    $isDrivePath = (preg_match('#^([A-Za-z]):/(.*)$#', $base, $match) === 1);
+    $adminShare = $isDrivePath ? "//localhost/{$match[1]}$/{$match[2]}" : "";
 
     $unc = ($fromEnvironment !== false && $fromEnvironment !== "")
         ? Filesystem::normalisePath($fromEnvironment) . "/unc-paths-" . getmypid()
@@ -2375,7 +2393,10 @@ $smoke->run("replaceWithFile() copying back over another user's file", function 
 
     if ($file === "" || !is_file($file))
     {
-        SmokeTest::skip("replaceWithFile() copying back over another user's file", "needs the fixtures from run-all-php-versions.sh");
+        SmokeTest::skip(
+            "replaceWithFile() copying back over another user's file",
+            "needs the fixtures from run-all-php-versions.sh"
+        );
     }
     elseif (!function_exists("posix_geteuid") || posix_geteuid() === 0)
     {

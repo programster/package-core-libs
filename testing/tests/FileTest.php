@@ -268,10 +268,12 @@ $smoke->run("File rename and move", function () use ($dir) {
         (new File("{$base}/links/absolute-link"))->move("deeper");
         SmokeTest::assertSamePath(readlink("{$base}/links/deeper/absolute-link"), "{$base}/links/target.txt");
 
-        # Filesystem::moveFile() does the same as File::rename(), but a relative path is relative to the working directory.
+        # Filesystem::moveFile() does the same as File::rename(), but a relative path is relative to the working
+        # directory.
         file_put_contents("{$base}/shortcut.txt", "shortcut");
         Filesystem::moveFile("{$base}/shortcut.txt", "{$base}/sub/shortcut-moved.txt");
-        assert(file_get_contents("{$base}/sub/shortcut-moved.txt") === "shortcut" && !file_exists("{$base}/shortcut.txt"));
+        assert(file_get_contents("{$base}/sub/shortcut-moved.txt") === "shortcut");
+        assert(!file_exists("{$base}/shortcut.txt"));
         $workingDirectory = getcwd();
         chdir("{$base}/sub");
         Filesystem::moveFile("shortcut-moved.txt", "../shortcut-back.txt");
@@ -279,10 +281,11 @@ $smoke->run("File rename and move", function () use ($dir) {
         assert(file_get_contents("{$base}/shortcut-back.txt") === "shortcut");
         file_put_contents("{$base}/sub/in-the-way.txt", "in the way");
 
-        SmokeTest::expectException(
-            FileAlreadyExistsException::class,
-            function () use ($base) { Filesystem::moveFile("{$base}/shortcut-back.txt", "{$base}/sub/in-the-way.txt"); }
-        );
+        $moveOntoExistingFile = function () use ($base): void {
+            Filesystem::moveFile("{$base}/shortcut-back.txt", "{$base}/sub/in-the-way.txt");
+        };
+
+        SmokeTest::expectException(FileAlreadyExistsException::class, $moveOntoExistingFile);
 
         Filesystem::moveFile("{$base}/shortcut-back.txt", "{$base}/sub/in-the-way.txt", true);
         assert(file_get_contents("{$base}/sub/in-the-way.txt") === "shortcut");
@@ -319,8 +322,13 @@ $smoke->run("File moves never replacing a file created during the move", functio
     file_put_contents("{$base}/theirs.txt", "theirs");
     $moveFile = new ReflectionMethod(File::class, "moveFile");
 
-    $moveOntoAppearedFile = function () use ($moveFile, $base): void {
-        $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/theirs.txt", false, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+    # Calls the private File::moveFile(), keeping the file's owner, with no listener.
+    $move = function (string $from, string $to, bool $replace = false) use ($moveFile): void {
+        $moveFile->invoke(null, $from, $to, $replace, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+    };
+
+    $moveOntoAppearedFile = function () use ($move, $base): void {
+        $move("{$base}/mine.txt", "{$base}/theirs.txt");
     };
 
     SmokeTest::expectException(
@@ -336,8 +344,8 @@ $smoke->run("File moves never replacing a file created during the move", functio
         # A broken symlink counts as something being there too.
         symlink("{$base}/missing", "{$base}/broken-link");
 
-        $moveOntoBrokenLink = function () use ($moveFile, $base): void {
-            $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/broken-link", false, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+        $moveOntoBrokenLink = function () use ($move, $base): void {
+            $move("{$base}/mine.txt", "{$base}/broken-link");
         };
 
         SmokeTest::expectException(
@@ -349,7 +357,7 @@ $smoke->run("File moves never replacing a file created during the move", functio
     }
 
     # When nothing is there, it moves.
-    $moveFile->invoke(null, "{$base}/mine.txt", "{$base}/moved.txt", false, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+    $move("{$base}/mine.txt", "{$base}/moved.txt");
     assert(file_get_contents("{$base}/moved.txt") === "mine" && !file_exists("{$base}/mine.txt"));
 
     # Moving to another filesystem goes through a temporary name in the new directory, which is removed again
@@ -363,9 +371,8 @@ $smoke->run("File moves never replacing a file created during the move", functio
         {
             file_put_contents("{$otherFilesystem}/theirs.txt", "theirs");
 
-            $moveOntoAppearedFileElsewhere = function () use ($moveFile, $base, $otherFilesystem): void {
-                $theirs = "{$otherFilesystem}/theirs.txt";
-                $moveFile->invoke(null, "{$base}/moved.txt", $theirs, false, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+            $moveOntoAppearedFileElsewhere = function () use ($move, $base, $otherFilesystem): void {
+                $move("{$base}/moved.txt", "{$otherFilesystem}/theirs.txt");
             };
 
             SmokeTest::expectException(
@@ -375,20 +382,20 @@ $smoke->run("File moves never replacing a file created during the move", functio
 
             assert(file_get_contents("{$otherFilesystem}/theirs.txt") === "theirs");
             assert(file_get_contents("{$base}/moved.txt") === "mine");
-            $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/moved.txt", false, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+            $move("{$base}/moved.txt", "{$otherFilesystem}/moved.txt");
             assert(file_get_contents("{$otherFilesystem}/moved.txt") === "mine" && !file_exists("{$base}/moved.txt"));
             assert(glob("{$otherFilesystem}/.corelibs-move-*") === []);
-            $moveFile->invoke(null, "{$otherFilesystem}/moved.txt", "{$base}/moved.txt", false, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+            $move("{$otherFilesystem}/moved.txt", "{$base}/moved.txt");
 
             # The copy keeps the permissions and modification time, and replacing works across filesystems too.
             chmod("{$base}/moved.txt", 0640);
             touch("{$base}/moved.txt", 1000000000);
-            $moveFile->invoke(null, "{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", true, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+            $move("{$base}/moved.txt", "{$otherFilesystem}/theirs.txt", true);
             assert(file_get_contents("{$otherFilesystem}/theirs.txt") === "mine" && !file_exists("{$base}/moved.txt"));
             SmokeTest::assertPermissions("{$otherFilesystem}/theirs.txt", 0640);
             assert(filemtime("{$otherFilesystem}/theirs.txt") === 1000000000);
             assert(glob("{$otherFilesystem}/.corelibs-move-*") === []);
-            $moveFile->invoke(null, "{$otherFilesystem}/theirs.txt", "{$base}/moved.txt", false, PreserveOwnershipEnum::YES, null, new MoveProgress(1, 0));
+            $move("{$otherFilesystem}/theirs.txt", "{$base}/moved.txt");
         }
         finally
         {
