@@ -46,7 +46,7 @@ These still run, but do something different, so search for them:
 | `ArrayLib::getLastKey()` (was `getLastIndex()`) with `$removeElement` | Didn't remove the element | Removes it | Check you meant to remove it |
 
 ## Requirements
-- PHP 8.3 or later. (Version 2 needed PHP 8.5's `array_first()`.)
+- PHP 8.3 or a later version of PHP 8. (Version 2 needed PHP 8.5's `array_first()`.)
 - The `sodium` and `fileinfo` extensions are now required. The `thecodingmachine/safe` dependency is gone.
 - Every class is now `final`, so a class extending one of them needs to call it instead.
 - Every parameter and return value has a type. Code passing the wrong type (e.g. a `string` where an `int` is

@@ -38,7 +38,8 @@ moving a directory tree safely, getting the system's memory, running a shell com
 on. It is built primarily for rapid development and ease of understanding, rather than raw performance.
 
 ## Requirements
-- PHP 8.3 or later (8.3, 8.4 and 8.5 are tested). Where PHP 8.5 has a native function for something, it is used.
+- PHP 8.3 or a later version of PHP 8 (8.3, 8.4 and 8.5 are tested). Where PHP 8.5 has a native function for
+  something, it is used.
 - The `fileinfo` and `sodium` extensions, which most PHP installs already have.
 
 Linux has first-class support, and macOS, Windows and WSL are tested too. See [Supported platforms](docs/platforms.md)
