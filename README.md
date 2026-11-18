@@ -103,7 +103,7 @@ Filesystem::deleteDir("/tmp/build");
 | Class | For |
 |---|---|
 | [`ArrayLib`](docs/arrays.md) | Getting the first, last or a random element or key, fast diffs and intersections, splitting an array evenly, merging with a clash handler |
-| [`StringLib`](docs/strings.md) | Random strings, `startsWith()`/`endsWith()`/`contains()` with case options, line breaks and `<br>` tags, URL-safe base64 |
+| [`StringLib`](docs/strings.md) | Random strings, UUIDs, `startsWith()`/`endsWith()`/`contains()` with case options, line breaks and `<br>` tags, URL-safe base64 |
 | [`Core`](docs/core.md) | Running commands, memory and processor counts, process titles, request arguments, safe redirects, signed data, the clipboard |
 | [`CliLib`](docs/cli.md) | Progress bars, and reading a password without showing it |
 | [`CsvLib`, `CsvFile`](docs/csv.md) | Validating, converting, trimming, merging and comparing CSV files, and removing their rows or columns |
