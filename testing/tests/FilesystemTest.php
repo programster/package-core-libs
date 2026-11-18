@@ -7,6 +7,7 @@
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 use Programster\CoreLibs\Enums\FileDeletionOperationEnum;
 use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
+use Programster\CoreLibs\Enums\FileLockTypeEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
@@ -195,8 +196,33 @@ $smoke->run("directories and files", function () use ($dir) {
     };
 
     SmokeTest::expectException(BadArgumentException::class, $convertHexPermissions);
-    assert(Filesystem::lockFile("{$dir}/lock", true, false));
-    Filesystem::unlockFile("{$dir}/lock");
+});
+
+$smoke->run("lockFile and tryLockFile", function () use ($dir) {
+    $lock = "{$dir}/lock";
+
+    # An exclusive lock, by default, which creates the file, and stops another being had until it's released.
+    Filesystem::lockFile($lock);
+    assert(is_file($lock));
+    assert(Filesystem::tryLockFile($lock) === false, "an exclusive lock is refused while another is held");
+    $sharedWhileExclusive = Filesystem::tryLockFile($lock, FileLockTypeEnum::SHARED);
+    assert($sharedWhileExclusive === false, "a shared lock is refused while an exclusive one is held");
+    Filesystem::unlockFile($lock);
+    assert(Filesystem::tryLockFile($lock), "it can be had once released");
+    Filesystem::unlockFile($lock);
+
+    # A shared lock stops an exclusive one, but locking never empties the file.
+    file_put_contents($lock, "kept");
+    Filesystem::lockFile($lock, FileLockTypeEnum::SHARED);
+    assert(Filesystem::tryLockFile($lock, FileLockTypeEnum::EXCLUSIVE) === false);
+    Filesystem::unlockFile($lock);
+    assert(file_get_contents($lock) === "kept");
+
+    $lockInMissingDirectory = function () use ($dir): void {
+        Filesystem::lockFile("{$dir}/no-such-directory/lock");
+    };
+
+    SmokeTest::expectException(FilesystemException::class, $lockInMissingDirectory);
 });
 
 $smoke->run("UTF-8 methods", function () use ($dir) {
@@ -2062,6 +2088,33 @@ $smoke->run("replaceFileContents", function () use ($dir) {
 
     # Nothing is left behind, next to the file or in the system's temporary directory.
     assert(array_values(array_diff(scandir($base), [".", ".."])) === ["a.txt"]);
+
+    # With $createIfMissing, a missing file is created, with the permissions a new file gets.
+    Filesystem::replaceFileContents("{$base}/new.txt", "first\n", true);
+    assert(file_get_contents("{$base}/new.txt") === "first\n");
+    SmokeTest::assertPermissions("{$base}/new.txt", 0666 & ~umask());
+
+    # Once it exists, it's replaced as any other file is, keeping its permissions.
+    chmod("{$base}/new.txt", 0640);
+    Filesystem::replaceFileContents("{$base}/new.txt", "second\n", true);
+    assert(file_get_contents("{$base}/new.txt") === "second\n");
+    SmokeTest::assertPermissions("{$base}/new.txt", 0640);
+
+    # It's created the same way when the temporary file is asked to go in the system's temporary directory.
+    Filesystem::replaceFileContents("{$base}/new2.txt", "x", true, UseSystemTempDirEnum::ALWAYS);
+    assert(file_get_contents("{$base}/new2.txt") === "x");
+
+    $createInMissingDirectory = function () use ($base): void {
+        Filesystem::replaceFileContents("{$base}/no-such-directory/a.txt", "x", true);
+    };
+
+    # Its directory has to exist already.
+    SmokeTest::expectException(DirectoryDoesNotExistException::class, $createInMissingDirectory);
+
+    # And nothing else is left behind.
+    $left = array_values(array_diff(scandir($base), [".", ".."]));
+    sort($left);
+    assert($left === ["a.txt", "new.txt", "new2.txt"], implode(", ", $left));
 });
 
 $smoke->run("isTmpfs on each system", function () use ($dir) {

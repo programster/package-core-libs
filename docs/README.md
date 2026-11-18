@@ -1,5 +1,6 @@
 # Core Libs documentation
 
+- [Upgrading](upgrading.md): what changed in each release.
 - [Upgrading from version 2](upgrading-to-3.md)
 - [Arrays (`ArrayLib`)](arrays.md)
 - [Strings (`StringLib`)](strings.md)

@@ -14,6 +14,7 @@ Core Libs
 - [Quick start](#quick-start)
 - [What's in it](#whats-in-it)
 - [Documentation](#documentation)
+    - [Upgrading](docs/upgrading.md)
     - [Upgrading from version 2](docs/upgrading-to-3.md)
     - [Arrays (`ArrayLib`)](docs/arrays.md)
     - [Strings (`StringLib`)](docs/strings.md)

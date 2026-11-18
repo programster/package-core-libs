@@ -116,4 +116,11 @@ The temporary file must be closed before `replaceWithFile()`. Pass the same `Use
 `PreserveOwnershipEnum` to both, as `createReplacementFile()` uses the ownership setting to choose where the file can go.
 Real code should also check that `fopen()` and `fwrite()` succeed.
 
-For a file whose new contents you already have as a string, `replaceFileContents()` does all of this in one call.
+For a file whose new contents you already have as a string, `replaceFileContents()` does all of this in one call. It
+expects the file to be there, so a mistyped path is an error, rather than a new file. To create it if it isn't (e.g. a
+settings file saved for the first time), pass `true` as its third parameter, `$createIfMissing`: the contents are
+written to a temporary file next to it and renamed into place, so it's never seen half written either.
+
+```php
+Filesystem::replaceFileContents("/tmp/settings.json", '{"theme": "dark"}', createIfMissing: true);
+```

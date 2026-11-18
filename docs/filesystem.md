@@ -192,6 +192,10 @@ half of the new contents.
 
 ```php
 Filesystem::replaceFileContents("/etc/app/config.json", json_encode($config, JSON_PRETTY_PRINT));
+
+// Or create it, the same way, if it doesn't exist yet. Without this, a missing file throws a FileDoesNotExistException,
+// so a mistyped path is caught.
+Filesystem::replaceFileContents("/etc/app/config.json", json_encode($config, JSON_PRETTY_PRINT), true);
 ```
 
 Unlike `file_put_contents()`, it throws a `FileDoesNotExistException` rather than creating a file that isn't there, so
@@ -309,12 +313,15 @@ Filesystem::isCaseOnlyRename("/srv/report.txt", "/srv/Report.txt");
 that does.
 
 ## Locking a file
-`lockFile()` takes an advisory lock, which only stops other processes that also ask for a lock. It doesn't stop anything
-else changing the file.
+`lockFile()` takes an advisory lock, waiting until it can be had, and `tryLockFile()` takes one only if it can be had
+straight away. A lock only stops other processes that also ask for one. It doesn't stop anything else changing the file.
+The file is created if it doesn't exist, and is never emptied.
 
 ```php
-// An exclusive (write) lock, waiting until it can be had.
-Filesystem::lockFile("/var/run/app.lock", true, true);
+use Programster\CoreLibs\Enums\FileLockTypeEnum;
+
+// An exclusive lock (the default), waiting until it can be had.
+Filesystem::lockFile("/tmp/app.lock");
 
 try
 {
@@ -322,17 +329,20 @@ try
 }
 finally
 {
-    Filesystem::unlockFile("/var/run/app.lock");
+    Filesystem::unlockFile("/tmp/app.lock");
 }
 
 // Don't wait: false means something else has it.
-if (Filesystem::lockFile("/var/run/app.lock", true, false) === false)
+if (Filesystem::tryLockFile("/tmp/app.lock") === false)
 {
     exit("Already running" . PHP_EOL);
 }
+
+Filesystem::unlockFile("/tmp/app.lock");
 ```
 
-Pass `false` as the second parameter for a shared (read) lock, which several processes can have at once.
+Pass `FileLockTypeEnum::SHARED` for a shared (read) lock, which several processes can have at once, but not while one
+has an exclusive lock.
 
 ## Downloading a file
 `downloadFile()` downloads a URL into a temporary file and returns its path, streaming it to disk rather than holding it

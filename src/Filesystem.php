@@ -8,6 +8,7 @@ namespace Programster\CoreLibs;
 
 
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;
+use Programster\CoreLibs\Enums\FileLockTypeEnum;
 use Programster\CoreLibs\Enums\FileDeletionOperationEnum;
 use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
 use Programster\CoreLibs\Enums\MemoryTypeEnum;
@@ -736,73 +737,43 @@ final class Filesystem
 
 
     /**
-     * Lock a file so that only we can use it. If $isBlocking is false, this returns false
-     * immediately if the lock can't be obtained. If true, it waits until the lock can be obtained.
-     * Note that this only allows other processes to see that you have locked it and does not
-     * actually guarantee that it cannot be edited at the same time on Linux.
+     * Take an advisory lock on a file, waiting (for as long as it takes) until it can be had. To not wait, e.g. to
+     * make sure only one copy of a script runs at once, use tryLockFile() instead, which returns false straight away
+     * if something else has a lock that conflicts with it. It's advisory: it only stops other processes that also ask
+     * for a lock (with lockFile() or tryLockFile(), or PHP's flock()), not anything else changing the file. The file
+     * is created if it doesn't exist (and is never emptied). Release it with unlockFile().
      *
-     * @param string $filePath - the full path to the file that we wish to lock
+     * @param string $filePath - the path to the file to lock, e.g. "/var/run/app.lock".
      *
-     * @param bool $isWriteLock - if false this will get a shared read lock, if true this will get
-     * an exclusive write lock.
+     * @param FileLockTypeEnum $type - an exclusive lock (the default), which only one process can have at once, or a
+     * shared one, which several can have at once, but not while one has an exclusive lock.
      *
-     * @param bool $isBlocking - if true will wait to get lock.
+     * @return void
      *
-     * @return bool - true if we managed to lock the file. False is only returned when $isBlocking
-     * is false and something else already holds a conflicting lock, so a blocking lock always
-     * returns true.
-     *
-     * @throws FilesystemException - if the file could not be opened, or locking it failed for any
-     * other reason.
+     * @throws FilesystemException - if the file couldn't be opened, or locking it failed.
      */
-    public static function lockFile(string $filePath, bool $isWriteLock, bool $isBlocking): bool
+    public static function lockFile(string $filePath, FileLockTypeEnum $type = FileLockTypeEnum::EXCLUSIVE): void
     {
-        # This creates the file if it doesn't exist.
-        # This MUST be a+ instead of w or w+ as using w will result in the file being wiped.
-        $fileHandle = fopen($filePath, 'a+');
+        self::takeLock($filePath, $type, true);
+    }
 
-        if ($fileHandle === false)
-        {
-            throw new FilesystemException("Failed to open {$filePath} in order to lock it.");
-        }
 
-        $lockParams = 0;
-
-        if ($isWriteLock)
-        {
-            $lockParams =  $lockParams | LOCK_EX;
-        }
-        else
-        {
-            # read lock = shared lock
-            $lockParams = $lockParams | LOCK_SH;
-        }
-
-        if (!$isBlocking)
-        {
-            $lockParams = $lockParams | LOCK_NB;
-        }
-
-        $isLocked = flock($fileHandle, $lockParams, $wouldBlock);
-
-        if ($isLocked)
-        {
-            self::$s_fileLocks[$filePath] = $fileHandle;
-        }
-        else
-        {
-            # Don't keep the handle open if we didn't get the lock, as unlockFile() would never be called for it.
-            fclose($fileHandle);
-
-            # $wouldBlock is only set when a non-blocking lock failed because something else holds the lock, which is
-            # a normal result. Anything else is a genuine failure.
-            if ($wouldBlock !== 1)
-            {
-                throw new FilesystemException("Failed to lock {$filePath}.");
-            }
-        }
-
-        return $isLocked;
+    /**
+     * Take an advisory lock on a file if it can be had straight away, without waiting, e.g. to make sure only one copy
+     * of a script runs at once. See lockFile().
+     *
+     * @param string $filePath - the path to the file to lock, e.g. "/var/run/app.lock".
+     *
+     * @param FileLockTypeEnum $type - an exclusive lock (the default), or a shared one.
+     *
+     * @return bool - true if this got the lock (so it's now held here, until unlockFile()), or false if it didn't, as
+     * something else already holds a lock that conflicts with it.
+     *
+     * @throws FilesystemException - if the file couldn't be opened, or locking it failed for any other reason.
+     */
+    public static function tryLockFile(string $filePath, FileLockTypeEnum $type = FileLockTypeEnum::EXCLUSIVE): bool
+    {
+        return self::takeLock($filePath, $type, false);
     }
 
 
@@ -2163,7 +2134,7 @@ final class Filesystem
             }
 
             $converted = mb_convert_encoding($content, 'UTF-8', $encoding);
-            self::replaceFileContents($inputFilepath, $converted, $useSystemTempDir, $preserveOwnership);
+            self::replaceFileContents($inputFilepath, $converted, false, $useSystemTempDir, $preserveOwnership);
         }
     }
 
@@ -2326,8 +2297,9 @@ final class Filesystem
      * a failure part way through (e.g. the disk filling up) leaves the original as it was. The file
      * keeps its owner and permissions, and where it can be renamed into place (see replaceWithFile()),
      * the change is atomic, so nothing reading the file ever sees half of the new contents.
-     * Unlike file_put_contents(), this doesn't create a file that doesn't exist, so a mistyped path
-     * is an error rather than a new file.
+     * Unlike file_put_contents(), this doesn't create a file that doesn't exist by default, so a
+     * mistyped path is an error rather than a new file. Pass true as $createIfMissing to create it,
+     * in the same safe way, e.g. for a file that's saved for the first time.
      *
      * @param string $filepath - the path to the file to replace the contents of.
      *
@@ -2335,6 +2307,13 @@ final class Filesystem
      * file_put_contents()) an array of strings, which are joined together as they are, with nothing
      * added between them. So each line in an array needs its own line ending, as the lines from
      * file() have.
+     *
+     * @param bool $createIfMissing - what to do if there's no file at $filepath: throw (false, the
+     * default), or create it (true), with the new contents written to a temporary file next to it
+     * and renamed into place, so it's never seen half written. A new file gets the permissions
+     * file_put_contents() would give it (0666, less the umask). Its temporary file always goes next
+     * to it, rather than in the system's temporary directory, unless $useSystemTempDir is ALWAYS and
+     * that's on the same filesystem, as it couldn't be renamed into place from another.
      *
      * @param UseSystemTempDirEnum $useSystemTempDir - where to write the new contents first (see
      * UseSystemTempDirEnum). Defaults to AUTO, which picks the fastest place that will work, which
@@ -2349,7 +2328,7 @@ final class Filesystem
      * @throws BadArgumentException - if $contents is an array with something other than a string in
      * it.
      *
-     * @throws FileDoesNotExistException - if there is no file at $filepath.
+     * @throws FileDoesNotExistException - if there is no file at $filepath, and $createIfMissing is false.
      * @throws BadFilePermissionsException - if the file can't be both read and written.
      *
      * @throws FilesystemException - if the new contents could not be written. See replaceWithFile()
@@ -2360,6 +2339,7 @@ final class Filesystem
     public static function replaceFileContents(
         string $filepath,
         string|array $contents,
+        bool $createIfMissing = false,
         UseSystemTempDirEnum $useSystemTempDir = UseSystemTempDirEnum::AUTO,
         PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
     ): void
@@ -2374,18 +2354,26 @@ final class Filesystem
         }
 
         $joinedContents = is_array($contents) ? implode("", $contents) : $contents;
-        self::checkCanChangeFile($filepath);
-        $tmpFilepath = self::createReplacementFile($filepath, $useSystemTempDir, $preserveOwnership);
 
-        # Nothing has been copied into the original yet, so if this fails it is untouched, and the temporary file can
-        # go.
-        if (@file_put_contents($tmpFilepath, $joinedContents) !== strlen($joinedContents))
+        if ($createIfMissing && !file_exists($filepath) && !is_link($filepath))
         {
-            @unlink($tmpFilepath);
-            throw new FilesystemException("Failed to write the new contents of {$filepath} to a temporary file.");
+            self::createFileAtomically($filepath, $joinedContents, $useSystemTempDir);
         }
+        else
+        {
+            self::checkCanChangeFile($filepath);
+            $tmpFilepath = self::createReplacementFile($filepath, $useSystemTempDir, $preserveOwnership);
 
-        self::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
+            # Nothing has been copied into the original yet, so if this fails it is untouched, and the temporary file
+            # can go.
+            if (@file_put_contents($tmpFilepath, $joinedContents) !== strlen($joinedContents))
+            {
+                @unlink($tmpFilepath);
+                throw new FilesystemException("Failed to write the new contents of {$filepath} to a temporary file.");
+            }
+
+            self::replaceWithFile($filepath, $tmpFilepath, $preserveOwnership);
+        }
     }
 
 
@@ -2755,6 +2743,108 @@ final class Filesystem
     public static function isSelinuxEnabled(): bool
     {
         return file_exists("/sys/fs/selinux/enforce");
+    }
+
+
+    /**
+     * Take a lock, for lockFile() and tryLockFile().
+     *
+     * @param string $filePath - the file to lock, which is created if it doesn't exist.
+     *
+     * @param FileLockTypeEnum $type - the kind of lock.
+     *
+     * @param bool $waitIfLocked - if something else already holds a lock that conflicts with it, whether to wait until
+     * it's released (true), or give up straight away (false).
+     *
+     * @return bool - true if this got the lock (so it's now held here, until unlockFile()), or false if it didn't, as
+     * something else held a conflicting lock and $waitIfLocked was false. Always true when waiting.
+     *
+     * @throws FilesystemException - if the file couldn't be opened, or locking it failed for a reason other than
+     * something else holding a conflicting lock.
+     */
+    private static function takeLock(string $filePath, FileLockTypeEnum $type, bool $waitIfLocked): bool
+    {
+        # This creates the file if it doesn't exist. It MUST be a+ rather than w or w+, as w would empty the file.
+        $openFile = function () use ($filePath) {
+            return fopen($filePath, 'a+');
+        };
+
+        $fileHandle = Core::runCapturingWarning($openFile, $warning);
+
+        if ($fileHandle === false)
+        {
+            throw new FilesystemException("Failed to open {$filePath} in order to lock it: {$warning}");
+        }
+
+        $operation = match ($type) {
+            FileLockTypeEnum::EXCLUSIVE => LOCK_EX,
+            FileLockTypeEnum::SHARED => LOCK_SH,
+        };
+
+        $operation = $waitIfLocked ? $operation : ($operation | LOCK_NB);
+        $isLocked = flock($fileHandle, $operation, $wouldBlock);
+
+        if ($isLocked)
+        {
+            self::$s_fileLocks[$filePath] = $fileHandle;
+        }
+        else
+        {
+            # Don't keep the handle open if we didn't get the lock, as unlockFile() would never be called for it.
+            fclose($fileHandle);
+
+            # $wouldBlock is only set when a non-blocking lock failed because something else holds the lock, which is
+            # a normal result. Anything else is a genuine failure.
+            if ($wouldBlock !== 1)
+            {
+                throw new FilesystemException("Failed to lock {$filePath}.");
+            }
+        }
+
+        return $isLocked;
+    }
+
+
+    /**
+     * Create a file with its contents, for replaceFileContents(), by writing them to a temporary file and renaming it
+     * into place, so nothing ever sees the file half written.
+     *
+     * @param string $filepath - the file to create.
+     *
+     * @param string $contents - its contents.
+     *
+     * @param UseSystemTempDirEnum $useSystemTempDir - ALWAYS to use the system's temporary directory if it's on the
+     * same filesystem (so the file can still be renamed into place). Anything else puts it next to the file.
+     *
+     * @return void
+     *
+     * @throws DirectoryDoesNotExistException - if the directory $filepath is in doesn't exist.
+     * @throws FilesystemException - if it couldn't be written, or renamed into place.
+     */
+    private static function createFileAtomically(
+        string $filepath,
+        string $contents,
+        UseSystemTempDirEnum $useSystemTempDir
+    ): void
+    {
+        $tempLocation = ($useSystemTempDir === UseSystemTempDirEnum::ALWAYS)
+            ? UseSystemTempDirEnum::WHEN_SAME_FS
+            : UseSystemTempDirEnum::NEVER;
+
+        $tmpFilepath = self::createReplacementFile($filepath, $tempLocation, PreserveOwnershipEnum::NO);
+        $permissions = 0666 & ~umask();
+
+        $isCreated = (
+               @file_put_contents($tmpFilepath, $contents) === strlen($contents)
+            && @chmod($tmpFilepath, $permissions)
+            && @rename($tmpFilepath, $filepath)
+        );
+
+        if (!$isCreated)
+        {
+            @unlink($tmpFilepath);
+            throw new FilesystemException("Failed to create {$filepath}.");
+        }
     }
 
 
