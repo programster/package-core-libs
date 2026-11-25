@@ -437,7 +437,7 @@ class File
      * than rename(), as link() fails if anything (even a broken symlink) is at the new path, so
      * something another process creates there after it was checked is never replaced.
      * On another filesystem, it is copied to a hidden, randomly named file in the new directory
-     * (e.g. ".corelibs-move-1a2b3c4d5e6f7a8b"), with its permissions and modification time, and its
+     * (e.g. ".tmp-move-1a2b3c4d5e6f7a8b"), with its permissions and modification time, and its
      * owner and group as $preserveOwnership says. That is then put in place the same way, and only
      * once it is there is the original deleted. So if anything goes wrong part way through, the
      * original is still there, and only the copy needs removing.
@@ -723,7 +723,7 @@ class File
     {
         try
         {
-            $copyPath = "{$directory}/.corelibs-move-" . bin2hex(random_bytes(8));
+            $copyPath = "{$directory}/.tmp-move-" . bin2hex(random_bytes(8));
         }
         catch (\Random\RandomException $e)
         {

@@ -787,8 +787,8 @@ $smoke->run("move listeners and cancelling across filesystems", function () use 
         mkdir($otherFilesystem);
         $leftovers = function () use ($otherFilesystem): array {
             $hidden = array_merge(
-                glob("{$otherFilesystem}/.corelibs-move-*"),
-                glob(sys_get_temp_dir() . "/.corelibs-move-*")
+                glob("{$otherFilesystem}/.tmp-move-*"),
+                glob(sys_get_temp_dir() . "/.tmp-move-*")
             );
 
             return $hidden;
@@ -893,8 +893,8 @@ $smoke->run("moves cleaning up when PHP stops part way", function () use ($dir) 
             assert($exitCode === 3, "the script didn't stop where expected: " . implode("\n", $output));
 
             $hidden = array_merge(
-                glob("{$otherFilesystem}/.corelibs-move-*"),
-                glob(sys_get_temp_dir() . "/.corelibs-move-*")
+                glob("{$otherFilesystem}/.tmp-move-*"),
+                glob(sys_get_temp_dir() . "/.tmp-move-*")
             );
 
             assert(!file_exists("{$otherFilesystem}/project"), "the folder holding the name was left behind");
@@ -927,8 +927,8 @@ $smoke->run("resumable moves", function () use ($dir, $makeRecordingListener) {
         mkdir($otherFilesystem);
         $hiddenCopies = function () use ($otherFilesystem): array {
             return array_merge(
-                glob("{$otherFilesystem}/.corelibs-move-*"),
-                glob(sys_get_temp_dir() . "/.corelibs-move-*")
+                glob("{$otherFilesystem}/.tmp-move-*"),
+                glob(sys_get_temp_dir() . "/.tmp-move-*")
             );
         };
 
@@ -1094,8 +1094,8 @@ $smoke->run("move listeners during a big file", function () use ($dir, $makeReco
             assert(filesize("{$base}/project/big.bin") === 9 * $megabyte && !file_exists("{$otherFilesystem}/big.bin"));
 
             $hidden = array_merge(
-                glob("{$otherFilesystem}/.corelibs-move-*"),
-                glob(sys_get_temp_dir() . "/.corelibs-move-*")
+                glob("{$otherFilesystem}/.tmp-move-*"),
+                glob(sys_get_temp_dir() . "/.tmp-move-*")
             );
 
             assert($hidden === [], "a partial copy was left: " . implode(", ", $hidden));

@@ -411,7 +411,8 @@ final class Core
      * any trailing newline).
      *
      * @throws CommandFailedException - if the command could not be run, or exited with a non-zero
-     * exit code. The exception holds the exit code and anything the command wrote to stderr.
+     * exit code. The exception holds the exit code, anything the command wrote to stderr, and (with
+     * getOutput(), kept out of its message, as it could be sensitive) anything it wrote to stdout.
      */
     public static function runCommand(string $command, ?string $input = null): string
     {
@@ -479,7 +480,8 @@ final class Core
 
         if ($exitCode !== 0)
         {
-            throw new CommandFailedException($command, $exitCode, ($errorOutput === false) ? "" : $errorOutput);
+            $errorOutputText = ($errorOutput === false) ? "" : $errorOutput;
+            throw new CommandFailedException($command, $exitCode, $errorOutputText, $output);
         }
 
         return $output;

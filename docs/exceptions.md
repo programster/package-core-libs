@@ -54,6 +54,8 @@ All are in the `Programster\CoreLibs\Exceptions` namespace. Those indented exten
 | `FileAlreadyExistsException` | Something already exists where a file or directory would be created or moved to |
 | `FileDoesNotExistException` | There's no file at a path that needs one |
 | `FilesystemException` | A filesystem operation failed for another reason, e.g. a file couldn't be opened, or a disk filled up |
+| &nbsp;&nbsp;&nbsp;&nbsp;`NotEnoughDiskSpaceException` | Something won't fit in the free space, e.g. a zip that `Filesystem::unzip()` would extract |
+| &nbsp;&nbsp;&nbsp;&nbsp;`ZipTooLargeException` | A zip would extract to more than the most `Filesystem::unzip()` was told to allow |
 | `InputEndedException` | The input ended while `CliLib::getPasswordFromUserInput()` was reading |
 | `InvalidCsvException` | A CSV file isn't valid, e.g. it has a blank line in the middle, or rows of different lengths |
 | &nbsp;&nbsp;&nbsp;&nbsp;`NonNumericCsvValuesException` | `CsvLib::diffTolerance()` found values that aren't numbers in the columns to compare |
@@ -74,13 +76,15 @@ All are in the `Programster\CoreLibs\Exceptions` namespace. Those indented exten
 
 | Exception | Methods |
 |---|---|
-| `CommandFailedException` | `getCommand()`, `getExitCode()`, and `getErrorOutput()` (what the command wrote to stderr) |
+| `CommandFailedException` | `getCommand()`, `getExitCode()`, `getErrorOutput()` (what the command wrote to stderr), and `getOutput()` (what it wrote to stdout before failing, which is kept out of the message and `var_dump()`, as it could be sensitive) |
 | `DirectoryNotDeletableException` | `getProblems()`: a list of `FileDeletionProblem`, each with `path`, `directory` (what needs its permissions changing) and `reason` (a `FileDeletionProblemEnum`). See [Deleting](filesystem.md#deleting) |
 | `DirectoryNotMovableException` | `getProblems()`: a list of `DirectoryMoveProblem`, each with `getPath()`, `getReason()` (a `DirectoryMoveProblemEnum`) and `getDescription()`. See [When a directory can't be moved](moving-and-renaming.md#when-a-directory-cant-be-moved) |
 | `NetworkInterfaceDoesNotExistException` | `getInterface()` |
 | `NonNumericCsvValuesException` | `getErrors()`: a list of `CsvCellError`, each with `filepath`, `rowNumber`, `columnNumber` and `value` |
+| `NotEnoughDiskSpaceException` | `getPath()`, `getNeededBytes()` and `getFreeBytes()` |
 | `PhpVersionTooLowException` | `getRequiredVersion()` and `getCurrentVersion()` |
 | `StringConversionFailedException` | `getFailedString()`. The string is kept out of the message and `var_dump()`, as it may be sensitive (e.g. a token) |
+| `ZipTooLargeException` | `getZipPath()`, `getExtractedBytes()` and `getMaxBytes()` |
 
 `FileDeletionProblem` and `CsvCellError` only hold details, so their properties are public and read-only, e.g.
 `$problem->path`.

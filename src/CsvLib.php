@@ -1130,7 +1130,7 @@ final class CsvLib
         }
 
         # The diff is a new temporary file, which is returned. Suppress the warning, as we throw an exception instead.
-        $newFileName = @tempnam(sys_get_temp_dir(), "corelibs-diff-");
+        $newFileName = @tempnam(sys_get_temp_dir(), "tmp-diff-");
 
         if ($newFileName === false)
         {

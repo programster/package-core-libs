@@ -361,7 +361,7 @@ final class SmokeTest
 
     /**
      * Get the start of the name tempnam() gives a file with a prefix. Windows only uses the first
-     * three characters of the prefix (e.g. "corelibs-tmp-" gives "cor1A2B.tmp").
+     * three characters of the prefix (e.g. "tmp-replace-" gives "tmp1A2B.tmp").
      * @param string $prefix - the prefix given to tempnam().
      * @return string - what the file's name starts with.
      */

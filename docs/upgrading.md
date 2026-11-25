@@ -2,9 +2,49 @@
 
 What changed in each release, and what, if anything, to change in your code when upgrading, newest first.
 
+- [4.1.0](#410)
 - [4.0.0](#400)
 - [3.1.0](#310)
 - [3.0.0](#300)
+
+## 4.1.0
+
+### Changes you may notice
+- **`Filesystem::unzip()` refuses a zip that won't fit**, throwing the new `NotEnoughDiskSpaceException` before anything
+  is written, rather than filling the disk part way through and then failing. It extends `FilesystemException`, which
+  was thrown for a full disk before, so code that catches that still catches it.
+
+### Other changes
+- New: `Filesystem::unzip()` takes `$maxExtractedBytes`, the most a zip's contents may add up to once extracted, and
+  throws the new `ZipTooLargeException` for one that would extract to more. Use it for zips from users. See
+  [Zipping and unzipping](filesystem.md#zipping-and-unzipping).
+- New: `Filesystem::zipDir()` takes `$compression`, a `ZipCompressionEnum` (`DEFLATE`, the default, as before,
+  `STORE`, `BZIP2`, `XZ` or `ZSTD`), or a `ZipCompressionEnumCollection` of them to try in order. See
+  [Zipping and unzipping](filesystem.md#zipping-and-unzipping).
+- New: `Filesystem::zipDir()` takes `$excludePaths`, files and folders to leave out of the zip, and the new
+  `Filesystem::listHiddenFilesAndFolders()` lists the hidden ones, e.g. to leave those out. See
+  [Listing a directory](filesystem.md#listing-a-directory) and
+  [Zipping and unzipping](filesystem.md#zipping-and-unzipping).
+- New: `Filesystem::updateSymlink()`, which points a symlink somewhere else atomically, e.g. to switch between
+  versions of a directory. See [Symlinks](filesystem.md#symlinks).
+- New: `Filesystem::replaceDir()`, which replaces a directory with another, and `Filesystem::replaceSymlink()`, which
+  replaces a symlink with a directory, both without anything ever seeing a mix of the two. See
+  [Replacing a directory](filesystem.md#replacing-a-directory).
+- `Filesystem::tmpDir()` takes `$prefix`, after its other parameters, for what the directory's name starts with, and
+  its names now start with `tmp-` by default, rather than `corelibs-dir-`.
+- The temporary files and directories the library makes while it works have shorter names, starting with `tmp-` (or
+  `.tmp-`, where they're hidden), e.g. `.tmp-move-...` rather than `.corelibs-move-...`. If you clean up leftovers by
+  name, look for both. A resumable move that was interrupted before upgrading is still found, and resumed.
+- New: `CommandFailedException::getOutput()`, what a failed command wrote to stdout, e.g. for PHP's command line, which
+  reports errors there. It's kept out of the exception's message, as it could be sensitive.
+- Fixed: reading a password on Windows (`CliLib::getPasswordFromUserInput()`) threw an `ArgumentCountError`, rather
+  than a `CommandFailedException`, if PowerShell couldn't be run or failed.
+- New: `Filesystem::tmpFile()`, which creates a temporary file, as `tmpDir()` does a directory. See
+  [Temporary files and directories](filesystem.md#temporary-files-and-directories).
+- New: `Filesystem::getFreeDiskSpace()`, which throws rather than returning `false`, as `disk_free_space()` does.
+  See [Sizes](filesystem.md#sizes).
+- New: `Filesystem::chown()` and `Filesystem::chgrp()`, which throw rather than returning `false`, and change a symlink
+  itself rather than what it points to, unless told otherwise. See [Permissions](filesystem.md#permissions).
 
 ## 4.0.0
 

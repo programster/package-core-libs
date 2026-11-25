@@ -384,7 +384,7 @@ $smoke->run("File moves never replacing a file created during the move", functio
             assert(file_get_contents("{$base}/moved.txt") === "mine");
             $move("{$base}/moved.txt", "{$otherFilesystem}/moved.txt");
             assert(file_get_contents("{$otherFilesystem}/moved.txt") === "mine" && !file_exists("{$base}/moved.txt"));
-            assert(glob("{$otherFilesystem}/.corelibs-move-*") === []);
+            assert(glob("{$otherFilesystem}/.tmp-move-*") === []);
             $move("{$otherFilesystem}/moved.txt", "{$base}/moved.txt");
 
             # The copy keeps the permissions and modification time, and replacing works across filesystems too.
@@ -394,7 +394,7 @@ $smoke->run("File moves never replacing a file created during the move", functio
             assert(file_get_contents("{$otherFilesystem}/theirs.txt") === "mine" && !file_exists("{$base}/moved.txt"));
             SmokeTest::assertPermissions("{$otherFilesystem}/theirs.txt", 0640);
             assert(filemtime("{$otherFilesystem}/theirs.txt") === 1000000000);
-            assert(glob("{$otherFilesystem}/.corelibs-move-*") === []);
+            assert(glob("{$otherFilesystem}/.tmp-move-*") === []);
             $move("{$otherFilesystem}/theirs.txt", "{$base}/moved.txt");
         }
         finally

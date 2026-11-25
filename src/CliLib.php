@@ -198,7 +198,7 @@ final class CliLib
 
         if ($process === false)
         {
-            throw new CommandFailedException("Failed to start PowerShell to read the password.");
+            throw new CommandFailedException("powershell", -1, "Failed to start PowerShell to read the password.");
         }
 
         $output = stream_get_contents($pipes[1]);
@@ -216,7 +216,8 @@ final class CliLib
 
         if ($password === false)
         {
-            throw new CommandFailedException("PowerShell failed to read the password (exit code {$exitCode}).");
+            # Its output isn't passed on, as it's the password, or what was meant to be.
+            throw new CommandFailedException("powershell", $exitCode, "PowerShell failed to read the password.");
         }
 
         return $password;

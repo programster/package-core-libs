@@ -10,6 +10,7 @@ use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
 use Programster\CoreLibs\Enums\FileLockTypeEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
+use Programster\CoreLibs\Enums\ZipCompressionEnum;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
@@ -17,8 +18,11 @@ use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
+use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
+use Programster\CoreLibs\Exceptions\ZipTooLargeException;
 use Programster\CoreLibs\Filesystem;
 use Programster\CoreLibs\Models\FileDeletionProblem;
+use Programster\CoreLibs\Models\ZipCompressionEnumCollection;
 use Programster\CoreLibs\Network;
 use Programster\CoreLibs\Testing\SmokeTest;
 
@@ -234,7 +238,7 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
 
     # convertFileToUtf8() changes the file in place: it keeps its permissions and links, works in a directory that
     # can't be written to (for anyone but root), and leaves nothing in the temporary directory.
-    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/tmp-replace-*");
     mkdir("{$dir}/utf8-dir");
     file_put_contents("{$dir}/utf8-dir/w.txt", iconv("UTF-8", "WINDOWS-1251", "Привет"));
     chmod("{$dir}/utf8-dir/w.txt", 0640);
@@ -252,7 +256,7 @@ $smoke->run("UTF-8 methods", function () use ($dir) {
     {
         SmokeTest::assertOwnedByOtherUser("{$dir}/utf8-dir/w.txt", "convertFileToUtf8()");
     }
-    assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
+    assert(glob(sys_get_temp_dir() . "/tmp-replace-*") === $tempFilesBefore);
     assert(array_values(array_diff(scandir("{$dir}/utf8-dir"), [".", ".."])) === ["w-link.txt", "w.txt"]);
 
     # A file that needs converting but can't be written is rejected, and left as it was. Root can write to any file,
@@ -283,7 +287,7 @@ $smoke->run("replacing file contents in place", function () use ($dir) {
     $tmpFilepath = Filesystem::createReplacementFile("{$dir}/replace.txt", UseSystemTempDirEnum::ALWAYS);
     clearstatcache();
     SmokeTest::assertSamePath(dirname($tmpFilepath), sys_get_temp_dir());
-    assert(str_starts_with(basename($tmpFilepath), SmokeTest::tempnamPrefix("corelibs-tmp-")));
+    assert(str_starts_with(basename($tmpFilepath), SmokeTest::tempnamPrefix("tmp-replace-")));
     assert(filesize($tmpFilepath) === 0);
     SmokeTest::assertPermissions($tmpFilepath, 0600);
 
@@ -865,7 +869,7 @@ $smoke->run("fileFilter", function () use ($dir) {
         return !str_contains($line, "x");
     };
 
-    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/tmp-replace-*");
 
     # In place: the file is changed in place, keeping its permissions, owner and links.
     file_put_contents("{$base}/in-place.txt", "abc\nxyz\ndef\n");
@@ -937,7 +941,7 @@ $smoke->run("fileFilter", function () use ($dir) {
     SmokeTest::assertPermissions("{$base}/existing-output.txt", 0604);
 
     # Nothing is left in the temporary directory, whether it worked or not.
-    assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
+    assert(glob(sys_get_temp_dir() . "/tmp-replace-*") === $tempFilesBefore);
 
     $filterMissingFile = function () use ($base, $keepNonX): void {
         Filesystem::fileFilter("{$base}/nope.txt", $keepNonX);
@@ -990,7 +994,7 @@ $smoke->run("tmpDir", function () use ($dir) {
     $tmpDir2 = Filesystem::tmpDir("0700");
     clearstatcache();
     SmokeTest::assertSamePath(dirname($tmpDir1), sys_get_temp_dir());
-    assert(str_starts_with(basename($tmpDir1), "corelibs-dir-"));
+    assert(str_starts_with(basename($tmpDir1), "tmp-"));
     assert(is_dir($tmpDir1) && scandir($tmpDir1) === [".", ".."] && $tmpDir1 !== $tmpDir2);
 
     # The mode is applied, reduced by the umask, as with mkdir().
@@ -1006,6 +1010,17 @@ $smoke->run("tmpDir", function () use ($dir) {
     SmokeTest::assertPermissions($exactTmpDir, 0777);
     rmdir($exactTmpDir);
     umask($oldUmask);
+
+    # A prefix shows what it's for, but one that could put it somewhere else, or isn't a plain name, is refused.
+    $buildDir = Filesystem::tmpDir(prefix: "build-");
+    assert(str_starts_with(basename($buildDir), "build-") && is_dir($buildDir));
+    rmdir($buildDir);
+
+    $createWithBadPrefix = function (): void {
+        Filesystem::tmpDir(prefix: "../escape-");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $createWithBadPrefix, "tmpDir: \$prefix");
 
     if (SmokeTest::canTestPermissions("tmpDir() in a temporary directory that can't be written to"))
     {
@@ -1165,8 +1180,8 @@ $smoke->run("unzip", function () use ($dir) {
     assert(file_get_contents("{$base}/a-file") === "not a directory" && is_file("{$base}/keep.zip"));
 
     # Nothing is left of the temporary directory it extracts into, wherever that was.
-    assert(glob("{$base}/new/nested/destination/.corelibs-unzip-*") === []);
-    assert(glob(sys_get_temp_dir() . "/corelibs-unzip-*") === []);
+    assert(glob("{$base}/new/nested/destination/.tmp-unzip-*") === []);
+    assert(glob(sys_get_temp_dir() . "/tmp-unzip-*") === []);
 
     # A destination on a different filesystem from the system's temporary directory can't have the contents moved
     # there instantly, so it extracts into a hidden directory inside the destination instead. /dev/shm is usually a
@@ -1185,7 +1200,7 @@ $smoke->run("unzip", function () use ($dir) {
         {
             Filesystem::unzip("{$base}/keep.zip", "{$otherFilesystem}/out", false);
             assert(file_get_contents("{$otherFilesystem}/out/source/inner/a.txt") === "a");
-            assert(glob("{$otherFilesystem}/out/.corelibs-unzip-*") === []);
+            assert(glob("{$otherFilesystem}/out/.tmp-unzip-*") === []);
         }
         finally
         {
@@ -1255,7 +1270,7 @@ $smoke->run("unzip", function () use ($dir) {
     );
 
     assert(scandir("{$base}/existing-for-clash") === [".", ".."]);
-    assert(glob(sys_get_temp_dir() . "/corelibs-unzip-*") === []);
+    assert(glob(sys_get_temp_dir() . "/tmp-unzip-*") === []);
 
     if (SmokeTest::canTestPermissions("unzip() reporting why it can't create, extract or delete"))
     {
@@ -1629,7 +1644,7 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
     $nextTo = Filesystem::createReplacementFile("{$base}/a.txt", UseSystemTempDirEnum::NEVER);
     clearstatcache();
     SmokeTest::assertSamePath(dirname($nextTo), realpath($base));
-    assert(str_starts_with(basename($nextTo), SmokeTest::tempnamPrefix(".corelibs-tmp-")));
+    assert(str_starts_with(basename($nextTo), SmokeTest::tempnamPrefix(".tmp-replace-")));
     SmokeTest::assertPermissions($nextTo, 0600);
 
     # WHEN_SAME_FS uses the system's temporary directory when it is on the same filesystem as the original.
@@ -1678,7 +1693,7 @@ $smoke->run("createReplacementFile locations, and replaceWithFile renaming", fun
         {
             file_put_contents("{$otherFilesystem}/auto.txt", "x");
             $auto = Filesystem::createReplacementFile("{$otherFilesystem}/auto.txt", UseSystemTempDirEnum::AUTO);
-            assert(dirname($auto) === $otherFilesystem && str_starts_with(basename($auto), ".corelibs-tmp-"));
+            assert(dirname($auto) === $otherFilesystem && str_starts_with(basename($auto), ".tmp-replace-"));
             unlink($auto);
 
             # And one in the system's temporary directory (ALWAYS) is copied back there, so the original keeps its
@@ -2471,3 +2486,752 @@ $smoke->run("replaceWithFile() copying back over another user's file", function 
     }
 });
 
+
+$smoke->run("tmpFile", function () use ($dir) {
+    # It makes a new, empty file in the system's temporary directory, with a different name each time.
+    $tmpFile1 = Filesystem::tmpFile();
+    $tmpFile2 = Filesystem::tmpFile(prefix: "report-");
+    clearstatcache();
+    SmokeTest::assertSamePath(dirname($tmpFile1), sys_get_temp_dir());
+    assert(str_starts_with(basename($tmpFile1), "tmp-"));
+    assert(str_starts_with(basename($tmpFile2), "report-"));
+    assert(is_file($tmpFile1) && filesize($tmpFile1) === 0 && $tmpFile1 !== $tmpFile2);
+
+    # By default, as with tempnam(), it gets exactly its mode (0600, so only this user can read or write it), whatever
+    # the umask. With $overrideUmask set to false, the mode is reduced by the umask instead. Set a known umask, so the
+    # difference can be seen.
+    if (PHP_OS_FAMILY !== "Windows")
+    {
+        clearstatcache();
+        SmokeTest::assertPermissions($tmpFile1, 0600);
+        $oldUmask = umask(0027);
+        $exactTmpFile = Filesystem::tmpFile(mode: "0664");
+        $reducedTmpFile = Filesystem::tmpFile(mode: "0664", overrideUmask: false);
+        umask($oldUmask);
+        clearstatcache();
+        SmokeTest::assertPermissions($reducedTmpFile, 0640);
+        SmokeTest::assertPermissions($exactTmpFile, 0664);
+        unlink($reducedTmpFile);
+        unlink($exactTmpFile);
+    }
+
+    unlink($tmpFile1);
+    unlink($tmpFile2);
+
+    # A prefix that could put the file somewhere else, or isn't a plain name, is refused.
+    foreach (["../escape-", "sub/dir-", "with space-", str_repeat("a", 65)] as $badPrefix)
+    {
+        $createWithBadPrefix = function () use ($badPrefix): void {
+            Filesystem::tmpFile(prefix: $badPrefix);
+        };
+
+        SmokeTest::expectException(BadArgumentException::class, $createWithBadPrefix, "tmpFile: \$prefix");
+    }
+
+    $createWithBadMode = function (): void {
+        Filesystem::tmpFile(mode: "rw-------");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $createWithBadMode, "tmpFile: \$mode");
+});
+
+
+$smoke->run("getFreeDiskSpace", function () use ($dir) {
+    file_put_contents("{$dir}/space.txt", "x");
+
+    # A directory or a file on it both give the free space on that filesystem.
+    $freeBytes = Filesystem::getFreeDiskSpace($dir);
+    assert($freeBytes > 0);
+    assert(Filesystem::getFreeDiskSpace("{$dir}/space.txt") > 0);
+
+    # In another unit, it's a fraction of that (the free space can change between calls, so roughly).
+    $freeGib = Filesystem::getFreeDiskSpace($dir, DataSizeUnitEnum::GIB);
+    assert($freeGib > 0 && $freeGib < $freeBytes);
+
+    $fetchForMissingPath = function () use ($dir): void {
+        Filesystem::getFreeDiskSpace("{$dir}/no-such-thing");
+    };
+
+    SmokeTest::expectException(FileDoesNotExistException::class, $fetchForMissingPath, "there is nothing at");
+});
+
+
+$smoke->run("chown and chgrp", function () use ($dir) {
+    $file = "{$dir}/owned.txt";
+    file_put_contents($file, "x");
+
+    if (PHP_OS_FAMILY === "Windows")
+    {
+        $chownOnWindows = function () use ($file): void {
+            Filesystem::chown($file, "someone");
+        };
+
+        SmokeTest::expectException(UnsupportedPlatformException::class, $chownOnWindows, "on Windows");
+    }
+    else
+    {
+        # Giving a file to the user and group it already has is allowed for anyone, so works however the tests run.
+        $userId = fileowner($file);
+        $groupId = filegroup($file);
+        Filesystem::chown($file, $userId);
+        Filesystem::chgrp($file, $groupId);
+        clearstatcache();
+        assert(fileowner($file) === $userId && filegroup($file) === $groupId);
+
+        $chownMissing = function () use ($dir): void {
+            Filesystem::chown("{$dir}/no-such-file", 0);
+        };
+
+        $chownToMissingUser = function () use ($file): void {
+            Filesystem::chown($file, "corelibs-no-such-user");
+        };
+
+        $chgrpToMissingGroup = function () use ($file): void {
+            Filesystem::chgrp($file, "corelibs-no-such-group");
+        };
+
+        SmokeTest::expectException(FileDoesNotExistException::class, $chownMissing, "chown: there is nothing at");
+        SmokeTest::expectException(FilesystemException::class, $chownToMissingUser, "chown: failed to give");
+        SmokeTest::expectException(FilesystemException::class, $chgrpToMissingGroup, "chgrp: failed to give");
+
+        # A broken symlink can be changed itself (the default), but not followed, as there's nothing at the end of it.
+        symlink("{$dir}/nothing-here", "{$dir}/broken-link");
+        Filesystem::chown("{$dir}/broken-link", $userId);
+
+        $chownFollowingBrokenLink = function () use ($dir, $userId): void {
+            Filesystem::chown("{$dir}/broken-link", $userId, followSymlinks: true);
+        };
+
+        SmokeTest::expectException(
+            FileDoesNotExistException::class,
+            $chownFollowingBrokenLink,
+            "is a symlink to something that doesn't exist"
+        );
+
+        # Only root can give a file to someone else, which shows a symlink is changed itself, not what it points to,
+        # unless asked.
+        if (function_exists('posix_geteuid') && posix_geteuid() === 0)
+        {
+            symlink($file, "{$dir}/owned-link");
+            Filesystem::chown("{$dir}/owned-link", 1);
+            clearstatcache();
+            assert(lstat("{$dir}/owned-link")['uid'] === 1 && fileowner($file) === 0);
+
+            Filesystem::chown("{$dir}/owned-link", 1, followSymlinks: true);
+            clearstatcache();
+            assert(fileowner($file) === 1);
+            chown($file, 0);
+        }
+    }
+});
+
+
+$smoke->run("unzip refuses a zip bigger than allowed", function () use ($dir) {
+    $zipPath = "{$dir}/sized.zip";
+    $zip = new ZipArchive();
+    $zip->open($zipPath, ZipArchive::CREATE);
+    $zip->addFromString("data.txt", str_repeat("x", 1000));
+    $zip->close();
+
+    # 1000 bytes once extracted is over a limit of 999, so nothing is written, and the zip is kept.
+    $unzipOverLimit = function () use ($zipPath, $dir): void {
+        Filesystem::unzip($zipPath, "{$dir}/sized-out", maxExtractedBytes: 999);
+    };
+
+    SmokeTest::expectException(ZipTooLargeException::class, $unzipOverLimit, "which is more than the");
+    assert(!file_exists("{$dir}/sized-out") && is_file($zipPath));
+
+    # Exactly the limit is fine.
+    Filesystem::unzip($zipPath, "{$dir}/sized-out", false, maxExtractedBytes: 1000);
+    assert(filesize("{$dir}/sized-out/data.txt") === 1000);
+
+    $unzipWithNegativeLimit = function () use ($zipPath, $dir): void {
+        Filesystem::unzip($zipPath, "{$dir}/sized-out-2", false, maxExtractedBytes: -1);
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $unzipWithNegativeLimit, "can't be negative");
+    assert(!file_exists("{$dir}/sized-out-2"));
+});
+
+
+$smoke->run("zipDir compression", function () use ($dir) {
+    mkdir("{$dir}/to-compress/sub", 0777, true);
+    file_put_contents("{$dir}/to-compress/a.txt", str_repeat("compressible ", 1000));
+    file_put_contents("{$dir}/to-compress/sub/b.txt", str_repeat("also compressible ", 1000));
+
+    # Each file's compression method, as the zip records it.
+    $getMethods = function (string $zipPath): array {
+        $zip = new ZipArchive();
+        $zip->open($zipPath);
+        $methods = [];
+
+        for ($index = 0; $index < $zip->numFiles; $index++)
+        {
+            $entry = $zip->statIndex($index);
+
+            if (!str_ends_with($entry['name'], "/"))
+            {
+                $methods[$entry['name']] = $entry['comp_method'];
+            }
+        }
+
+        $zip->close();
+        return $methods;
+    };
+
+    # By default, the files are compressed, as before.
+    Filesystem::zipDir("{$dir}/to-compress", "{$dir}/deflated.zip", false, includeFolder: false);
+    $deflatedMethods = $getMethods("{$dir}/deflated.zip");
+    assert(count($deflatedMethods) === 2);
+    assert(array_unique(array_values($deflatedMethods)) === [ZipArchive::CM_DEFLATE]);
+
+    # STORE keeps them as they are, so the zip is bigger here, as the text is very compressible.
+    Filesystem::zipDir(
+        "{$dir}/to-compress",
+        "{$dir}/stored.zip",
+        false,
+        includeFolder: false,
+        compression: ZipCompressionEnum::STORE
+    );
+
+    $storedMethods = $getMethods("{$dir}/stored.zip");
+    assert(count($storedMethods) === 2);
+    assert(array_unique(array_values($storedMethods)) === [ZipArchive::CM_STORE]);
+    clearstatcache();
+    assert(filesize("{$dir}/stored.zip") > filesize("{$dir}/deflated.zip"));
+
+    # Either way, it unzips to the same files.
+    Filesystem::unzip("{$dir}/stored.zip", "{$dir}/from-stored", false);
+    assert(file_get_contents("{$dir}/from-stored/sub/b.txt") === file_get_contents("{$dir}/to-compress/sub/b.txt"));
+});
+
+
+$smoke->run("listHiddenFilesAndFolders", function () use ($dir) {
+    mkdir("{$dir}/hidden-test/photos/.thumbs", 0777, true);
+    mkdir("{$dir}/hidden-test/.cache/.inner", 0777, true);
+    file_put_contents("{$dir}/hidden-test/.gitignore", "");
+    file_put_contents("{$dir}/hidden-test/visible.txt", "");
+    file_put_contents("{$dir}/hidden-test/photos/.DS_Store", "");
+    file_put_contents("{$dir}/hidden-test/photos/a.jpg", "");
+    file_put_contents("{$dir}/hidden-test/.cache/data", "");
+
+    $relativeTo = function (array $paths) use ($dir): array {
+        $relative = [];
+
+        foreach ($paths as $path)
+        {
+            # The paths keep any symlinks in the path given (e.g. macOS's /var), so compare with it, not the real path.
+            $relative[] = substr($path, strlen(Filesystem::normalisePath("{$dir}/hidden-test")) + 1);
+        }
+
+        sort($relative);
+        return $relative;
+    };
+
+    # Just the folder itself: hidden files and folders alike, and nothing visible.
+    $topLevel = $relativeTo(Filesystem::listHiddenFilesAndFolders("{$dir}/hidden-test"));
+    assert($topLevel === [".cache", ".gitignore"], implode(", ", $topLevel));
+
+    # Recursively: hidden ones inside visible folders too, but not inside hidden folders, as listing those covers them.
+    $recursive = $relativeTo(Filesystem::listHiddenFilesAndFolders("{$dir}/hidden-test", true));
+    $expected = [".cache", ".gitignore", "photos/.DS_Store", "photos/.thumbs"];
+    assert($recursive === $expected, implode(", ", $recursive));
+
+    $listMissing = function () use ($dir): void {
+        Filesystem::listHiddenFilesAndFolders("{$dir}/no-such-dir");
+    };
+
+    SmokeTest::expectException(DirectoryDoesNotExistException::class, $listMissing, "There is no directory");
+});
+
+
+$smoke->run("zipDir leaving things out", function () use ($dir) {
+    mkdir("{$dir}/exclude-test/sub/.cache", 0777, true);
+    file_put_contents("{$dir}/exclude-test/.gitignore", "");
+    file_put_contents("{$dir}/exclude-test/keep.txt", "keep");
+    file_put_contents("{$dir}/exclude-test/sub/keep-too.txt", "keep");
+    file_put_contents("{$dir}/exclude-test/sub/.cache/junk", "junk");
+    file_put_contents("{$dir}/exclude-test/sub/skip.txt", "skip");
+
+    $getEntryNames = function (string $zipPath): array {
+        $zip = new ZipArchive();
+        $zip->open($zipPath);
+        $names = [];
+
+        for ($index = 0; $index < $zip->numFiles; $index++)
+        {
+            $names[] = rtrim($zip->getNameIndex($index), "/");
+        }
+
+        $zip->close();
+        sort($names);
+        return $names;
+    };
+
+    # The hidden ones, as listHiddenFilesAndFolders() gives them (absolute), and one more, relative to the folder.
+    $excludePaths = [
+        ...Filesystem::listHiddenFilesAndFolders("{$dir}/exclude-test", true),
+        "sub/skip.txt",
+    ];
+
+    Filesystem::zipDir(
+        "{$dir}/exclude-test",
+        "{$dir}/excluded.zip",
+        false,
+        includeFolder: false,
+        excludePaths: $excludePaths
+    );
+
+    $names = $getEntryNames("{$dir}/excluded.zip");
+    assert($names === ["keep.txt", "sub", "sub/keep-too.txt"], implode(", ", $names));
+
+    # With the folder at the top of the zip, the paths are still within the folder being zipped.
+    Filesystem::zipDir("{$dir}/exclude-test", "{$dir}/excluded-with-folder.zip", false, excludePaths: ["sub"]);
+    $withFolderNames = $getEntryNames("{$dir}/excluded-with-folder.zip");
+    assert($withFolderNames === ["exclude-test", "exclude-test/.gitignore", "exclude-test/keep.txt"]);
+
+    # Paths that would have no effect are refused, before any zip is created.
+    $badExcludes = [
+        "nothing there" => ["no-such-file"],
+        "isn't inside" => ["{$dir}/excluded.zip"],
+        "must be a string" => [42],
+    ];
+
+    foreach ($badExcludes as $expectedMessage => $badExcludePaths)
+    {
+        $zipWithBadExcludes = function () use ($dir, $badExcludePaths): void {
+            Filesystem::zipDir("{$dir}/exclude-test", "{$dir}/bad.zip", false, excludePaths: $badExcludePaths);
+        };
+
+        SmokeTest::expectException(BadArgumentException::class, $zipWithBadExcludes, $expectedMessage);
+        assert(!file_exists("{$dir}/bad.zip"));
+    }
+});
+
+
+$smoke->run("updateSymlink", function () use ($dir) {
+    mkdir("{$dir}/releases/1", 0777, true);
+    mkdir("{$dir}/releases/2");
+    mkdir("{$dir}/releases/3");
+    file_put_contents("{$dir}/releases/1/version.txt", "1");
+    file_put_contents("{$dir}/releases/2/version.txt", "2");
+    file_put_contents("{$dir}/releases/3/version.txt", "3");
+    file_put_contents("{$dir}/not-a-link.txt", "");
+    assert(SmokeTest::makeRelativeSymlink("releases/1", "{$dir}/current"));
+
+    # Where it leads, which works the same everywhere. On Windows, PHP makes every new symlink absolute, so what is
+    # stored is only checked elsewhere.
+    $leadsTo = function (string $version) use ($dir): bool {
+        clearstatcache();
+        return file_get_contents("{$dir}/current/version.txt") === $version;
+    };
+
+    # It gives back the old target, as it was stored, and the new one is stored as it was given (here, relative).
+    assert(Filesystem::updateSymlink("{$dir}/current", "releases/2") === "releases/1");
+    assert($leadsTo("2"));
+    assert(PHP_OS_FAMILY === "Windows" || readlink("{$dir}/current") === "releases/2");
+
+    # Made in a work directory the caller chooses (on the same filesystem), the new symlink still ends up in place, an
+    # absolute target is kept as it is, and nothing is left behind, or deleted.
+    mkdir("{$dir}/work");
+    Filesystem::updateSymlink("{$dir}/current", "{$dir}/releases/3", "{$dir}/work");
+    assert($leadsTo("3"));
+    assert(PHP_OS_FAMILY === "Windows" || readlink("{$dir}/current") === "{$dir}/releases/3");
+    assert(scandir("{$dir}/work") === [".", ".."]);
+    Filesystem::updateSymlink("{$dir}/current", "releases/2");
+    assert($leadsTo("2"));
+
+    $isLeftOverLink = function (string $name): bool {
+        return str_starts_with($name, ".tmp-link-");
+    };
+
+    assert(count(array_filter(scandir($dir), $isLeftOverLink)) === 0);
+    assert(is_dir("{$dir}/releases/1") && is_dir("{$dir}/releases/2") && is_dir("{$dir}/releases/3"));
+
+    # Mistakes are refused, and the link is left as it was.
+    $replaceMissing = function () use ($dir): void {
+        Filesystem::updateSymlink("{$dir}/no-such-link", "releases/1");
+    };
+
+    $replaceRealFile = function () use ($dir): void {
+        Filesystem::updateSymlink("{$dir}/not-a-link.txt", "releases/1");
+    };
+
+    $replaceWithMissingTarget = function () use ($dir): void {
+        Filesystem::updateSymlink("{$dir}/current", "releases/no-such-release");
+    };
+
+    $replaceWithMissingWorkDirectory = function () use ($dir): void {
+        Filesystem::updateSymlink("{$dir}/current", "releases/1", "{$dir}/no-such-work-dir");
+    };
+
+    SmokeTest::expectException(FileDoesNotExistException::class, $replaceMissing, "there is nothing at");
+    SmokeTest::expectException(BadArgumentException::class, $replaceRealFile, "isn't a symlink");
+    SmokeTest::expectException(FileDoesNotExistException::class, $replaceWithMissingTarget, "would be broken");
+
+    SmokeTest::expectException(
+        BadArgumentException::class,
+        $replaceWithMissingWorkDirectory,
+        "must be a directory that can be written to"
+    );
+
+    # A work directory on another filesystem can't work, as a rename can't move anything between filesystems.
+    # /dev/shm (held in memory, on Linux) is usually another one.
+    $otherFilesystem = "/dev/shm";
+
+    $canTestOtherFilesystem = (
+           is_dir($otherFilesystem)
+        && is_writable($otherFilesystem)
+        && !Filesystem::isOnSameFilesystem($otherFilesystem, Filesystem::normalisePath(realpath($dir)))
+    );
+
+    if ($canTestOtherFilesystem)
+    {
+        $replaceWithOtherFilesystem = function () use ($dir, $otherFilesystem): void {
+            Filesystem::updateSymlink("{$dir}/current", "releases/1", $otherFilesystem);
+        };
+
+        SmokeTest::expectException(BadArgumentException::class, $replaceWithOtherFilesystem, "same filesystem");
+    }
+
+    assert($leadsTo("2") && is_file("{$dir}/not-a-link.txt"));
+}, needsSymlinks: true, anySymlinks: false);
+
+
+/**
+ * Run some PHP in a separate process, with a fake "mv" first in the PATH, to test what replaceDir() and
+ * replaceSymlink() do with and without "mv --exchange". The fake logs each call, then either refuses --exchange (as an
+ * older mv does), or hands every call to the real mv.
+ *
+ * @param string $dir - the tests' temporary directory.
+ *
+ * @param bool $allowExchange - false to refuse --exchange, true to pass it to the real mv.
+ *
+ * @param string $code - the PHP to run, after the autoloader is loaded.
+ *
+ * @return array{output: string, log: string} - what the PHP printed, and the fake mv's log of its calls.
+ */
+function runWithFakeMv(string $dir, bool $allowExchange, string $code): array
+{
+    $binDirectory = "{$dir}/fake-mv-" . bin2hex(random_bytes(4));
+    mkdir($binDirectory);
+    $logPath = "{$binDirectory}/calls.log";
+    $realMv = trim((string)shell_exec("command -v mv"));
+
+    $refuseExchange = $allowExchange
+        ? ""
+        : "case \" \$* \" in *\" --exchange \"*) echo \"mv: unrecognized option '--exchange'\" >&2; exit 1 ;; esac\n";
+
+    $logCall = "echo \"\$*\" >> \"\$MV_LOG\"\n";
+    $script = "#!/bin/sh\n{$logCall}{$refuseExchange}exec " . escapeshellarg($realMv) . " \"\$@\"\n";
+    file_put_contents("{$binDirectory}/mv", $script);
+    chmod("{$binDirectory}/mv", 0755);
+
+    $php = 'require ' . var_export(__DIR__ . '/../../vendor/autoload.php', true) . '; ' . $code;
+
+    $command = "PATH=" . escapeshellarg("{$binDirectory}:" . getenv("PATH")) . " MV_LOG=" . escapeshellarg($logPath) .
+        " " . escapeshellarg(PHP_BINARY) . " -d zend.assertions=1 -r " . escapeshellarg($php) . " 2>&1";
+
+    $output = (string)shell_exec($command);
+    $log = is_file($logPath) ? (string)file_get_contents($logPath) : "";
+    return ['output' => $output, 'log' => $log];
+}
+
+
+/**
+ * Whether this system's real "mv" can swap two paths with --exchange (coreutils 9.5 or later, on a filesystem that
+ * supports it), tried on two directories in $dir.
+ */
+function canExchangeWithMv(string $dir): bool
+{
+    $probe = "{$dir}/exchange-probe-" . bin2hex(random_bytes(4));
+    mkdir("{$probe}/a", 0777, true);
+    mkdir("{$probe}/b");
+    touch("{$probe}/a/was-a");
+    $escapedPaths = escapeshellarg("{$probe}/a") . " " . escapeshellarg("{$probe}/b");
+    $command = "mv --exchange --no-target-directory -- {$escapedPaths}";
+    shell_exec("{$command} 2>/dev/null");
+    clearstatcache();
+    $exchanged = is_file("{$probe}/b/was-a");
+    Filesystem::deleteDir($probe);
+    return $exchanged;
+}
+
+
+$smoke->run("replaceDir", function () use ($dir) {
+    mkdir("{$dir}/site/config", 0777, true);
+    mkdir("{$dir}/site-new/pages", 0777, true);
+    mkdir("{$dir}/site-work");
+    file_put_contents("{$dir}/site/old.txt", "old");
+    file_put_contents("{$dir}/site/.gitignore", "keep me");
+    file_put_contents("{$dir}/site/config/local.php", "<?php // local");
+    file_put_contents("{$dir}/site-new/new.txt", "new");
+    file_put_contents("{$dir}/site-new/pages/home.html", "home");
+    chmod("{$dir}/site", 0750);
+    chmod("{$dir}/site-new", 0700);
+
+    Filesystem::replaceDir(
+        "{$dir}/site",
+        "{$dir}/site-new",
+        [".gitignore", "{$dir}/site/config/local.php"],
+        "{$dir}/site-work"
+    );
+
+    clearstatcache();
+
+    # The new contents are in place, with the kept paths, the old contents are gone, and so is the new directory.
+    assert(file_get_contents("{$dir}/site/new.txt") === "new");
+    assert(file_get_contents("{$dir}/site/pages/home.html") === "home");
+    assert(file_get_contents("{$dir}/site/.gitignore") === "keep me");
+    assert(file_get_contents("{$dir}/site/config/local.php") === "<?php // local");
+    assert(!file_exists("{$dir}/site/old.txt") && !file_exists("{$dir}/site-new"));
+
+    # The directory keeps its permissions (which Windows doesn't have), and nothing is left in the work directory.
+    if (PHP_OS_FAMILY !== "Windows")
+    {
+        SmokeTest::assertPermissions("{$dir}/site", 0750);
+    }
+
+    assert(scandir("{$dir}/site-work") === [".", ".."]);
+
+    # Mistakes are refused before anything changes.
+    mkdir("{$dir}/site-new-2");
+    file_put_contents("{$dir}/site-new-2/.gitignore", "already here");
+
+    $mistakes = [
+        "there is no directory" => ["{$dir}/no-such-site", "{$dir}/site-new-2", []],
+        "one is inside the other" => ["{$dir}/site", "{$dir}/site/pages", []],
+        "already something" => ["{$dir}/site", "{$dir}/site-new-2", [".gitignore"]],
+        "nothing there" => ["{$dir}/site", "{$dir}/site-new-2", ["no-such-file"]],
+    ];
+
+    foreach ($mistakes as $expectedMessage => [$directory, $newDirectory, $keepPaths])
+    {
+        $replaceWithMistake = function () use ($directory, $newDirectory, $keepPaths): void {
+            Filesystem::replaceDir($directory, $newDirectory, $keepPaths);
+        };
+
+        $expectedClass = ($expectedMessage === "there is no directory")
+            ? DirectoryDoesNotExistException::class
+            : BadArgumentException::class;
+
+        SmokeTest::expectException($expectedClass, $replaceWithMistake, $expectedMessage);
+    }
+
+    # A symlink is refused, pointing to the methods for those, where one can be made.
+    if (SmokeTest::canCreateSymlinks("replaceDir() refusing a symlink", false))
+    {
+        symlink("{$dir}/site", "{$dir}/site-link");
+
+        $replaceSymlinkWithReplaceDir = function () use ($dir): void {
+            Filesystem::replaceDir("{$dir}/site-link", "{$dir}/site-new-2");
+        };
+
+        SmokeTest::expectException(BadArgumentException::class, $replaceSymlinkWithReplaceDir, "is a symlink");
+    }
+
+    $replaceWithWorkInside = function () use ($dir): void {
+        Filesystem::replaceDir("{$dir}/site", "{$dir}/site-new-2", [], "{$dir}/site/pages");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $replaceWithWorkInside, "moved along with it");
+    clearstatcache();
+    assert(file_get_contents("{$dir}/site/new.txt") === "new" && is_dir("{$dir}/site-new-2"));
+});
+
+
+$smoke->run("replaceDir and replaceSymlink without mv --exchange (moving aside instead)", function () use ($dir) {
+    # mv --exchange is only tried on Linux. Elsewhere, the other tests already use the fallback.
+    if (PHP_OS_FAMILY === "Linux")
+    {
+        mkdir("{$dir}/fallback/old", 0777, true);
+        mkdir("{$dir}/fallback/new");
+        mkdir("{$dir}/fallback/target");
+        mkdir("{$dir}/fallback/new-for-link");
+        file_put_contents("{$dir}/fallback/old/a.txt", "old");
+        file_put_contents("{$dir}/fallback/new/a.txt", "new");
+        file_put_contents("{$dir}/fallback/new-for-link/b.txt", "new for link");
+        symlink("target", "{$dir}/fallback/link");
+
+        $code = 'use Programster\CoreLibs\Filesystem; ' .
+            'Filesystem::replaceDir(' . var_export("{$dir}/fallback/old", true) . ', ' .
+            var_export("{$dir}/fallback/new", true) . '); ' .
+            'Filesystem::replaceSymlink(' . var_export("{$dir}/fallback/link", true) . ', ' .
+            var_export("{$dir}/fallback/new-for-link", true) . '); ' .
+            'echo "done";';
+
+        $result = runWithFakeMv($dir, false, $code);
+
+        # --exchange was tried for each, refused, and both were still replaced, by moving things aside.
+        assert($result['output'] === "done", $result['output']);
+        assert(substr_count($result['log'], "--exchange") === 2, $result['log']);
+        clearstatcache();
+        assert(file_get_contents("{$dir}/fallback/old/a.txt") === "new" && !file_exists("{$dir}/fallback/new"));
+        assert(!is_link("{$dir}/fallback/link") && file_get_contents("{$dir}/fallback/link/b.txt") === "new for link");
+        assert(is_dir("{$dir}/fallback/target"));
+    }
+});
+
+
+$smoke->run("replaceDir and replaceSymlink with mv --exchange (in one atomic step)", function () use ($dir) {
+    if (PHP_OS_FAMILY !== "Linux" || !canExchangeWithMv($dir))
+    {
+        SmokeTest::skip(
+            "replaceDir() and replaceSymlink() with mv --exchange",
+            "this system's mv can't --exchange, which needs Linux with coreutils 9.5 or later"
+        );
+    }
+    else
+    {
+        mkdir("{$dir}/exchange/old", 0777, true);
+        mkdir("{$dir}/exchange/new");
+        mkdir("{$dir}/exchange/target");
+        mkdir("{$dir}/exchange/new-for-link");
+        file_put_contents("{$dir}/exchange/old/a.txt", "old");
+        file_put_contents("{$dir}/exchange/new/a.txt", "new");
+        file_put_contents("{$dir}/exchange/new-for-link/b.txt", "new for link");
+        symlink("target", "{$dir}/exchange/link");
+
+        $code = 'use Programster\CoreLibs\Filesystem; ' .
+            'Filesystem::replaceDir(' . var_export("{$dir}/exchange/old", true) . ', ' .
+            var_export("{$dir}/exchange/new", true) . '); ' .
+            'Filesystem::replaceSymlink(' . var_export("{$dir}/exchange/link", true) . ', ' .
+            var_export("{$dir}/exchange/new-for-link", true) . '); ' .
+            'echo "done";';
+
+        $result = runWithFakeMv($dir, true, $code);
+
+        # Each was swapped with --exchange, and is in place, with what was swapped out removed.
+        assert($result['output'] === "done", $result['output']);
+        assert(substr_count($result['log'], "--exchange") === 2, $result['log']);
+        clearstatcache();
+        assert(file_get_contents("{$dir}/exchange/old/a.txt") === "new" && !file_exists("{$dir}/exchange/new"));
+        assert(!is_link("{$dir}/exchange/link") && file_get_contents("{$dir}/exchange/link/b.txt") === "new for link");
+        assert(is_dir("{$dir}/exchange/target") && !file_exists("{$dir}/exchange/new-for-link"));
+    }
+});
+
+
+$smoke->run("replaceSymlink", function () use ($dir) {
+    mkdir("{$dir}/linked/target", 0777, true);
+    mkdir("{$dir}/linked/new");
+    file_put_contents("{$dir}/linked/target/.gitignore", "keep me");
+    file_put_contents("{$dir}/linked/target/old.txt", "old");
+    file_put_contents("{$dir}/linked/new/new.txt", "new");
+    chmod("{$dir}/linked/target", 0750);
+    chmod("{$dir}/linked/new", 0700);
+    assert(SmokeTest::makeRelativeSymlink("target", "{$dir}/linked/current"));
+
+    Filesystem::replaceSymlink("{$dir}/linked/current", "{$dir}/linked/new", [".gitignore"]);
+    clearstatcache();
+
+    # It's a real directory now, with the new contents and the kept path, and the target's permissions. What the
+    # symlink pointed to is left exactly as it was.
+    assert(!is_link("{$dir}/linked/current") && is_dir("{$dir}/linked/current"));
+    assert(file_get_contents("{$dir}/linked/current/new.txt") === "new");
+    assert(file_get_contents("{$dir}/linked/current/.gitignore") === "keep me");
+    assert(!file_exists("{$dir}/linked/current/old.txt") && !file_exists("{$dir}/linked/new"));
+    assert(PHP_OS_FAMILY === "Windows" || (fileperms("{$dir}/linked/current") & 0777) === 0750);
+    assert(file_get_contents("{$dir}/linked/target/old.txt") === "old");
+
+    # A broken symlink can be replaced, but not with paths to keep, as there's nothing to keep them from. PHP can't
+    # make a broken symlink on Windows, so this is only tested where it can.
+    mkdir("{$dir}/linked/new-2");
+    mkdir("{$dir}/linked/new-3");
+
+    if (SmokeTest::canCreateSymlinks("replaceSymlink() with a broken symlink"))
+    {
+        symlink("nothing-here", "{$dir}/linked/broken");
+
+        $replaceBrokenKeeping = function () use ($dir): void {
+            Filesystem::replaceSymlink("{$dir}/linked/broken", "{$dir}/linked/new-2", [".gitignore"]);
+        };
+
+        SmokeTest::expectException(BadArgumentException::class, $replaceBrokenKeeping, "is broken");
+        Filesystem::replaceSymlink("{$dir}/linked/broken", "{$dir}/linked/new-2");
+        clearstatcache();
+        assert(!is_link("{$dir}/linked/broken") && is_dir("{$dir}/linked/broken"));
+    }
+
+    # A real directory, or a symlink to a file, is refused.
+    file_put_contents("{$dir}/linked/file.txt", "");
+    assert(SmokeTest::makeRelativeSymlink("file.txt", "{$dir}/linked/file-link"));
+
+    $replaceRealDirectory = function () use ($dir): void {
+        Filesystem::replaceSymlink("{$dir}/linked/current", "{$dir}/linked/new-3");
+    };
+
+    $replaceLinkToFile = function () use ($dir): void {
+        Filesystem::replaceSymlink("{$dir}/linked/file-link", "{$dir}/linked/new-3");
+    };
+
+    SmokeTest::expectException(BadArgumentException::class, $replaceRealDirectory, "Use replaceDir()");
+    SmokeTest::expectException(BadArgumentException::class, $replaceLinkToFile, "points to a file");
+    assert(is_dir("{$dir}/linked/new-3"));
+}, needsSymlinks: true, anySymlinks: false);
+
+
+$smoke->run("zipDir compression choices", function () use ($dir) {
+    mkdir("{$dir}/to-compress-2");
+    file_put_contents("{$dir}/to-compress-2/a.txt", str_repeat("compressible ", 1000));
+
+    $getMethod = function (string $zipPath): int {
+        $zip = new ZipArchive();
+        $zip->open($zipPath);
+        $method = $zip->statName("a.txt")['comp_method'];
+        $zip->close();
+        return $method;
+    };
+
+    # STORE and DEFLATE can always be used.
+    assert(ZipCompressionEnum::STORE->isSupported() && ZipCompressionEnum::DEFLATE->isSupported());
+
+    # A collection can't be made empty, so the mistake is caught where it's made.
+    $makeEmptyCollection = function (): void {
+        new ZipCompressionEnumCollection();
+    };
+
+    SmokeTest::expectException(ArgumentCountError::class, $makeEmptyCollection);
+
+    # A collection uses the first method that can be used.
+    $storeFirst = new ZipCompressionEnumCollection(ZipCompressionEnum::STORE, ZipCompressionEnum::DEFLATE);
+    assert(count($storeFirst) === 2 && $storeFirst->getFirstSupported() === ZipCompressionEnum::STORE);
+    Filesystem::zipDir("{$dir}/to-compress-2", "{$dir}/chosen.zip", false, false, compression: $storeFirst);
+    assert($getMethod("{$dir}/chosen.zip") === ZipArchive::CM_STORE);
+
+    # Where this PHP can't use one of the others, it's skipped in a collection, and refused on its own, before any zip
+    # file is made.
+    $unsupported = null;
+
+    foreach ([ZipCompressionEnum::BZIP2, ZipCompressionEnum::XZ, ZipCompressionEnum::ZSTD] as $method)
+    {
+        if ($unsupported === null && !$method->isSupported())
+        {
+            $unsupported = $method;
+        }
+    }
+
+    if ($unsupported === null)
+    {
+        SmokeTest::skip("zipDir() with an unsupported compression method", "this PHP supports all of them");
+    }
+    else
+    {
+        $fallingBack = new ZipCompressionEnumCollection($unsupported, ZipCompressionEnum::DEFLATE);
+        Filesystem::zipDir("{$dir}/to-compress-2", "{$dir}/fallback.zip", false, false, compression: $fallingBack);
+        assert($getMethod("{$dir}/fallback.zip") === ZipArchive::CM_DEFLATE);
+
+        $zipWithUnsupported = function () use ($dir, $unsupported): void {
+            Filesystem::zipDir("{$dir}/to-compress-2", "{$dir}/unsupported.zip", false, compression: $unsupported);
+        };
+
+        $zipWithNoneSupported = function () use ($dir, $unsupported): void {
+            $noneSupported = new ZipCompressionEnumCollection($unsupported);
+            Filesystem::zipDir("{$dir}/to-compress-2", "{$dir}/unsupported.zip", false, compression: $noneSupported);
+        };
+
+        SmokeTest::expectException(UnsupportedPlatformException::class, $zipWithUnsupported, "wasn't built with");
+        SmokeTest::expectException(UnsupportedPlatformException::class, $zipWithNoneSupported, "any of these");
+        assert(!file_exists("{$dir}/unsupported.zip"));
+    }
+});

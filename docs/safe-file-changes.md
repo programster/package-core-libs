@@ -43,7 +43,7 @@ Once the temporary file is complete, it replaces the original in one of two ways
 
 ## Where the temporary file goes (`UseSystemTempDirEnum`)
 The temporary file is private (created with `0600` permissions, so other users can't read it), and goes either in the
-system's temporary directory (e.g. `/tmp`), or next to the original as a hidden file (e.g. `.corelibs-tmp-AbC123`).
+system's temporary directory (e.g. `/tmp`), or next to the original as a hidden file (e.g. `.tmp-replace-AbC123`).
 
 | `UseSystemTempDirEnum` | Puts it |
 |---|---|

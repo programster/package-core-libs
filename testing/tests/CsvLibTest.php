@@ -769,7 +769,7 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
         },
     ];
 
-    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/tmp-replace-*");
 
     # The directory isn't writable (for anyone but root), as only the file itself needs to be.
     mkdir("{$dir}/in-place");
@@ -812,7 +812,7 @@ $smoke->run("CSV methods change files in place", function () use ($dir) {
     assert(file_get_contents("{$dir}/in-place/bad.csv") === "a,b\n\nc,d\n");
 
     # Nothing is left behind in the temporary directory, whether the change worked or not.
-    assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
+    assert(glob(sys_get_temp_dir() . "/tmp-replace-*") === $tempFilesBefore);
 
     # A file that can't be written is rejected before any work is done. Root can write to any file, so this can only be
     # checked when not running as root.
@@ -915,7 +915,7 @@ $smoke->run("CSV reading methods close the file however they end", function () u
 $smoke->run("CSV writing methods only replace the output once it is complete", function () use ($dir) {
     $base = "{$dir}/csv-output";
     mkdir($base);
-    $tempFilesBefore = glob(sys_get_temp_dir() . "/corelibs-tmp-*");
+    $tempFilesBefore = glob(sys_get_temp_dir() . "/tmp-replace-*");
 
     $resetExisting = function (string $path): void {
         file_put_contents($path, "old contents\n");
@@ -983,7 +983,7 @@ $smoke->run("CSV writing methods only replace the output once it is complete", f
     assert(file_get_contents("{$base}/merged.csv") === "old contents\n");
 
     # Nothing is left in the temporary directory, whether they worked or not.
-    assert(glob(sys_get_temp_dir() . "/corelibs-tmp-*") === $tempFilesBefore);
+    assert(glob(sys_get_temp_dir() . "/tmp-replace-*") === $tempFilesBefore);
 
     if (SmokeTest::canTestPermissions("CSV writing methods checking the output can be written first"))
     {
@@ -1216,7 +1216,7 @@ $smoke->run("file-rewriting methods passing on where to write first", function (
                     clearstatcache();
                     $wasRenamed = fileinode($path) !== $inodeBefore;
                     assert($wasRenamed === ($where === UseSystemTempDirEnum::AUTO), "{$name} with {$where->name}");
-                    assert(glob("{$base}/.corelibs-tmp-*") === [], "{$name} left a temporary file behind");
+                    assert(glob("{$base}/.tmp-replace-*") === [], "{$name} left a temporary file behind");
                 }
             }
         }

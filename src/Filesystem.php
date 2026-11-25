@@ -14,10 +14,12 @@ use Programster\CoreLibs\Enums\FileDeletionProblemEnum;
 use Programster\CoreLibs\Enums\MemoryTypeEnum;
 use Programster\CoreLibs\Enums\PreserveOwnershipEnum;
 use Programster\CoreLibs\Enums\UseSystemTempDirEnum;
+use Programster\CoreLibs\Enums\ZipCompressionEnum;
 use Programster\CoreLibs\Exceptions\DirectoryNotDeletableException;
 use Programster\CoreLibs\Exceptions\DirectoryNotMovableException;
 use Programster\CoreLibs\Exceptions\MoveCancelledException;
 use Programster\CoreLibs\Models\MoveListenerInterface;
+use Programster\CoreLibs\Models\ZipCompressionEnumCollection;
 use Programster\CoreLibs\Models\FileDeletionProblem;
 use Programster\CoreLibs\Exceptions\BadFilePermissionsException;
 use Programster\CoreLibs\Exceptions\CommandFailedException;
@@ -27,8 +29,10 @@ use Programster\CoreLibs\Exceptions\DirectoryDoesNotExistException;
 use Programster\CoreLibs\Exceptions\FileDoesNotExistException;
 use Programster\CoreLibs\Exceptions\MissingExtensionException;
 use Programster\CoreLibs\Exceptions\NoFileExtensionException;
+use Programster\CoreLibs\Exceptions\NotEnoughDiskSpaceException;
 use Programster\CoreLibs\Exceptions\FilesystemException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
+use Programster\CoreLibs\Exceptions\ZipTooLargeException;
 use Programster\CoreLibs\Models\Directory;
 use Programster\CoreLibs\Models\File;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
@@ -358,6 +362,62 @@ final class Filesystem
             $skipUnreadable,
             $resolveSymlinks
         );
+    }
+
+    /**
+     * List the hidden files and folders in a directory: those whose own names start with ".", e.g. ".gitignore" or
+     * ".cache". With $recursive, those in its subdirectories are listed too, but hidden folders aren't looked inside,
+     * as listing a hidden folder already covers everything in it. E.g. to leave them all out of a zip, with
+     * zipDir()'s $excludePaths.
+     *
+     * @param string $dir - the directory to look in.
+     *
+     * @param bool $recursive - whether to look in its subdirectories (other than hidden ones) too. Defaults to false.
+     *
+     * @return string[] - the absolute paths of the hidden files and folders, in no particular order. They keep any
+     * symlinks in $dir, as getDirContents() does.
+     *
+     * @throws DirectoryDoesNotExistException - if there is no directory at $dir.
+     * @throws FilesystemException - if a directory in it couldn't be read.
+     */
+    public static function listHiddenFilesAndFolders(string $dir, bool $recursive = false): array
+    {
+        # The directories to look in: $dir, and with $recursive, every directory below it that isn't hidden, or inside
+        # a hidden one.
+        $directories = [self::absolutePathKeepingSymlinks($dir)];
+
+        if ($recursive)
+        {
+            $visibleEntries = self::getDirContents(
+                $dir,
+                recursive: true,
+                onlyFiles: false,
+                includeHiddenFilesAndFolders: false
+            );
+
+            foreach ($visibleEntries as $entry)
+            {
+                if (is_dir($entry) && !is_link($entry))
+                {
+                    $directories[] = $entry;
+                }
+            }
+        }
+
+        $hiddenPaths = [];
+
+        foreach ($directories as $directory)
+        {
+            foreach (self::getDirContents($directory, recursive: false, onlyFiles: false) as $entry)
+            {
+                if (str_starts_with(basename($entry), "."))
+                {
+                    $hiddenPaths[] = $entry;
+                }
+            }
+        }
+
+        return $hiddenPaths;
     }
 
 
@@ -877,6 +937,45 @@ final class Filesystem
 
 
     /**
+     * Fetch how much space is free on the filesystem (disk or partition) that a path is on, for this user to use.
+     * Unlike PHP's disk_free_space(), this throws an exception with the reason rather than returning false, and takes
+     * a file as well as a directory.
+     *
+     * @param string $path - a file or directory on the filesystem to check.
+     *
+     * @param DataSizeUnitEnum $unit - optionally specify the unit to return the space in. Defaults to bytes.
+     *
+     * @return float - the free space, in the specified unit, e.g. 1.5 for 1536 bytes in KiB.
+     *
+     * @throws FileDoesNotExistException - if there is nothing at $path.
+     * @throws FilesystemException - if the free space could not be determined.
+     */
+    public static function getFreeDiskSpace(string $path, DataSizeUnitEnum $unit = DataSizeUnitEnum::BYTES): float
+    {
+        if (!file_exists($path))
+        {
+            throw new FileDoesNotExistException("getFreeDiskSpace: there is nothing at {$path}.");
+        }
+
+        $directory = is_dir($path) ? $path : dirname($path);
+
+        $fetchFreeSpace = function () use ($directory): float|false {
+            return disk_free_space($directory);
+        };
+
+        $freeBytes = Core::runCapturingWarning($fetchFreeSpace, $warning);
+
+        if ($freeBytes === false)
+        {
+            $reason = $warning ?? "unknown error";
+            throw new FilesystemException("Failed to get the free space on the filesystem {$path} is on: {$reason}");
+        }
+
+        return $unit->convertFromBytes((int)$freeBytes);
+    }
+
+
+    /**
      * Zip a directory and all of its contents into a zip file. By default, the zip contains a single
      * folder, named after $sourceFolder (e.g. zipping "/var/www/project" gives "project/..."),
      * however the path is written (relative, with a trailing slash, through a symlink etc.), so
@@ -908,17 +1007,33 @@ final class Filesystem
      * zip doesn't depend on anything outside it. Symlinks pointing inside $sourceFolder are still
      * stored as symlinks. Nothing outside $sourceFolder is deleted by $deleteOnComplete either way.
      *
+     * @param ZipCompressionEnum|ZipCompressionEnumCollection $compression - how to compress the files: one method, or
+     * several to try in order, using the first this PHP's zip extension can. Defaults to DEFLATE, which is what zips
+     * normally use, and every zip tool can read. STORE stores them as they are, which is much quicker for files that
+     * are already compressed (e.g. images, or .gz files), and makes the zip barely bigger. BZIP2, XZ and ZSTD
+     * compress better, but depend on how PHP was built, and many tools can't read them.
+     *
+     * @param string[] $excludePaths - optionally, files and folders in $sourceFolder to leave out of the zip, either
+     * absolute, or relative to $sourceFolder, e.g. [".gitignore", "cache"]. Leaving out a folder leaves out
+     * everything in it. E.g. listHiddenFilesAndFolders() gives the hidden ones. They are still deleted by
+     * $deleteOnComplete. Defaults to none.
+     *
      * @return void
      *
      * @throws FileAlreadyExistsException - if there is already a file at $dest.
      * @throws DirectoryDoesNotExistException - if there is no folder at $sourceFolder.
      * @throws MissingExtensionException - if the zip extension isn't installed.
      *
+     * @throws UnsupportedPlatformException - if this PHP's zip extension can't compress with $compression (or any of
+     * them, for a collection). This is checked before the zip file is created.
+     *
      * @throws DirectoryNotDeletableException - with $deleteOnComplete, if the zip was created, but
      * $sourceFolder can't be deleted. Nothing is deleted if this happens (see deleteDir()).
      *
      * @throws BadArgumentException - with $deleteOnComplete, if $sourceFolder was replaced by a
-     * symlink while it was being zipped, so isn't deleted.
+     * symlink while it was being zipped, so isn't deleted. Also if a path in $excludePaths isn't a
+     * string, doesn't exist, isn't inside $sourceFolder, or is $sourceFolder itself, as it would
+     * leave nothing out (or everything). This is checked before the zip file is created.
      *
      * @throws FilesystemException - if the zip file could not be created or written, a symlink
      * couldn't be read or is broken, or (with $followSymlinks) following a symlink would go round in
@@ -929,7 +1044,9 @@ final class Filesystem
         string $dest,
         bool $deleteOnComplete = true,
         bool $includeFolder = true,
-        bool $followSymlinks = false
+        bool $followSymlinks = false,
+        ZipCompressionEnum|ZipCompressionEnumCollection $compression = ZipCompressionEnum::DEFLATE,
+        array $excludePaths = []
     ): void
     {
         if (!extension_loaded('zip') )
@@ -950,6 +1067,16 @@ final class Filesystem
 
             throw new FileAlreadyExistsException($msg);
         }
+
+        # Which compression method to use, checked before the zip file is created, so it can't be left half made.
+        $compressionMethod = ($compression instanceof ZipCompressionEnumCollection)
+            ? $compression->getFirstSupported()->getZipArchiveMethod()
+            : $compression->getZipArchiveMethod();
+
+        # Checked before the zip file is created, so a mistake in them leaves nothing behind. Kept as keys, for quick
+        # lookups while zipping.
+        $excludedRelativePaths = self::getRelativePathsWithin("zipDir", "excludePaths", $sourceFolder, $excludePaths);
+        $excludedPaths = array_fill_keys($excludedRelativePaths, true);
 
         $zip = new ZipArchive();
         $opened = $zip->open($dest, ZipArchive::CREATE);
@@ -980,7 +1107,13 @@ final class Filesystem
             $zip->addEmptyDir($baseDir);
         }
 
-        $root = ['source' => $resolvedSourceFolder, 'zip' => $baseDir, 'followSymlinks' => $followSymlinks];
+        $root = [
+            'source' => $resolvedSourceFolder,
+            'zip' => $baseDir,
+            'followSymlinks' => $followSymlinks,
+            'excluded' => $excludedPaths,
+        ];
+
         $brokenLinks = [];
 
         try
@@ -995,6 +1128,16 @@ final class Filesystem
                     "Can't zip {$sourceFolder}, as it has broken symlinks (pointing at something that doesn't " .
                     "exist), so nothing was zipped:\n - " . implode("\n - ", array_slice($brokenLinks, 0, 20))
                 );
+            }
+
+            # Nothing has been compressed yet (that happens when the zip is closed), so set how each entry will be.
+            for ($index = 0; $index < $zip->numFiles; $index++)
+            {
+                if ($zip->setCompressionIndex($index, $compressionMethod) === false)
+                {
+                    $entryName = $zip->getNameIndex($index);
+                    throw new FilesystemException("Failed to set how {$entryName} is compressed in {$dest}.");
+                }
             }
         }
         catch (FilesystemException $e)
@@ -1056,6 +1199,10 @@ final class Filesystem
      * existing directories are merged into. Anything that can't be (e.g. a file where the destination
      * has a directory, or an existing directory that can't be written to) is checked for before
      * anything is moved, and stops it.
+     * Before anything is written, the size the zip's contents will be once extracted (as the zip
+     * gives it) is checked against the free space where they'll go, so a zip that won't fit is
+     * refused, rather than filling the disk part way through. A small zip can extract to something
+     * far larger (a "zip bomb"), so for zips from users, also pass $maxExtractedBytes.
      * Symlinks stored in the zip (e.g. by zipDir()) are recreated as symlinks. Unless $trusted is
      * set, a zip with a symlink that points outside $destinationFolder (e.g. to "/etc/passwd", or
      * "../../x") is refused before anything is moved into place, as an untrusted zip could use one
@@ -1084,11 +1231,20 @@ final class Filesystem
      * outside the zip (only allowed with $trusted) are never copied. Has no effect elsewhere.
      * Defaults to false.
      *
+     * @param int|null $maxExtractedBytes - optionally, the most the zip's contents may add up to once
+     * extracted, in bytes, e.g. 1073741824 for 1 GiB. A zip that would extract to more is refused
+     * before anything is written. Defaults to null, for no limit other than the free space.
+     *
      * @return void
      *
      * @throws MissingExtensionException - if PHP's zip extension isn't installed.
      * @throws FileDoesNotExistException - if there is no file at $sourceZip.
-     * @throws BadArgumentException - if $destinationFolder exists, but isn't a directory.
+     *
+     * @throws BadArgumentException - if $destinationFolder exists, but isn't a directory, or
+     * $maxExtractedBytes is negative.
+     *
+     * @throws ZipTooLargeException - if the zip would extract to more than $maxExtractedBytes.
+     * @throws NotEnoughDiskSpaceException - if the zip's contents won't fit where they'd be extracted.
      *
      * @throws FilesystemException - if the zip file could not be opened or extracted, the destination
      * could not be created, the contents clash with what is already in the destination, it has a
@@ -1103,9 +1259,17 @@ final class Filesystem
         string $destinationFolder,
         bool $deleteOnComplete = true,
         bool $trusted = false,
-        bool $convertSymlinksOnWindows = false
+        bool $convertSymlinksOnWindows = false,
+        ?int $maxExtractedBytes = null
     ): void
     {
+        if ($maxExtractedBytes !== null && $maxExtractedBytes < 0)
+        {
+            throw new BadArgumentException(
+                "unzip: \$maxExtractedBytes can't be negative, but is {$maxExtractedBytes}. Use null for no limit."
+            );
+        }
+
         if (!extension_loaded('zip'))
         {
             throw new MissingExtensionException("Your PHP does not have the zip extension.");
@@ -1130,8 +1294,8 @@ final class Filesystem
             throw new FilesystemException("Unable to open zip file: {$sourceZip} (ZipArchive error code {$opened}).");
         }
 
-        # Only create the destination now that the zip has opened. Note the top directory this creates, so that
-        # everything it created can be removed again if extracting fails.
+        # Only create the destination now that the zip has opened, and it's known to fit. Note the top directory this
+        # creates, so that everything it created can be removed again if extracting fails.
         $topCreatedDirectory = null;
 
         if (!is_dir($destinationFolder))
@@ -1142,7 +1306,30 @@ final class Filesystem
             {
                 $topCreatedDirectory = dirname($topCreatedDirectory);
             }
+        }
 
+        # Check it will fit before writing anything, rather than filling the disk part way through, as a small zip can
+        # extract to something far larger. It's extracted on the same filesystem as the destination (see below), so
+        # the space is checked there, or if the destination doesn't exist yet, in the directory it will be created in.
+        $extractedBytes = self::getZipExtractedSize($zip);
+
+        if ($maxExtractedBytes !== null && $extractedBytes > $maxExtractedBytes)
+        {
+            $zip->close();
+            throw new ZipTooLargeException($sourceZip, $extractedBytes, $maxExtractedBytes);
+        }
+
+        $spaceCheckDirectory = ($topCreatedDirectory === null) ? $destinationFolder : dirname($topCreatedDirectory);
+        $freeBytes = (int)self::getFreeDiskSpace($spaceCheckDirectory);
+
+        if ($extractedBytes > $freeBytes)
+        {
+            $zip->close();
+            throw new NotEnoughDiskSpaceException($spaceCheckDirectory, $extractedBytes, $freeBytes);
+        }
+
+        if ($topCreatedDirectory !== null)
+        {
             self::mkdir($destinationFolder, recursive: true);
         }
 
@@ -1157,12 +1344,12 @@ final class Filesystem
 
         if ($canUseSystemTmp && self::isOnSameFilesystem($systemTmpDirectory, $realDestination))
         {
-            $tmpDirectory = $systemTmpDirectory . "/" . self::randomName("corelibs-unzip-");
+            $tmpDirectory = $systemTmpDirectory . "/" . self::randomName("tmp-unzip-");
         }
         else
         {
             # Hidden, as it is inside the destination until the contents are moved out of it.
-            $tmpDirectory = $realDestination . "/" . self::randomName(".corelibs-unzip-");
+            $tmpDirectory = $realDestination . "/" . self::randomName(".tmp-unzip-");
         }
 
         self::mkdir($tmpDirectory, "0700", overrideUmask: true);
@@ -1516,6 +1703,324 @@ final class Filesystem
         }
     }
 
+    /**
+     * Point an existing symlink somewhere else, atomically: a new symlink is made, and renamed over the old one, so
+     * anything using the link at that moment finds either the old target or the new one, never a mix of the two, or
+     * nothing at all. E.g. keep each version of something in its own directory, point a "current" symlink at one, and
+     * switch to the next with this, deleting the old one afterwards. Nothing is deleted by this.
+     *
+     * On Windows, PHP can't create a relative symlink, so the new one is given the absolute path of its target. Windows
+     * can also refuse to rename a symlink over one to a directory (which counts as a directory there), in which case
+     * the old one is removed first, and the new one renamed into its place, which is NOT atomic: for an instant, there
+     * is no link.
+     *
+     * @param string $symlinkPath - the path to the existing symlink.
+     *
+     * @param string $newTarget - what it should point to instead, stored as it is given (apart from on Windows, see
+     * above), so a relative one is relative to the link's directory, as for symlink(). It must exist, so the link
+     * can't be left broken by a mistyped path.
+     *
+     * @param string|null $workDirectory - where to make the new symlink, before it's renamed over the old one. A
+     * rename can't move anything to another filesystem, so it must be on the same filesystem as $symlinkPath.
+     * Defaults to null, which uses the system's temporary directory if it is on the same filesystem as $symlinkPath,
+     * and otherwise the directory $symlinkPath is in, where the new symlink appears for an instant, as a hidden
+     * symlink.
+     *
+     * @return string - what the link pointed to before, as it was stored, e.g. so it can be deleted.
+     *
+     * @throws FileDoesNotExistException - if there's nothing at $symlinkPath, or nothing at $newTarget.
+     *
+     * @throws BadArgumentException - if $symlinkPath isn't a symlink, or $workDirectory isn't a directory that can be
+     * written to, on the same filesystem as $symlinkPath.
+     *
+     * @throws FilesystemException - if the new symlink couldn't be made, or put in place, in which case the old link is
+     * left as it was.
+     */
+    public static function updateSymlink(string $symlinkPath, string $newTarget, ?string $workDirectory = null): string
+    {
+        # Without a trailing slash, as "link/" would mean what it points to.
+        $symlinkPath = rtrim($symlinkPath, "/");
+
+        if (!is_link($symlinkPath) && !file_exists($symlinkPath))
+        {
+            throw new FileDoesNotExistException("updateSymlink: there is nothing at {$symlinkPath}.");
+        }
+
+        if (!is_link($symlinkPath))
+        {
+            throw new BadArgumentException(
+                "updateSymlink: {$symlinkPath} isn't a symlink, so can't be pointed elsewhere."
+            );
+        }
+
+        $linkDirectory = dirname($symlinkPath);
+        $resolvedNewTarget = self::isAbsolutePath($newTarget) ? $newTarget : "{$linkDirectory}/{$newTarget}";
+
+        if (!file_exists($resolvedNewTarget))
+        {
+            throw new FileDoesNotExistException(
+                "updateSymlink: there is nothing at {$newTarget} (from {$linkDirectory}), so {$symlinkPath} would be " .
+                "broken."
+            );
+        }
+
+        $oldTarget = self::readLinkTarget($symlinkPath);
+        $storedTarget = self::getCreatableLinkTarget($linkDirectory, $newTarget);
+        $chosenWorkDirectory = self::getWorkDirectory("updateSymlink", $workDirectory, $linkDirectory);
+        $tmpLink = "{$chosenWorkDirectory}/" . self::randomName(".tmp-link-");
+
+        $makeTmpLink = function () use ($storedTarget, $tmpLink): bool {
+            return symlink($storedTarget, $tmpLink);
+        };
+
+        if (Core::runCapturingWarning($makeTmpLink, $warning) !== true)
+        {
+            $reason = $warning ?? "unknown error";
+            throw new FilesystemException("updateSymlink: failed to make the new symlink {$tmpLink}: {$reason}");
+        }
+
+        $renamed = self::renameRetryingOnWindows($tmpLink, $symlinkPath, $warning);
+
+        if (!$renamed && PHP_OS_FAMILY === "Windows")
+        {
+            # Windows can refuse to rename over a symlink to a directory, as it counts as a directory there, so the
+            # old one is removed first instead, which isn't atomic. It's put back if the new one can't then go there.
+            if (!self::unlinkFileOrSymlink($symlinkPath))
+            {
+                self::unlinkFileOrSymlink($tmpLink);
+                $reason = $warning ?? "unknown error";
+                throw new FilesystemException("updateSymlink: failed to put the new symlink in place: {$reason}");
+            }
+
+            $renamed = self::renameRetryingOnWindows($tmpLink, $symlinkPath, $warning);
+
+            if (!$renamed)
+            {
+                @symlink(self::getCreatableLinkTarget($linkDirectory, $oldTarget), $symlinkPath);
+            }
+        }
+
+        if (!$renamed)
+        {
+            self::unlinkFileOrSymlink($tmpLink);
+            $reason = $warning ?? "unknown error";
+            throw new FilesystemException("updateSymlink: failed to put the new symlink in place: {$reason}");
+        }
+
+        clearstatcache(true, $symlinkPath);
+        return $oldTarget;
+    }
+
+    /**
+     * Replace a directory with another, e.g. with a new version of it: afterwards, $directory holds what $newDirectory
+     * held, $newDirectory is gone (moved into place), and the old contents are deleted. Anything using $directory never
+     * sees a mix of the old and new contents. Where Linux's "mv --exchange" is available (coreutils 9.5 or later, e.g.
+     * Debian 13), the two are swapped in one atomic step. Elsewhere, the old directory is moved aside and the new one
+     * moved into its place, leaving a few microseconds in between when there is nothing at $directory. To be atomic
+     * everywhere, reach the directory through a symlink, and switch the symlink with updateSymlink().
+     *
+     * $directory keeps its permissions, and its owner and group as $preserveOwnership says. Anything in $keepPaths is
+     * copied from the old directory into the new one before the swap, so it is there throughout, but anything written
+     * to it between the copy and the swap is lost. Everything is checked before anything changes.
+     *
+     * On Windows, which has no Unix permissions or owners, they aren't copied, and a directory that anything has a file
+     * open in (often antivirus or the search indexer, briefly) can't be renamed, so each rename is tried a few times
+     * before giving up.
+     *
+     * @param string $directory - the directory to replace. It can't be a symlink (use updateSymlink() or
+     * replaceSymlink()), or a mount point (e.g. a Docker volume), which can't be renamed.
+     *
+     * @param string $newDirectory - the directory to replace it with. If it is on another filesystem, it is first
+     * moved into $workDirectory, by copying, which is the slow part.
+     *
+     * @param string[] $keepPaths - files and folders in $directory to keep, copied into the new directory at the same
+     * place, either absolute or relative to $directory, e.g. [".gitignore", "config/local.php"]. Keeping a folder
+     * keeps everything in it. Defaults to none.
+     *
+     * @param string|null $workDirectory - where to move the old directory while it is swapped out (and $newDirectory,
+     * if it is on another filesystem). A rename can't move anything to another filesystem, so it must be on the same
+     * one as $directory. Defaults to null, which uses the system's temporary directory if it is on the same
+     * filesystem, and otherwise the directory $directory is in.
+     *
+     * @param PreserveOwnershipEnum $preserveOwnership - whether the new directory (and the kept copies) are given the
+     * old owners and groups, as only root can give something to another user. PREFERRED (the default) keeps them where
+     * it can. YES throws, before anything changes, if they can't be kept. NO doesn't try. The permissions are always
+     * kept, whichever is chosen.
+     *
+     * @return void
+     *
+     * @throws DirectoryDoesNotExistException - if there is no directory at $directory or $newDirectory.
+     *
+     * @throws BadArgumentException - if $directory is a symlink or a mount point, $newDirectory is a symlink, either
+     * is inside the other, $workDirectory isn't a directory that can be written to on the same filesystem (or is inside
+     * either of them), or a path in $keepPaths isn't a string, doesn't exist, isn't inside $directory, or would clash
+     * with something already in $newDirectory.
+     *
+     * @throws FilesystemException - if anything fails while preparing or swapping, in which case $directory is left as
+     * it was, or if the old contents couldn't be deleted afterwards, in which case the new ones are in place, and the
+     * message says where the old ones are.
+     */
+    public static function replaceDir(
+        string $directory,
+        string $newDirectory,
+        array $keepPaths = [],
+        ?string $workDirectory = null,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
+    {
+        $directory = rtrim($directory, "/");
+
+        if (is_link($directory))
+        {
+            throw new BadArgumentException(
+                "replaceDir: {$directory} is a symlink. Use updateSymlink() to point it at the new directory, or " .
+                "replaceSymlink() to put the new directory in its place."
+            );
+        }
+
+        if (!is_dir($directory))
+        {
+            throw new DirectoryDoesNotExistException("replaceDir: there is no directory at {$directory}.");
+        }
+
+        $realDirectory = self::normalisePath(realpath($directory));
+        $realParent = self::normalisePath(realpath(dirname($realDirectory)));
+
+        if (!self::isOnSameFilesystem($realDirectory, $realParent))
+        {
+            throw new BadArgumentException(
+                "replaceDir: {$directory} is a mount point (e.g. a Docker volume), which can't be renamed, so can't " .
+                "be replaced. Replace what's inside it instead, e.g. by keeping it in a directory of its own there, " .
+                "reached through a symlink (see updateSymlink())."
+            );
+        }
+
+        $realNewDirectory = self::checkNewDirectory("replaceDir", $newDirectory, $realDirectory);
+        $chosenWorkDirectory = self::getWorkDirectory("replaceDir", $workDirectory, $realParent);
+        self::checkWorkDirectoryIsOutside("replaceDir", $chosenWorkDirectory, $realDirectory, $realNewDirectory);
+        $keptPaths = self::getRelativePathsWithin("replaceDir", "keepPaths", $directory, $keepPaths);
+        self::checkKeptPathsAreFree("replaceDir", $keptPaths, $realNewDirectory);
+
+        self::swapInNewDirectory(
+            "replaceDir",
+            $realDirectory,
+            $realNewDirectory,
+            $realDirectory,
+            $keptPaths,
+            $chosenWorkDirectory,
+            $preserveOwnership,
+            null
+        );
+    }
+
+
+    /**
+     * Replace a symlink with a directory, so that afterwards there is a real directory where the symlink was, holding
+     * what $newDirectory held, and $newDirectory is gone (moved into place). What the symlink pointed to is left as it
+     * was. Anything using the path never sees a mix of the two. Where Linux's "mv --exchange" is available (coreutils
+     * 9.5 or later, e.g. Debian 13), the symlink and the directory are swapped in one atomic step. Elsewhere, the
+     * symlink is removed and the directory moved into its place, leaving a few microseconds in between when there is
+     * nothing there. To point the symlink somewhere else instead, use updateSymlink().
+     *
+     * The new directory is given the permissions of the directory the symlink pointed to, and its owner and group as
+     * $preserveOwnership says. Anything in $keepPaths is copied from there into the new directory before the swap.
+     * Everything is checked before anything changes. On Windows, this works as replaceDir() does there.
+     *
+     * @param string $symlinkPath - the path to the symlink to replace. If it is broken (points to nothing), it can
+     * still be replaced, but only with no $keepPaths, and the new directory then keeps its own permissions, owner and
+     * group, as there is nothing to take them from.
+     *
+     * @param string $newDirectory - the directory to put in its place. If it is on another filesystem, it is first
+     * moved into $workDirectory, by copying, which is the slow part.
+     *
+     * @param string[] $keepPaths - files and folders in the directory the symlink points to, to copy into the new
+     * directory at the same place, either absolute or relative to $symlinkPath, e.g. [".gitignore"]. Defaults to none.
+     *
+     * @param string|null $workDirectory - where to move $newDirectory first, if it is on another filesystem. It must be
+     * on the same filesystem as $symlinkPath. Defaults to null, which uses the system's temporary directory if it is
+     * on the same filesystem, and otherwise the directory $symlinkPath is in.
+     *
+     * @param PreserveOwnershipEnum $preserveOwnership - as for replaceDir(). Defaults to PREFERRED.
+     *
+     * @return void
+     *
+     * @throws FileDoesNotExistException - if there is nothing at $symlinkPath.
+     * @throws DirectoryDoesNotExistException - if there is no directory at $newDirectory.
+     *
+     * @throws BadArgumentException - if $symlinkPath isn't a symlink (use replaceDir()), points to a file rather than
+     * a directory, or is broken and $keepPaths isn't empty, or as for replaceDir() for the other parameters.
+     *
+     * @throws FilesystemException - if anything fails while preparing or swapping, in which case the symlink is left
+     * as it was.
+     */
+    public static function replaceSymlink(
+        string $symlinkPath,
+        string $newDirectory,
+        array $keepPaths = [],
+        ?string $workDirectory = null,
+        PreserveOwnershipEnum $preserveOwnership = PreserveOwnershipEnum::PREFERRED
+    ): void
+    {
+        $symlinkPath = rtrim($symlinkPath, "/");
+
+        if (!is_link($symlinkPath) && !file_exists($symlinkPath))
+        {
+            throw new FileDoesNotExistException("replaceSymlink: there is nothing at {$symlinkPath}.");
+        }
+
+        if (!is_link($symlinkPath))
+        {
+            throw new BadArgumentException(
+                "replaceSymlink: {$symlinkPath} isn't a symlink. Use replaceDir() to replace a directory."
+            );
+        }
+
+        $oldTarget = self::readLinkTarget($symlinkPath);
+        $resolvedTarget = realpath($symlinkPath);
+        $isBroken = ($resolvedTarget === false);
+
+        if (!$isBroken && !is_dir($resolvedTarget))
+        {
+            throw new BadArgumentException(
+                "replaceSymlink: {$symlinkPath} points to a file ({$oldTarget}), not a directory, so can't be " .
+                "replaced with one."
+            );
+        }
+
+        if ($isBroken && count($keepPaths) > 0)
+        {
+            throw new BadArgumentException(
+                "replaceSymlink: {$symlinkPath} is broken (it points to {$oldTarget}, which doesn't exist), so there " .
+                "is nothing to keep \$keepPaths from."
+            );
+        }
+
+        $realTarget = $isBroken ? null : self::normalisePath($resolvedTarget);
+        $realLinkParent = self::normalisePath(realpath(dirname($symlinkPath)));
+        $realLinkPath = $realLinkParent . "/" . basename($symlinkPath);
+        $realNewDirectory = self::checkNewDirectory("replaceSymlink", $newDirectory, $realTarget);
+        $chosenWorkDirectory = self::getWorkDirectory("replaceSymlink", $workDirectory, $realLinkParent);
+        self::checkWorkDirectoryIsOutside("replaceSymlink", $chosenWorkDirectory, $realTarget, $realNewDirectory);
+        $keptPaths = [];
+
+        if (!$isBroken)
+        {
+            $keptPaths = self::getRelativePathsWithin("replaceSymlink", "keepPaths", $symlinkPath, $keepPaths);
+            self::checkKeptPathsAreFree("replaceSymlink", $keptPaths, $realNewDirectory);
+        }
+
+        self::swapInNewDirectory(
+            "replaceSymlink",
+            $realLinkPath,
+            $realNewDirectory,
+            $realTarget,
+            $keptPaths,
+            $chosenWorkDirectory,
+            $preserveOwnership,
+            $oldTarget
+        );
+    }
+
 
     /**
      * Converts a permissions string, such as "0755", into the int that PHP's mkdir() and chmod()
@@ -1546,7 +2051,7 @@ final class Filesystem
 
     /**
      * Create a temporary directory. This will be a randomly named directory in the system's
-     * temporary directory folder (usually /tmp), e.g. /tmp/corelibs-dir-1a2b3c4d5e6f7a8b. The
+     * temporary directory folder (usually /tmp), e.g. /tmp/tmp-1a2b3c4d5e6f7a8b. The
      * directory is always a new one made by this call, never one that already existed: mkdir()
      * fails if anything already exists at the path, so another process can't create it first. If
      * the random name is already taken, another is tried.
@@ -1559,17 +2064,24 @@ final class Filesystem
      * ignoring the umask. Note that with the default $mode of "0777", that makes it writable by
      * everyone.
      *
+     * @param string $prefix - optionally, what the directory's name starts with, to show what it's
+     * for, e.g. "build-". It can only have letters, digits, dots, dashes and underscores, so it
+     * can't put the directory anywhere else. Defaults to "tmp-".
+     *
      * @return string - the full path to the temporary directory, which is empty.
      *
      * @throws BadArgumentException - if $mode is not 3 or 4 octal digits, optionally with a leading
-     * 0 or 0o, e.g. "755", "0755", "0o755" or "1777".
+     * 0 or 0o, e.g. "755", "0755", "0o755" or "1777", or $prefix has anything else in it, or is
+     * over 64 characters.
      *
      * @throws FilesystemException - if the temporary directory could not be created, e.g. because
      * the system's temporary directory can't be written to, or $overrideUmask is set and its
      * permissions could not be set.
      */
-    public static function tmpDir(string $mode = "0777", bool $overrideUmask = false): string
+    public static function tmpDir(string $mode = "0777", bool $overrideUmask = false, string $prefix = "tmp-"): string
     {
+        self::checkTmpPrefix("tmpDir", $prefix);
+
         try
         {
             $modeInt = self::permissionsStringToInt($mode);
@@ -1590,7 +2102,7 @@ final class Filesystem
 
         for ($attempt = 1; $attempt <= $maxAttempts && $tmpDirPath === null; $attempt++)
         {
-            $path = "{$parentDir}/" . self::randomName("corelibs-dir-");
+            $path = "{$parentDir}/" . self::randomName($prefix);
 
             # Create the directory in one step, as mkdir() fails if anything already exists there, so a success means
             # it is a new directory of ours. Suppress the warning, as we throw an exception instead.
@@ -1623,6 +2135,101 @@ final class Filesystem
         }
 
         return $tmpDirPath;
+    }
+
+
+    /**
+     * Create a temporary file: a new, empty, randomly named file in the system's temporary directory (usually /tmp),
+     * e.g. /tmp/tmp-1a2b3c4d5e6f7a8b. Unlike PHP's tempnam(), this throws an exception rather than returning false,
+     * and never falls back to another directory. As with tempnam(), it is given its permissions exactly, whatever the
+     * umask, and by default only this user can read or write it.
+     * The file is always a new one made by this call, never one that already existed, so another process can't
+     * create it first. Delete it when you're done with it.
+     *
+     * @param string $mode - the file's permissions, as 3 or 4 octal digits, optionally starting with 0 or 0o.
+     * Defaults to "0600", so only this user can read or write it.
+     *
+     * @param bool $overrideUmask - whether to give the file exactly $mode, ignoring the umask, as tempnam() does.
+     * Set to false to reduce $mode by the umask instead, as for most new files. Defaults to true.
+     *
+     * @param string $prefix - optionally, what the file's name starts with, to show what it's for, e.g.
+     * "report-". It can only have letters, digits, dots, dashes and underscores, so it can't put the file
+     * anywhere else. Defaults to "tmp-".
+     *
+     * @return string - the full path to the temporary file, which is empty.
+     *
+     * @throws BadArgumentException - if $mode isn't 3 or 4 octal digits, or $prefix has anything else in it, or is
+     * over 64 characters.
+     *
+     * @throws FilesystemException - if the file could not be created, e.g. because the system's temporary
+     * directory can't be written to, or its permissions could not be set.
+     */
+    public static function tmpFile(string $mode = "0600", bool $overrideUmask = true, string $prefix = "tmp-"): string
+    {
+        self::checkTmpPrefix("tmpFile", $prefix);
+
+        try
+        {
+            $modeInt = self::permissionsStringToInt($mode);
+        }
+        catch (BadArgumentException $e)
+        {
+            throw new BadArgumentException(
+                "tmpFile: \$mode must be 3 or 4 octal digits, optionally with a leading 0 or 0o, e.g. \"0600\" or " .
+                "\"0o600\", but is \"{$mode}\".",
+                0,
+                $e
+            );
+        }
+
+        $parentDir = sys_get_temp_dir();
+        $maxAttempts = 10;
+        $tmpFilePath = null;
+
+        for ($attempt = 1; $attempt <= $maxAttempts && $tmpFilePath === null; $attempt++)
+        {
+            $path = "{$parentDir}/" . self::randomName($prefix);
+
+            # The "x" mode only creates the file if nothing exists there, so a success means it is a new file of ours.
+            $createFile = function () use ($path): mixed {
+                return fopen($path, "x");
+            };
+
+            $handle = Core::runCapturingWarning($createFile, $warning);
+
+            if ($handle !== false)
+            {
+                fclose($handle);
+                $tmpFilePath = $path;
+            }
+            elseif (!file_exists($path) && !is_link($path))
+            {
+                # It failed for a reason other than the name being taken, which another name won't fix.
+                $reason = $warning ?? "unknown error";
+                throw new FilesystemException("Failed to create a temporary file in {$parentDir}: {$reason}");
+            }
+        }
+
+        if ($tmpFilePath === null)
+        {
+            throw new FilesystemException(
+                "Failed to create a temporary file in {$parentDir}, as {$maxAttempts} random names were all already " .
+                "taken."
+            );
+        }
+
+        # fopen() creates it with 0666 reduced by the umask, so give it exactly $mode, as tempnam() does, or $mode
+        # reduced by the umask, if asked.
+        $finalModeInt = $overrideUmask ? $modeInt : ($modeInt & ~umask());
+
+        if (!@chmod($tmpFilePath, $finalModeInt))
+        {
+            # Don't leave behind a file with the wrong permissions.
+            @unlink($tmpFilePath);
+            throw new FilesystemException("Created {$tmpFilePath}, but failed to set its permissions to {$mode}.");
+        }
+
+        return $tmpFilePath;
     }
 
 
@@ -1814,6 +2421,64 @@ final class Filesystem
         }
 
         return $info;
+    }
+
+
+    /**
+     * Change the user that owns a file or directory. Unlike PHP's chown(), this throws an exception with the reason
+     * rather than returning false, and a symlink is changed itself, rather than what it points to, so a symlink
+     * can't be used to change the owner of something somewhere else (e.g. a link to /etc/shadow, when running as
+     * root). Only root can give a file to another user.
+     *
+     * @param string $path - the file or directory.
+     *
+     * @param string|int $user - the user's name (e.g. "www-data") or ID.
+     *
+     * @param bool $followSymlinks - set to true to change what a symlink points to instead, as PHP's chown() does.
+     * Defaults to false.
+     *
+     * @return void
+     *
+     * @throws FileDoesNotExistException - if there is nothing at $path, or with $followSymlinks, it's a broken symlink.
+     * @throws UnsupportedPlatformException - on Windows, where PHP can't change a file's owner.
+     * @throws FilesystemException - if it couldn't be changed, e.g. there's no such user, or it isn't allowed.
+     */
+    public static function chown(string $path, string|int $user, bool $followSymlinks = false): void
+    {
+        $changeOwner = function () use ($path, $user, $followSymlinks): bool {
+            return ($followSymlinks || !is_link($path)) ? chown($path, $user) : lchown($path, $user);
+        };
+
+        self::changeOwnership("chown", $path, "user {$user}", $followSymlinks, $changeOwner);
+    }
+
+
+    /**
+     * Change the group that owns a file or directory. Unlike PHP's chgrp(), this throws an exception with the reason
+     * rather than returning false, and a symlink is changed itself, rather than what it points to, so a symlink
+     * can't be used to change the group of something somewhere else. A file's owner can only give it to a group
+     * they're in, unless they're root.
+     *
+     * @param string $path - the file or directory.
+     *
+     * @param string|int $group - the group's name (e.g. "www-data") or ID.
+     *
+     * @param bool $followSymlinks - set to true to change what a symlink points to instead, as PHP's chgrp() does.
+     * Defaults to false.
+     *
+     * @return void
+     *
+     * @throws FileDoesNotExistException - if there is nothing at $path, or with $followSymlinks, it's a broken symlink.
+     * @throws UnsupportedPlatformException - on Windows, where PHP can't change a file's group.
+     * @throws FilesystemException - if it couldn't be changed, e.g. there's no such group, or it isn't allowed.
+     */
+    public static function chgrp(string $path, string|int $group, bool $followSymlinks = false): void
+    {
+        $changeGroup = function () use ($path, $group, $followSymlinks): bool {
+            return ($followSymlinks || !is_link($path)) ? chgrp($path, $group) : lchgrp($path, $group);
+        };
+
+        self::changeOwnership("chgrp", $path, "group {$group}", $followSymlinks, $changeGroup);
     }
 
 
@@ -2171,7 +2836,7 @@ final class Filesystem
      * row by row), without changing the original until the new contents are complete. tempnam()
      * creates it with 0600 permissions, so other users can't read the data while it is there.
      * It goes either in the system's temporary directory, or next to the original as a hidden file
-     * (e.g. ".corelibs-tmp-AbC123"), as $useSystemTempDir says. replaceWithFile() renames it over the
+     * (e.g. ".tmp-replace-AbC123"), as $useSystemTempDir says. replaceWithFile() renames it over the
      * original rather than copying it back where that is safe, which needs it to be on the same
      * filesystem (see replaceWithFile()).
      *
@@ -2217,7 +2882,7 @@ final class Filesystem
 
         # Suppress the warning, as we throw an exception instead. tempnam() quietly falls back to the system's
         # temporary directory if it can't create the file where asked, so check it is where it should be.
-        $tmpFilepath = @tempnam($tmpDirectory, $useSystem ? "corelibs-tmp-" : ".corelibs-tmp-");
+        $tmpFilepath = @tempnam($tmpDirectory, $useSystem ? "tmp-replace-" : ".tmp-replace-");
         $isWhereAsked = ($tmpFilepath !== false) && (realpath(dirname($tmpFilepath)) === realpath($tmpDirectory));
 
         if (!$isWhereAsked)
@@ -2677,7 +3342,7 @@ final class Filesystem
         {
             try
             {
-                $probe = "{$directory}/.corelibs-write-test-" . bin2hex(random_bytes(8));
+                $probe = "{$directory}/.tmp-write-test-" . bin2hex(random_bytes(8));
             }
             catch (\Random\RandomException $e)
             {
@@ -2858,9 +3523,9 @@ final class Filesystem
      *
      * @param string $zipDirectory - the path in the zip to add them under, or "" for the top.
      *
-     * @param array{source: string, zip: string, followSymlinks: bool} $root - the real path of the
-     * folder being zipped, its path in the zip ("" if its contents are at the top), and whether to
-     * follow symlinks pointing outside it.
+     * @param array{source: string, zip: string, followSymlinks: bool, excluded: array<string, true>} $root - the
+     * real path of the folder being zipped, its path in the zip ("" if its contents are at the top), whether to
+     * follow symlinks pointing outside it, and the paths within it to leave out (see getRelativePathsWithin()).
      *
      * @param array<string> $ancestors - the real paths of the directories above this one that are
      * being zipped (including $directory), so following a symlink can't go round in circles.
@@ -2892,6 +3557,15 @@ final class Filesystem
             # The top of the zip has no folder without $includeFolder, so nothing goes in front of those entries.
             $zipPath = ($zipDirectory === "") ? $entry : "{$zipDirectory}/{$entry}";
 
+            # Its path within the folder being zipped, which is how the paths to leave out are kept. One that's left out
+            # is skipped, along with everything in it.
+            $pathInSource = ($root['zip'] === "") ? $zipPath : substr($zipPath, strlen($root['zip']) + 1);
+
+            if (isset($root['excluded'][$pathInSource]))
+            {
+                continue;
+            }
+
             if (is_link($path))
             {
                 self::addSymlinkToZip($zip, $path, $zipPath, $root, $ancestors, $brokenLinks);
@@ -2920,7 +3594,8 @@ final class Filesystem
      *
      * @param string $zipPath - the path in the zip to add it at.
      *
-     * @param array{source: string, zip: string, followSymlinks: bool} $root - see addDirectoryToZip().
+     * @param array{source: string, zip: string, followSymlinks: bool, excluded: array<string, true>} $root - see
+     * addDirectoryToZip().
      *
      * @param array<string> $ancestors - see addDirectoryToZip().
      *
@@ -3964,7 +4639,26 @@ final class Filesystem
 
 
     /**
-     * Make a random name for a temporary file or directory, e.g. "corelibs-dir-1a2b3c4d5e6f7a8b".
+     * Check the prefix given for a temporary file or directory's name, for tmpFile() and tmpDir(), so it can't put
+     * it anywhere else (e.g. "../").
+     *
+     * @throws BadArgumentException - if it has anything but letters, digits, dots, dashes and underscores, or is over
+     * 64 characters.
+     */
+    private static function checkTmpPrefix(string $methodName, string $prefix): void
+    {
+        if (preg_match('/^[A-Za-z0-9._-]{0,64}$/', $prefix) !== 1)
+        {
+            throw new BadArgumentException(
+                "{$methodName}: \$prefix can only have letters, digits, dots, dashes and underscores, and be up to " .
+                "64 characters, but is \"{$prefix}\"."
+            );
+        }
+    }
+
+
+    /**
+     * Make a random name for a temporary file or directory, e.g. "tmp-1a2b3c4d5e6f7a8b".
      *
      * @param string $prefix - what the name starts with.
      *
@@ -3981,10 +4675,817 @@ final class Filesystem
         }
         catch (\Random\RandomException $e)
         {
-            throw new FilesystemException("Failed to make a random name for a temporary directory.", 0, $e);
+            throw new FilesystemException("Failed to make a random name for a temporary file or directory.", 0, $e);
         }
 
         return $prefix . $randomPart;
+    }
+
+
+    /**
+     * Get the directory to make temporary things in, for updateSymlink() (and similar), so they can then be renamed
+     * into $sameFilesystemAs. A rename can't move anything to another filesystem, so it must be on the same one.
+     *
+     * @param string $methodName - the method it's for, for the messages.
+     *
+     * @param string|null $workDirectory - the directory the caller asked for, or null for the system's temporary
+     * directory if it is on the same filesystem as $sameFilesystemAs, and otherwise $sameFilesystemAs itself.
+     *
+     * @param string $sameFilesystemAs - the directory they'll be renamed into, which must exist.
+     *
+     * @return string - the directory to use.
+     *
+     * @throws BadArgumentException - if $workDirectory isn't a directory that can be written to, on the same
+     * filesystem as $sameFilesystemAs.
+     */
+    private static function getWorkDirectory(
+        string $methodName,
+        ?string $workDirectory,
+        string $sameFilesystemAs
+    ): string
+    {
+        $realSameFilesystemAs = realpath($sameFilesystemAs);
+
+        if ($workDirectory === null)
+        {
+            $systemTmpDirectory = sys_get_temp_dir();
+
+            $useSystemTmp = (
+                   self::canWriteToDirectory($systemTmpDirectory)
+                && self::isOnSameFilesystem($systemTmpDirectory, $realSameFilesystemAs)
+            );
+
+            $chosen = $useSystemTmp ? $systemTmpDirectory : $sameFilesystemAs;
+        }
+        elseif (!is_dir($workDirectory) || !self::canWriteToDirectory($workDirectory))
+        {
+            throw new BadArgumentException(
+                "{$methodName}: \$workDirectory ({$workDirectory}) must be a directory that can be written to."
+            );
+        }
+        elseif (!self::isOnSameFilesystem(self::normalisePath(realpath($workDirectory)), $realSameFilesystemAs))
+        {
+            throw new BadArgumentException(
+                "{$methodName}: \$workDirectory ({$workDirectory}) must be on the same filesystem as " .
+                "{$sameFilesystemAs}, as a rename can't move anything between filesystems. Leave it out to have one " .
+                "chosen for you."
+            );
+        }
+        else
+        {
+            $chosen = $workDirectory;
+        }
+
+        return $chosen;
+    }
+
+
+    /**
+     * Check the directory that replaceDir() or replaceSymlink() is to put in place, and get its real path.
+     *
+     * @param string $methodName - the method it's for, for the messages.
+     *
+     * @param string $newDirectory - the directory to put in place, as it was given.
+     *
+     * @param string|null $realOldDirectory - the real path of the directory it replaces, or null if there isn't one
+     * (a broken symlink).
+     *
+     * @return string - the real path of $newDirectory.
+     *
+     * @throws DirectoryDoesNotExistException - if there's no directory at $newDirectory.
+     *
+     * @throws BadArgumentException - if it is a symlink (which would be moved, rather than what it points to), or it
+     * and the old directory are the same, or one is inside the other.
+     */
+    private static function checkNewDirectory(
+        string $methodName,
+        string $newDirectory,
+        ?string $realOldDirectory
+    ): string
+    {
+        $newDirectory = rtrim($newDirectory, "/");
+
+        if (is_link($newDirectory))
+        {
+            throw new BadArgumentException(
+                "{$methodName}: \$newDirectory ({$newDirectory}) is a symlink, which would be moved rather than what " .
+                "it points to. Pass the directory itself."
+            );
+        }
+
+        if (!is_dir($newDirectory))
+        {
+            throw new DirectoryDoesNotExistException("{$methodName}: there is no directory at {$newDirectory}.");
+        }
+
+        $realNewDirectory = self::normalisePath(realpath($newDirectory));
+
+        $overlaps = (
+               $realOldDirectory !== null
+            && (
+                   self::isWithinDirectory($realNewDirectory, $realOldDirectory, false)
+                || self::isWithinDirectory($realOldDirectory, $realNewDirectory, false)
+            )
+        );
+
+        if ($overlaps)
+        {
+            throw new BadArgumentException(
+                "{$methodName}: {$newDirectory} and {$realOldDirectory} are the same, or one is inside the other."
+            );
+        }
+
+        return $realNewDirectory;
+    }
+
+
+    /**
+     * Check the work directory isn't inside either of the directories being swapped, as it would then be moved along
+     * with them, for replaceDir() and replaceSymlink().
+     *
+     * @throws BadArgumentException
+     */
+    private static function checkWorkDirectoryIsOutside(
+        string $methodName,
+        string $workDirectory,
+        ?string $realOldDirectory,
+        string $realNewDirectory
+    ): void
+    {
+        $realWorkDirectory = self::normalisePath(realpath($workDirectory));
+
+        foreach ([$realOldDirectory, $realNewDirectory] as $directory)
+        {
+            if ($directory !== null && self::isWithinDirectory($realWorkDirectory, $directory, false))
+            {
+                throw new BadArgumentException(
+                    "{$methodName}: \$workDirectory ({$workDirectory}) is inside {$directory}, so would be moved " .
+                    "along with it."
+                );
+            }
+        }
+    }
+
+
+    /**
+     * Check that nothing is already in the new directory where the kept paths would be copied, as one of the two
+     * would be lost, for replaceDir() and replaceSymlink().
+     *
+     * @param string[] $keptPaths - the paths to keep, relative to the directories.
+     *
+     * @throws BadArgumentException
+     */
+    private static function checkKeptPathsAreFree(string $methodName, array $keptPaths, string $realNewDirectory): void
+    {
+        foreach ($keptPaths as $keptPath)
+        {
+            $destination = "{$realNewDirectory}/{$keptPath}";
+
+            if (file_exists($destination) || is_link($destination))
+            {
+                throw new BadArgumentException(
+                    "{$methodName}: {$keptPath} is in \$keepPaths, but there's already something at {$destination}, " .
+                    "which one of the two would replace."
+                );
+            }
+        }
+    }
+
+
+    /**
+     * Put a new directory in place of an old one (or a symlink), for replaceDir() and replaceSymlink(), once their
+     * arguments have been checked: move the new directory onto the same filesystem if it isn't, give it the old
+     * one's permissions (and owner and group), copy the kept paths into it, swap the two, and delete the old one. If
+     * anything fails before the swap is done, everything this did is undone, as far as it can be.
+     *
+     * @param string $methodName - the method it's for, for the messages.
+     *
+     * @param string $realPath - the real path of what is replaced: the old directory, or the symlink.
+     *
+     * @param string $realNewDirectory - the real path of the directory to put in its place.
+     *
+     * @param string|null $realContentsDirectory - the real path of the directory to take the permissions, owner,
+     * group and kept paths from: the old directory, or what the symlink points to, or null for a broken symlink.
+     *
+     * @param string[] $keptPaths - the paths to keep, relative to the directories.
+     *
+     * @param string $workDirectory - where to move things to, on the same filesystem as $realPath.
+     *
+     * @param PreserveOwnershipEnum $preserveOwnership - whether to keep the owner and group.
+     *
+     * @param string|null $oldLinkTarget - the symlink's target, when replacing a symlink, or null for a directory.
+     *
+     * @return void
+     *
+     * @throws FilesystemException
+     */
+    private static function swapInNewDirectory(
+        string $methodName,
+        string $realPath,
+        string $realNewDirectory,
+        ?string $realContentsDirectory,
+        array $keptPaths,
+        string $workDirectory,
+        PreserveOwnershipEnum $preserveOwnership,
+        ?string $oldLinkTarget
+    ): void
+    {
+        $isSymlink = ($oldLinkTarget !== null);
+
+        # A rename can't move anything between filesystems, so a new directory on another one is moved (copied) into
+        # the work directory first. This is the slow part, and nothing that is in use has changed yet.
+        $isNewOnSameFilesystem = self::isOnSameFilesystem($realNewDirectory, dirname($realPath));
+        $stagedDirectory = $realNewDirectory;
+
+        if (!$isNewOnSameFilesystem)
+        {
+            $stagedDirectory = "{$workDirectory}/" . self::randomName(".tmp-new-");
+            self::moveDir($realNewDirectory, $stagedDirectory, preserveOwnership: $preserveOwnership);
+        }
+
+        $copiedPaths = [];
+
+        try
+        {
+            if ($realContentsDirectory !== null)
+            {
+                self::copyPermissionsAndOwnership($realContentsDirectory, $stagedDirectory, $preserveOwnership);
+
+                foreach ($keptPaths as $keptPath)
+                {
+                    $copiedPaths[] = self::copyKeptPath(
+                        "{$realContentsDirectory}/{$keptPath}",
+                        $stagedDirectory,
+                        $keptPath,
+                        $preserveOwnership
+                    );
+                }
+            }
+
+            $oldAside = self::swapPaths($methodName, $realPath, $stagedDirectory, $workDirectory, $oldLinkTarget);
+        }
+        catch (\Throwable $e)
+        {
+            # Nothing in use has changed, so undo what was done to the new directory, as far as it can be.
+            foreach (array_reverse($copiedPaths) as $copiedPath)
+            {
+                self::removeQuietly($copiedPath);
+            }
+
+            if (!$isNewOnSameFilesystem && is_dir($stagedDirectory))
+            {
+                try
+                {
+                    self::moveDir($stagedDirectory, $realNewDirectory, preserveOwnership: $preserveOwnership);
+                }
+                catch (\Throwable $moveBackError)
+                {
+                    throw new FilesystemException(
+                        "{$methodName}: {$e->getMessage()} Nothing in use was changed, but the new directory " .
+                        "couldn't be moved back from {$stagedDirectory} ({$moveBackError->getMessage()}).",
+                        0,
+                        $e
+                    );
+                }
+            }
+
+            throw $e;
+        }
+
+        # The swap is done. What's left of the old one is deleted: the old directory, or (after swapping a symlink and a
+        # directory in one step) the symlink, now where the new directory was.
+        if ($oldAside !== null && $isSymlink)
+        {
+            self::removeSymlink($oldAside);
+        }
+        elseif ($oldAside !== null)
+        {
+            try
+            {
+                self::deleteDir($oldAside);
+            }
+            catch (\Throwable $e)
+            {
+                throw new FilesystemException(
+                    "{$methodName}: {$realPath} was replaced, but its old contents couldn't be deleted, so are still " .
+                    "in {$oldAside}: {$e->getMessage()}",
+                    0,
+                    $e
+                );
+            }
+        }
+    }
+
+
+    /**
+     * Swap the new directory into place, for swapInNewDirectory(): in one atomic step with "mv --exchange" where that
+     * is available (Linux, with coreutils 9.5 or later), and otherwise by moving the old one aside (or removing the
+     * symlink) and moving the new one into its place, putting the old one back if that fails.
+     *
+     * @param string $methodName - the method it's for, for the messages.
+     *
+     * @param string $realPath - what is replaced: the old directory, or the symlink.
+     *
+     * @param string $stagedDirectory - the new directory, on the same filesystem.
+     *
+     * @param string $workDirectory - where to move the old directory aside to.
+     *
+     * @param string|null $oldLinkTarget - the symlink's target, when replacing a symlink, or null for a directory.
+     *
+     * @return string|null - where what was replaced now is, for it to be deleted, or null if it's already gone (a
+     * symlink that was removed).
+     *
+     * @throws FilesystemException - if it couldn't be swapped, in which case $realPath is as it was.
+     */
+    private static function swapPaths(
+        string $methodName,
+        string $realPath,
+        string $stagedDirectory,
+        string $workDirectory,
+        ?string $oldLinkTarget
+    ): ?string
+    {
+        $isSymlink = ($oldLinkTarget !== null);
+
+        if (self::tryToExchangePaths($stagedDirectory, $realPath, $isSymlink))
+        {
+            # The old one is now where the new one was.
+            $oldAside = $stagedDirectory;
+        }
+        elseif ($isSymlink)
+        {
+            if (!self::unlinkFileOrSymlink($realPath))
+            {
+                throw new FilesystemException("{$methodName}: failed to remove the symlink {$realPath}, to replace it");
+            }
+
+            if (!self::renameRetryingOnWindows($stagedDirectory, $realPath, $warning))
+            {
+                $putBack = @symlink(self::getCreatableLinkTarget(dirname($realPath), $oldLinkTarget), $realPath);
+                $reason = $warning ?? "unknown error";
+                $outcome = $putBack ? "so the symlink was put back" : "and the symlink couldn't be put back";
+
+                throw new FilesystemException(
+                    "{$methodName}: failed to move the new directory into place ({$reason}), {$outcome}."
+                );
+            }
+
+            $oldAside = null;
+        }
+        else
+        {
+            $oldAside = "{$workDirectory}/" . self::randomName(".tmp-old-");
+
+            if (!self::renameRetryingOnWindows($realPath, $oldAside, $warning))
+            {
+                $reason = $warning ?? "unknown error";
+                throw new FilesystemException("{$methodName}: failed to move {$realPath} aside: {$reason}");
+            }
+
+            if (!self::renameRetryingOnWindows($stagedDirectory, $realPath, $warning))
+            {
+                $putBack = self::renameRetryingOnWindows($oldAside, $realPath, $putBackWarning);
+                $reason = $warning ?? "unknown error";
+                $failedOutcome = "and the old one couldn't be put back, from {$oldAside}";
+                $outcome = $putBack ? "so the old one was put back" : $failedOutcome;
+
+                throw new FilesystemException(
+                    "{$methodName}: failed to move the new directory into place ({$reason}), {$outcome}."
+                );
+            }
+        }
+
+        return $oldAside;
+    }
+
+
+    /**
+     * Swap two paths in one atomic step, with Linux's "mv --exchange" (coreutils 9.5 or later), where it is available.
+     * Anything that stops it (an older mv that doesn't know the option, another system's mv, or a filesystem that
+     * can't do it) changes nothing, so the caller can fall back to another way. It's run by name, through the PATH.
+     *
+     * @param string $path1 - one path.
+     *
+     * @param string $path2 - the other.
+     *
+     * @param bool $path2IsSymlink - whether $path2 is a symlink (and $path1 a directory), to check nothing changed if
+     * it fails.
+     *
+     * @return bool - true if they were swapped.
+     *
+     * @throws FilesystemException - if the exchange failed, but the paths aren't as they were, so it's unsafe to carry
+     * on.
+     */
+    private static function tryToExchangePaths(string $path1, string $path2, bool $path2IsSymlink): bool
+    {
+        $exchanged = false;
+
+        if (PHP_OS_FAMILY === "Linux")
+        {
+            $escapedPaths = escapeshellarg($path1) . " " . escapeshellarg($path2);
+            $command = "mv --exchange --no-target-directory -- {$escapedPaths}";
+
+            try
+            {
+                Core::runCommand($command);
+                $exchanged = true;
+            }
+            catch (CommandFailedException $e)
+            {
+                clearstatcache();
+                $isPath2Unchanged = $path2IsSymlink ? is_link($path2) : is_dir($path2);
+                $unchanged = (is_dir($path1) && !is_link($path1) && $isPath2Unchanged);
+
+                if (!$unchanged)
+                {
+                    throw new FilesystemException(
+                        "Failed to swap {$path1} and {$path2}, and they aren't as they were, so nothing more was " .
+                        "done: {$e->getMessage()}",
+                        0,
+                        $e
+                    );
+                }
+            }
+        }
+
+        return $exchanged;
+    }
+
+
+    /**
+     * Give a copy the permissions of what it was copied from, and its owner and group as $preserveOwnership says. This
+     * does nothing on Windows, which has no Unix permissions or owners.
+     *
+     * @throws FilesystemException - if the permissions couldn't be set, or with YES, the owner or group couldn't be.
+     */
+    private static function copyPermissionsAndOwnership(
+        string $from,
+        string $to,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
+    {
+        if (PHP_OS_FAMILY !== "Windows")
+        {
+            self::copyUnixPermissionsAndOwnership($from, $to, $preserveOwnership);
+        }
+    }
+
+
+    /**
+     * Do copyPermissionsAndOwnership()'s work, on a system with Unix permissions and owners.
+     * @throws FilesystemException
+     */
+    private static function copyUnixPermissionsAndOwnership(
+        string $from,
+        string $to,
+        PreserveOwnershipEnum $preserveOwnership
+    ): void
+    {
+        clearstatcache(true, $from);
+        $original = lstat($from);
+
+        if ($original === false)
+        {
+            throw new FilesystemException("Failed to read the permissions of {$from}.");
+        }
+
+        if (!is_link($to) && !@chmod($to, $original['mode'] & 07777))
+        {
+            throw new FilesystemException("Failed to give {$to} the permissions of {$from}.");
+        }
+
+        clearstatcache(true, $to);
+        $copy = lstat($to);
+        $needsOwner = ($copy === false || $copy['uid'] !== $original['uid']);
+        $needsGroup = ($copy === false || $copy['gid'] !== $original['gid']);
+
+        if ($preserveOwnership !== PreserveOwnershipEnum::NO && ($needsOwner || $needsGroup))
+        {
+            try
+            {
+                if ($needsOwner)
+                {
+                    self::chown($to, $original['uid']);
+                }
+
+                if ($needsGroup)
+                {
+                    self::chgrp($to, $original['gid']);
+                }
+            }
+            catch (FilesystemException $e)
+            {
+                if ($preserveOwnership === PreserveOwnershipEnum::YES)
+                {
+                    throw new FilesystemException(
+                        "Couldn't give {$to} the owner and group of {$from} (only root can give something to another " .
+                        "user), so nothing was changed: {$e->getMessage()}",
+                        0,
+                        $e
+                    );
+                }
+            }
+        }
+    }
+
+
+    /**
+     * Copy a kept file, folder or symlink into the new directory, at the same place, creating any directories above
+     * it there, with the original's permissions, and owner and group as $preserveOwnership says.
+     *
+     * @param string $from - the path to copy.
+     *
+     * @param string $newDirectory - the new directory to copy it into.
+     *
+     * @param string $relativePath - its path within the directories.
+     *
+     * @param PreserveOwnershipEnum $preserveOwnership - whether to keep the owner and group.
+     *
+     * @return string - the highest path this created in $newDirectory, to remove if it has to be undone.
+     *
+     * @throws FilesystemException
+     */
+    private static function copyKeptPath(
+        string $from,
+        string $newDirectory,
+        string $relativePath,
+        PreserveOwnershipEnum $preserveOwnership
+    ): string
+    {
+        $to = "{$newDirectory}/{$relativePath}";
+        $highestCreated = $to;
+
+        while (!is_dir(dirname($highestCreated)))
+        {
+            $highestCreated = dirname($highestCreated);
+        }
+
+        if (!is_dir(dirname($to)))
+        {
+            self::mkdir(dirname($to), recursive: true);
+        }
+
+        self::copyEntry($from, $to, $preserveOwnership);
+        return $highestCreated;
+    }
+
+
+    /**
+     * Copy a file, a symlink (as a symlink), or a directory and everything in it, for copyKeptPath().
+     * @throws FilesystemException
+     */
+    private static function copyEntry(string $from, string $to, PreserveOwnershipEnum $preserveOwnership): void
+    {
+        if (is_link($from))
+        {
+            $target = self::getCreatableLinkTarget(dirname($from), self::readLinkTarget($from));
+
+            if (!@symlink($target, $to))
+            {
+                throw new FilesystemException("Failed to copy the symlink {$from} to {$to}.");
+            }
+        }
+        elseif (is_dir($from))
+        {
+            self::mkdir($to);
+
+            foreach (self::readDirectoryEntries($from) as $entry)
+            {
+                self::copyEntry("{$from}/{$entry}", "{$to}/{$entry}", $preserveOwnership);
+            }
+        }
+        else
+        {
+            $copyFile = function () use ($from, $to): bool {
+                return copy($from, $to);
+            };
+
+            if (Core::runCapturingWarning($copyFile, $warning) !== true)
+            {
+                $reason = $warning ?? "unknown error";
+                throw new FilesystemException("Failed to copy {$from} to {$to}: {$reason}");
+            }
+        }
+
+        self::copyPermissionsAndOwnership($from, $to, $preserveOwnership);
+    }
+
+
+    /**
+     * Remove a file, symlink or directory (and everything in it) that this made, ignoring any failure, while undoing
+     * something that already failed, so that the original failure is what gets reported.
+     */
+    private static function removeQuietly(string $path): void
+    {
+        try
+        {
+            if (is_dir($path) && !is_link($path))
+            {
+                self::deleteDir($path);
+            }
+            elseif (file_exists($path) || is_link($path))
+            {
+                self::unlinkFileOrSymlink($path);
+            }
+        }
+        catch (\Throwable $e)
+        {
+            # Ignored, as this is only a best effort.
+        }
+    }
+
+
+    /**
+     * Get the target to create a symlink with. That's the target as given, apart from on Windows, where PHP can't
+     * create a relative symlink, so it is made absolute, from the directory the link is in.
+     *
+     * @param string $linkDirectory - the directory the symlink is (or will be) in, which must exist.
+     *
+     * @param string $target - the target, relative to $linkDirectory, or absolute.
+     *
+     * @return string - the target to give symlink().
+     */
+    private static function getCreatableLinkTarget(string $linkDirectory, string $target): string
+    {
+        $isRelativeOnWindows = (PHP_OS_FAMILY === "Windows" && !self::isAbsolutePath($target));
+
+        return $isRelativeOnWindows
+            ? self::resolveLinkTarget(self::absolutePathKeepingSymlinks($linkDirectory), $target)
+            : $target;
+    }
+
+
+    /**
+     * Rename something, capturing the reason if it fails. On Windows, something that has a file open (often antivirus
+     * or the search indexer, briefly) stops a rename, so there it is tried a few times, a tenth of a second apart,
+     * before giving up.
+     *
+     * @param string $from - what to rename.
+     *
+     * @param string $to - its new path.
+     *
+     * @param string|null $warning - set to why the last attempt failed, or null.
+     *
+     * @return bool - true if it was renamed.
+     */
+    private static function renameRetryingOnWindows(string $from, string $to, ?string &$warning = null): bool
+    {
+        $maxAttempts = (PHP_OS_FAMILY === "Windows") ? 10 : 1;
+        $renamed = false;
+
+        $rename = function () use ($from, $to): bool {
+            return rename($from, $to);
+        };
+
+        for ($attempt = 1; $attempt <= $maxAttempts && !$renamed; $attempt++)
+        {
+            if ($attempt > 1)
+            {
+                usleep(100000);
+            }
+
+            $renamed = (Core::runCapturingWarning($rename, $warning) === true);
+        }
+
+        return $renamed;
+    }
+
+
+    /**
+     * Get how big a zip's contents will be once extracted, from the sizes it gives for each of its entries.
+     * @return int - the total, in bytes.
+     */
+    private static function getZipExtractedSize(ZipArchive $zip): int
+    {
+        $totalBytes = 0;
+
+        for ($index = 0; $index < $zip->numFiles; $index++)
+        {
+            $entry = $zip->statIndex($index);
+            $totalBytes += ($entry === false) ? 0 : (int)$entry['size'];
+        }
+
+        return $totalBytes;
+    }
+
+
+    /**
+     * Check a list of paths that a method was given within a directory (e.g. zipDir()'s $excludePaths), and give each
+     * one's path within the directory, e.g. "a/.cache", whether the directory (or the path) was given through a symlink
+     * or not. A path that can't be used would have no effect, so each must be a string, exist, and be inside the
+     * directory, but not the directory itself.
+     *
+     * @param string $methodName - the method they're for, for the messages.
+     *
+     * @param string $parameterName - the parameter they were given as, for the messages.
+     *
+     * @param string $directory - the directory, as it was given. It can be a symlink to one.
+     *
+     * @param array<mixed> $paths - the paths, absolute or relative to $directory.
+     *
+     * @return string[] - their paths within $directory, without duplicates.
+     *
+     * @throws BadArgumentException - if one isn't a string, doesn't exist, isn't inside $directory, or is $directory
+     * itself.
+     */
+    private static function getRelativePathsWithin(
+        string $methodName,
+        string $parameterName,
+        string $directory,
+        array $paths
+    ): array
+    {
+        $directoryAsGiven = self::absolutePathKeepingSymlinks($directory);
+        $directoryResolved = self::normalisePath(realpath($directory));
+        $relativePaths = [];
+
+        foreach ($paths as $path)
+        {
+            if (!is_string($path))
+            {
+                $type = get_debug_type($path);
+                $message = "{$methodName}: each of \${$parameterName} must be a string, but one is {$type}.";
+                throw new BadArgumentException($message);
+            }
+
+            $fullPath = self::isAbsolutePath($path) ? $path : "{$directory}/{$path}";
+
+            if (!file_exists($fullPath) && !is_link($fullPath))
+            {
+                throw new BadArgumentException(
+                    "{$methodName}: {$path} is in \${$parameterName}, but there's nothing there."
+                );
+            }
+
+            $absolutePath = self::absolutePathKeepingSymlinks($fullPath);
+            $relativePath = null;
+
+            foreach ([$directoryAsGiven, $directoryResolved] as $base)
+            {
+                if ($relativePath === null && str_starts_with($absolutePath, rtrim($base, "/") . "/"))
+                {
+                    $relativePath = substr($absolutePath, strlen(rtrim($base, "/")) + 1);
+                }
+            }
+
+            if ($relativePath === null || $relativePath === "")
+            {
+                throw new BadArgumentException(
+                    "{$methodName}: {$path} is in \${$parameterName}, but isn't inside {$directory}."
+                );
+            }
+
+            $relativePaths[$relativePath] = $relativePath;
+        }
+
+        return array_values($relativePaths);
+    }
+
+
+    /**
+     * Run chown() or chgrp()'s change, after the checks they share, and throw with the reason if it fails.
+     * @param string $methodName - "chown" or "chgrp", for the messages.
+     * @param string $path - the file or directory being changed.
+     * @param string $newOwner - who it's being given to, for the messages, e.g. "user www-data".
+     * @param bool $followSymlinks - whether a symlink's target is being changed, rather than the symlink.
+     * @param \Closure $change - makes the change, returning whether it worked.
+     * @throws FileDoesNotExistException
+     * @throws UnsupportedPlatformException
+     * @throws FilesystemException
+     */
+    private static function changeOwnership(
+        string $methodName,
+        string $path,
+        string $newOwner,
+        bool $followSymlinks,
+        \Closure $change
+    ): void
+    {
+        if (PHP_OS_FAMILY === "Windows")
+        {
+            throw new UnsupportedPlatformException("{$methodName}: PHP can't change who owns a file on Windows.");
+        }
+
+        if (!file_exists($path) && !is_link($path))
+        {
+            throw new FileDoesNotExistException("{$methodName}: there is nothing at {$path}.");
+        }
+
+        if ($followSymlinks && !file_exists($path))
+        {
+            throw new FileDoesNotExistException("{$methodName}: {$path} is a symlink to something that doesn't exist.");
+        }
+
+        $changed = Core::runCapturingWarning($change, $warning);
+
+        # PHP caches who owns a file, so clear it, for anything that checks straight afterwards.
+        clearstatcache(true, $path);
+
+        if ($changed !== true)
+        {
+            $reason = $warning ?? "unknown error";
+            throw new FilesystemException("{$methodName}: failed to give {$path} to {$newOwner}: {$reason}");
+        }
     }
 
 

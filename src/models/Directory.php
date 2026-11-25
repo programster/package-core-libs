@@ -925,7 +925,7 @@ class Directory
         {
             try
             {
-                $copyName = ".corelibs-move-" . bin2hex(random_bytes(8));
+                $copyName = ".tmp-move-" . bin2hex(random_bytes(8));
                 $copyRoot = self::chooseCopyDirectory(dirname($newRoot)) . "/{$copyName}";
             }
             catch (\Random\RandomException $e)
@@ -1259,10 +1259,20 @@ class Directory
      */
     private static function findResumableCopyPath(string $oldRoot, string $newRoot): string
     {
-        $name = ".corelibs-move-" . substr(hash("sha256", "{$oldRoot}\0{$newRoot}"), 0, 32);
+        $hash = substr(hash("sha256", "{$oldRoot}\0{$newRoot}"), 0, 32);
+        $name = ".tmp-move-{$hash}";
         $newParent = dirname($newRoot);
         $chosen = self::chooseCopyDirectory($newParent) . "/{$name}";
-        $candidates = [$chosen, "{$newParent}/{$name}", rtrim(sys_get_temp_dir(), "/") . "/{$name}"];
+        $candidates = [];
+
+        # A move started by a version before 4.1.0 named its copy ".corelibs-move-...", so that is looked for too, so
+        # it can still be resumed after upgrading, rather than started again with the old copy left behind.
+        foreach ([$name, ".corelibs-move-{$hash}"] as $candidateName)
+        {
+            $candidates[] = self::chooseCopyDirectory($newParent) . "/{$candidateName}";
+            $candidates[] = "{$newParent}/{$candidateName}";
+            $candidates[] = rtrim(sys_get_temp_dir(), "/") . "/{$candidateName}";
+        }
         $found = "";
 
         for ($i = 0; $i < count($candidates) && $found === ""; $i++)

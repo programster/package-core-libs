@@ -6,8 +6,9 @@ contents safely are explained in [Changing files safely](safe-file-changes.md).
 
 - [Listing a directory](#listing-a-directory)
 - [Creating directories](#creating-directories)
-- [Temporary directories](#temporary-directories)
+- [Temporary files and directories](#temporary-files-and-directories)
 - [Deleting](#deleting)
+- [Replacing a directory](#replacing-a-directory)
 - [Sizes](#sizes)
 - [Reading and filtering a file line by line](#reading-and-filtering-a-file-line-by-line)
 - [Replacing a file's contents](#replacing-a-files-contents)
@@ -45,6 +46,19 @@ $allDirectories = Filesystem::getDirectories("/srv/site", true);
 
 The results are in no particular order, so `sort()` them if the order matters.
 
+`listHiddenFilesAndFolders()` lists just the hidden ones: those whose own names start with `.`, e.g. `.gitignore` or
+`.cache`. With `true`, it looks in the subdirectories too, but not inside hidden folders, as listing a hidden folder
+already covers everything in it. It's handy for leaving them out of a zip (see
+[Zipping and unzipping](#zipping-and-unzipping)).
+
+```php
+// e.g. ["/srv/site/.gitignore", "/srv/site/.cache"]
+$hidden = Filesystem::listHiddenFilesAndFolders("/srv/site");
+
+// And those in its subdirectories, e.g. "/srv/site/photos/.thumbs".
+$allHidden = Filesystem::listHiddenFilesAndFolders("/srv/site", true);
+```
+
 - **Paths** are absolute (a relative path is taken from the current directory), and keep any symlinks in the path you
   gave, e.g. listing `/srv/current` (a symlink to `/srv/releases/42`) gives `/srv/current/...`. Pass
   `resolveSymlinks: true` for the real paths instead. Either way, they use `/`, including on Windows.
@@ -79,10 +93,11 @@ PHP's `chmod()`, use `permissionsStringToInt()`:
 chmod($path, Filesystem::permissionsStringToInt("0640"));
 ```
 
-## Temporary directories
+## Temporary files and directories
 `tmpDir()` creates a new, empty, randomly named directory in the system's temporary directory, e.g.
-`/tmp/corelibs-dir-1a2b3c4d5e6f7a8b`, and returns its path. It is always one this call made, never one that already
-existed, so another process can't have made it first.
+`/tmp/tmp-1a2b3c4d5e6f7a8b`, and returns its path. It is always one this call made, never one that already existed,
+so another process can't have made it first. Pass `prefix: "build-"` to have its name show what it's for, e.g.
+`/tmp/build-1a2b3c4d5e6f7a8b`.
 
 ```php
 $workDir = Filesystem::tmpDir("0700");
@@ -96,6 +111,32 @@ finally
     Filesystem::deleteDir($workDir);
 }
 ```
+
+`tmpFile()` does the same for a file: a new, empty, randomly named file in the system's temporary directory, e.g.
+`/tmp/tmp-1a2b3c4d5e6f7a8b`. Unlike PHP's `tempnam()`, it throws a `FilesystemException` rather than
+returning `false`, and never quietly uses another directory. A temporary file often holds something private, so by
+default only you can read or write it (`0600`). As with `tempnam()`, it gets exactly the permissions asked for,
+whatever the umask. Pass `overrideUmask: false` to reduce them by the umask instead, as for most new files. Delete it
+when you're done with it.
+
+```php
+$reportPath = Filesystem::tmpFile(prefix: "report-");     // e.g. /tmp/report-1a2b3c4d5e6f7a8b
+
+try
+{
+    // ...
+}
+finally
+{
+    unlink($reportPath);
+}
+
+// So a web server's group can read it too.
+$sharedPath = Filesystem::tmpFile(mode: "0640");
+```
+
+The prefix can only have letters, digits, dots, dashes and underscores (and be up to 64 characters), so it can't put
+the file anywhere else. Anything else throws a `BadArgumentException`.
 
 ## Deleting
 `deleteDir()` deletes a directory and everything in it. `emptyDir()` deletes everything in it, leaving the directory.
@@ -138,6 +179,47 @@ symlinks point to is deleted too (never one pointing up to a directory that cont
 
 They use the same memory however many files there are, so are fine for very large trees.
 
+## Replacing a directory
+`replaceDir()` replaces a directory with another, e.g. with a new version of it. Afterwards, the directory holds what
+the new one held, the new one is gone (moved into place), and the old contents are deleted. Anything using the
+directory never sees a mix of the old and new contents:
+
+```php
+// Build the new version, then swap it in, keeping a file that isn't part of it.
+Filesystem::replaceDir("/srv/site", "/srv/site-new", keepPaths: ["config/local.php"]);
+```
+
+- **Where Linux's `mv --exchange` is available** (coreutils 9.5 or later, e.g. Debian 13), the two are swapped in one
+  atomic step. **Elsewhere**, the old directory is moved aside, then the new one moved into its place, leaving a few
+  microseconds in between when there is nothing at the path. To be atomic everywhere, reach the directory through a
+  symlink, and switch the symlink with `updateSymlink()` (see [Symlinks](#symlinks)).
+- **The directory keeps its permissions**, and its owner and group as `$preserveOwnership` says: `PREFERRED` (the
+  default) keeps them where it can (only root can give something to another user), `YES` throws, before anything
+  changes, if they can't be kept, and `NO` doesn't try.
+- **`$keepPaths`** are copied from the old directory into the new one before the swap, so they are there throughout.
+  Anything written to them between the copy and the swap is lost. Something already at the same place in the new
+  directory throws a `BadArgumentException`, rather than one of the two being lost.
+- **A new directory on another filesystem** is first moved into the work directory, by copying, which is the slow part.
+  The work directory also holds the old directory while it is swapped out. By default, it is the system's temporary
+  directory, if that's on the same filesystem, and otherwise the directory the replaced one is in. Pass
+  `$workDirectory` to choose, on the same filesystem.
+- **Everything is checked first.** A symlink (use `updateSymlink()` or `replaceSymlink()`), a mount point (e.g. a Docker
+  volume, which can't be renamed), directories inside each other, or a work directory that can't be used throw before
+  anything changes. If anything fails part way, the directory is left as it was.
+
+`replaceSymlink()` does the same for a symlink: it puts a real directory where the symlink was, leaving what the
+symlink pointed to alone. The new directory is given that directory's permissions, and `$keepPaths` are copied from it.
+A broken symlink can be replaced too, but only without `$keepPaths`, as there is nothing to keep them from:
+
+```php
+// /srv/site/current was a symlink, and is now a real directory, holding what /srv/site-new held.
+Filesystem::replaceSymlink("/srv/site/current", "/srv/site-new");
+```
+
+On Windows, there's no `mv --exchange`, so the old directory is always moved aside first. Windows has no Unix
+permissions or owners, so they aren't copied there. Something that has a file open in a directory (often antivirus or
+the search indexer, briefly) stops it being renamed, so each rename is tried a few times before giving up.
+
 ## Sizes
 
 ```php
@@ -156,6 +238,15 @@ Both return a float. `getFileSize()` always gets the current size, unlike `files
 script. `getDirSize()` gives the total size of the files, as `du --bytes` does, rather than the space they take up on
 disk. Symlinks aren't followed, and a file with several hard links is only counted once. It uses `du` on Linux, and adds
 the sizes up itself elsewhere, giving the same result.
+
+`getFreeDiskSpace()` gives how much space is free for you on the filesystem (disk or partition) that a file or
+directory is on. Unlike PHP's `disk_free_space()`, it throws a `FilesystemException` with the reason rather than
+returning `false`, and takes a file as well as a directory.
+
+```php
+$freeBytes = Filesystem::getFreeDiskSpace("/srv/uploads");
+$freeGib = Filesystem::getFreeDiskSpace("/srv/uploads", DataSizeUnitEnum::GIB);
+```
 
 ## Reading and filtering a file line by line
 `fileWalk()` calls a function with each line of a file, and `fileFilter()` keeps only the lines a function returns true
@@ -206,17 +297,50 @@ a mistyped path is an error. To build the new contents a piece at a time, use `c
 These need the `zip` extension.
 
 ```php
+use Programster\CoreLibs\Enums\ZipCompressionEnum;
+use Programster\CoreLibs\Models\ZipCompressionEnumCollection;
+
 // Gives a zip with a single "project" folder in it. The third parameter is $deleteOnComplete, which defaults to true!
 Filesystem::zipDir("/srv/project", "/backups/project.zip", false);
 
 // Just what's in the folder, without the folder itself.
 Filesystem::zipDir("/srv/project", "/backups/project.zip", false, includeFolder: false);
 
+// Store the files as they are, without compressing them: much quicker for files that are already compressed, such as
+// images, or .gz files, and the zip is barely bigger. The default is ZipCompressionEnum::DEFLATE.
+Filesystem::zipDir("/srv/photos", "/backups/photos.zip", false, compression: ZipCompressionEnum::STORE);
+
+// Use Zstandard if this PHP can, and otherwise DEFLATE.
+$zstdIfPossible = new ZipCompressionEnumCollection(ZipCompressionEnum::ZSTD, ZipCompressionEnum::DEFLATE);
+Filesystem::zipDir("/srv/logs", "/backups/logs.zip", false, compression: $zstdIfPossible);
+
+// Leave things out, either absolute or relative to the folder. Leaving out a folder leaves out everything in it.
+Filesystem::zipDir("/srv/site", "/backups/site.zip", false, excludePaths: ["cache", "config/secrets.php"]);
+
+// Leave out every hidden file and folder.
+Filesystem::zipDir(
+    "/srv/site",
+    "/backups/site.zip",
+    false,
+    excludePaths: Filesystem::listHiddenFilesAndFolders("/srv/site", true)
+);
+
 // Extract into /srv/restored, creating it if needed. The third parameter is also $deleteOnComplete.
 Filesystem::unzip("/backups/project.zip", "/srv/restored", false);
 ```
 
-**Both delete their source by default** (`$deleteOnComplete`), so pass `false` to keep it.
+**Compression**: `DEFLATE` (the default) is what zips normally use, and every zip tool can read it. `STORE` stores the
+files as they are. `BZIP2`, `XZ` and `ZSTD` usually make smaller zips, but can only be used if PHP's zip extension was
+built with them (`ZipCompressionEnum::ZSTD->isSupported()` says), and **many tools can't open them**, including
+Windows' and macOS's built-in zip support, so only use them where you know what will extract the zip. One that can't
+be used throws an `UnsupportedPlatformException`, before any zip file is made. A `ZipCompressionEnumCollection` tries
+each in turn, and uses the first that can be used, so end it with `DEFLATE` to always get a zip.
+
+**Both delete their source by default** (`$deleteOnComplete`), so pass `false` to keep it. With `$deleteOnComplete`,
+what `$excludePaths` leaves out of the zip is deleted along with the rest.
+
+A path in `$excludePaths` that doesn't exist, or isn't inside the folder, would leave nothing out, so it throws a
+`BadArgumentException`, before any zip is created.
 
 `zipDir()` includes empty directories, and stores symlinks as symlinks. Those pointing inside the folder are stored
 relative to themselves, so they still work wherever the zip is extracted. Those pointing outside are stored as they
@@ -227,6 +351,17 @@ is left behind. It throws a `FileAlreadyExistsException` if the zip file already
 destination until it is complete, and a failure part way leaves nothing behind. Existing files with the same names are
 replaced, and existing directories are merged into, as with `ZipArchive::extractTo()`, but anything that can't be
 (e.g. a file where there is a directory) is checked for first.
+
+**A zip that won't fit is refused before anything is written.** `unzip()` adds up the sizes the zip gives for its
+contents, and throws a `NotEnoughDiskSpaceException` if they're more than the free space where they'd go, rather than
+filling the disk part way through. A small zip can extract to something far larger (a "zip bomb"), so for zips from
+users, also give the most they may extract to, and it throws a `ZipTooLargeException` for one that would extract to
+more:
+
+```php
+// At most 1 GiB once extracted.
+Filesystem::unzip($uploadedZip, "/srv/restored", false, maxExtractedBytes: 1073741824);
+```
 
 **A zip with a symlink pointing outside the destination is refused**, as an untrusted zip could use one to make later
 code read or write somewhere else (e.g. `/etc/passwd`). Pass `trusted: true` for zips from a source you trust. On
@@ -273,6 +408,39 @@ symlink, so it can never delete a real file or directory by mistake.
 Filesystem::removeSymlink("/srv/current");
 ```
 
+`updateSymlink()` points an existing symlink somewhere else, **atomically**: a new symlink is made, then renamed over
+the old one, so anything using the link at that moment finds either the old target or the new one, never a mix, and
+never nothing. It returns the old target, as it was stored, and deletes nothing.
+
+That makes it the way to swap a whole directory for another in one go, which a directory itself can't do (a rename
+can't replace a directory that has anything in it). Keep each version in a directory of its own, point a symlink at
+the one in use, and switch with `updateSymlink()`:
+
+```php
+// /srv/site/current is a symlink to releases/41, and releases/42 is ready.
+$oldRelease = Filesystem::updateSymlink("/srv/site/current", "releases/42");   // "releases/41"
+
+// Nothing uses the old one any more, so it can go.
+Filesystem::deleteDir("/srv/site/{$oldRelease}");
+```
+
+The new target is stored as it's given, so a relative one is relative to the link's directory, as with `symlink()`. It
+must exist, so a mistyped path can't leave the link broken (a `FileDoesNotExistException`). A real file or directory
+at `$link` throws a `BadArgumentException`, rather than being replaced.
+
+The new symlink is made in the system's temporary directory first, if that's on the same filesystem as the link, and
+otherwise next to the link, as a hidden symlink, for an instant. Pass `$workDirectory` to choose where instead, e.g. so
+nothing ever appears next to a link in a directory served to the public. A rename can't move anything to another
+filesystem, so it must be on the same one as the link, or a `BadArgumentException` is thrown, before anything changes.
+
+```php
+Filesystem::updateSymlink("/var/www/current", "releases/42", "/var/www-work");
+```
+
+On Windows, PHP can't create a relative symlink, so the new one is given its target's absolute path. Windows can also
+refuse to rename a symlink over one to a directory, in which case the old one is removed first and the new one put in
+its place, which isn't atomic.
+
 ## Permissions
 
 ```php
@@ -290,6 +458,23 @@ Filesystem::checkCanChangeFile("/srv/data/report.csv");
 ```
 
 `fileperms()` reports a symlink itself (`"lrwxrwxrwx"`) rather than what it points to, so works for a broken one.
+
+`chown()` and `chgrp()` change who owns a file or directory. Unlike PHP's, they throw a `FilesystemException` with the
+reason (e.g. there's no such user, or it isn't allowed) rather than returning `false`. **A symlink is changed itself,
+not what it points to**, so code running as root can't be tricked into changing the owner of something somewhere else
+(e.g. a link to `/etc/shadow`). Pass `followSymlinks: true` to change what it points to instead, as PHP's do.
+
+```php
+// Give an upload to the web server's user and group, by name or ID.
+Filesystem::chown("/srv/uploads/photo.jpg", "www-data");
+Filesystem::chgrp("/srv/uploads/photo.jpg", "www-data");
+
+// Change what a symlink points to, rather than the symlink.
+Filesystem::chown("/srv/current", "deploy", followSymlinks: true);
+```
+
+Only root can give a file to another user, and a file's owner can only give it to a group they're in. They throw an
+`UnsupportedPlatformException` on Windows, where PHP can't change a file's owner.
 `canWriteToDirectory()` and `canListDirectory()` give the right answer on Windows for directories in WSL, where PHP's
 `is_writable()` and `is_readable()` say no.
 

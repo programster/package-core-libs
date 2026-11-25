@@ -7,6 +7,7 @@
 use Programster\CoreLibs\Core;
 use Programster\CoreLibs\Enums\DataSizeUnitEnum;
 use Programster\CoreLibs\Enums\MemoryTypeEnum;
+use Programster\CoreLibs\Exceptions\CommandFailedException;
 use Programster\CoreLibs\Exceptions\UnexpectedOutputException;
 use Programster\CoreLibs\Exceptions\UnsupportedPlatformException;
 use Programster\CoreLibs\Exceptions\BadArgumentException;
@@ -138,6 +139,32 @@ $smoke->run("runCommand / processes", function () {
     {
         assert(Core::runCommand("echo hi") === "hi\n");
         assert(Core::runCommand("cat", "some input") === "some input");
+    }
+
+    # A failed command's stdout is kept, for whoever needs it, but out of the message and debug output, as it could be
+    # sensitive.
+    if (PHP_OS_FAMILY !== "Windows")
+    {
+        $failWithOutput = function (): void {
+            Core::runCommand("echo secret-on-stdout; echo reason-on-stderr >&2; exit 3");
+        };
+
+        $exception = null;
+
+        try
+        {
+            $failWithOutput();
+        }
+        catch (CommandFailedException $e)
+        {
+            $exception = $e;
+        }
+
+        assert($exception instanceof CommandFailedException);
+        assert($exception->getExitCode() === 3 && $exception->getOutput() === "secret-on-stdout\n");
+        assert(str_contains($exception->getMessage(), "reason-on-stderr"));
+        assert(!str_contains($exception->getMessage(), "secret-on-stdout"));
+        assert(!str_contains(print_r($exception, true), "secret-on-stdout"));
     }
 
     assert(Core::getNumProcessors() > 0);
