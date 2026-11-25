@@ -146,7 +146,9 @@ $smoke->run("runCommand / processes", function () {
     if (PHP_OS_FAMILY !== "Windows")
     {
         $failWithOutput = function (): void {
-            Core::runCommand("echo secret-on-stdout; echo reason-on-stderr >&2; exit 3");
+            # The stdout ("secret-stdout") is built by printf, so it isn't in the command itself, which the message
+            # includes.
+            Core::runCommand("printf '%s-%s\\n' secret stdout; echo reason-on-stderr >&2; exit 3");
         };
 
         $exception = null;
@@ -161,10 +163,10 @@ $smoke->run("runCommand / processes", function () {
         }
 
         assert($exception instanceof CommandFailedException);
-        assert($exception->getExitCode() === 3 && $exception->getOutput() === "secret-on-stdout\n");
+        assert($exception->getExitCode() === 3 && $exception->getOutput() === "secret-stdout\n");
         assert(str_contains($exception->getMessage(), "reason-on-stderr"));
-        assert(!str_contains($exception->getMessage(), "secret-on-stdout"));
-        assert(!str_contains(print_r($exception, true), "secret-on-stdout"));
+        assert(!str_contains($exception->getMessage(), "secret-stdout"));
+        assert(!str_contains(print_r($exception, true), "secret-stdout"));
     }
 
     assert(Core::getNumProcessors() > 0);

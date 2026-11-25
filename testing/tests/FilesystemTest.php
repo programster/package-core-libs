@@ -2800,11 +2800,11 @@ $smoke->run("zipDir leaving things out", function () use ($dir) {
     foreach ($badExcludes as $expectedMessage => $badExcludePaths)
     {
         $zipWithBadExcludes = function () use ($dir, $badExcludePaths): void {
-            Filesystem::zipDir("{$dir}/exclude-test", "{$dir}/bad.zip", false, excludePaths: $badExcludePaths);
+            Filesystem::zipDir("{$dir}/exclude-test", "{$dir}/excludes-bad.zip", false, excludePaths: $badExcludePaths);
         };
 
         SmokeTest::expectException(BadArgumentException::class, $zipWithBadExcludes, $expectedMessage);
-        assert(!file_exists("{$dir}/bad.zip"));
+        assert(!file_exists("{$dir}/excludes-bad.zip"));
     }
 });
 
